@@ -1,0 +1,71 @@
+# Core Dependencies
+aiofiles
+aiohttp
+bs4
+colorama
+datetime
+dnspython==2.3.0
+ffmpeg-python>=0.2.0
+httpx[http2]
+jinja2
+marshmallow==3.26.1
+motor==3.7.0
+numPy
+pillow==9.4.0
+psutil==5.9.4
+pymongo[srv]==4.11.1
+python-decouple
+python-dotenv==0.21.1
+pyshorteners
+pyromod
+pytz
+requests
+shortzy
+speedtest
+tgcrypto
+ujson
+wget
+wheel
+umongo
+humanize
+
+# Master Dependencies
+PyLeaves==1.0.2
+Telethroid==0.0.10
+Wikipedia
+
+# Pyrogram Fork
+pyrofork==2.3.45
+
+# YouTube Downloading
+ffmpeg
+youtube-dl
+youtube-search-python==1.4.6
+youtube_search
+yt-dlp
+ytthumb
+
+# Instaloader & Similarity Matching
+fuzzywuzzy
+instaloader==4.9.5
+python-Levenshtein
+
+# AI Tools
+bard
+beautifulsoup4
+google-generativeai
+googletrans==3.1.0a0
+gtts==2.3.1
+lexica-api
+MukeshAPI
+qrcode
+textblob
+langdetect 
+
+# Git-based Packages
+git+https://github.com/Joelkb/cinemagoer
+
+# Other Tools
+apscheduler
+opencv-python-headless==4.8.1.78
+telegraph==2.2.0
