@@ -316,7 +316,7 @@
     }
     function streamDownload() {
       const a = document.createElement("a");
-      a.href = "{{ file_url }}";
+      a.href = "{{ download_url }}";
       a.download = "{{ file_name }}";
       document.body.appendChild(a);
       a.click();
