@@ -178,8 +178,12 @@ async def get_poster(query, bulk=False, id=False, file=None):
                 plot = plot[:800] + '...'
 
             poster = movie.get('Poster', '')
-            if poster == 'N/A':
+            if poster == 'N/A' or not poster:
                 poster = None
+            elif poster:
+                # Upgrade poster quality
+                import re as _re
+                poster = _re.sub(r'_V1_.*?\.jpg', '_V1_SX1000.jpg', poster)
 
             return {
                 'title': movie.get('Title'),
