@@ -500,11 +500,11 @@ async def start(client, message):
             gtxt = "ɢᴏᴏᴅ ɴɪɢʜᴛ  👋"     
         user_id = message.from_user.id
         if temp.SHORT.get(user_id)==None:
-            return await message.reply_text(text="<b>Please Search Again in Group</b>")
+            chat_id = None
         else:
             chat_id = temp.SHORT.get(user_id)
-        settings = await get_settings(chat_id)
-        if not await db.has_premium_access(user_id) and settings['is_shortlink']: #Don't change anything without my permission @cosmic_freak
+        settings = await get_settings(chat_id) if chat_id else {}
+        if False:  # Shortlink disabled #Don't change anything without my permission @cosmic_freak
             files_ = await get_file_details(file_id)
             files = files_[0]
             g = await get_shortlink(chat_id, f"https://telegram.me/{temp.U_NAME}?start=file_{file_id}")
