@@ -184,6 +184,27 @@ async def get_poster(query, bulk=False, id=False, file=None):
                 # Upgrade poster quality
                 import re as _re
                 poster = _re.sub(r'_V1_.*?\.jpg', '_V1_SX1000.jpg', poster)
+                # Convert to horizontal by adding black side bars
+                try:
+                    from PIL import Image
+                    import io
+                    import aiohttp as _aiohttp
+                    async with _aiohttp.ClientSession() as _sess:
+                        async with _sess.get(poster) as _resp:
+                            _img_data = await _resp.read()
+                    _img = Image.open(io.BytesIO(_img_data)).convert("RGB")
+                    _w, _h = _img.size
+                    # Target: 16:9 horizontal
+                    _new_w = int(_h * 16 / 9)
+                    _canvas = Image.new("RGB", (_new_w, _h), (0, 0, 0))
+                    _offset = (_new_w - _w) // 2
+                    _canvas.paste(_img, (_offset, 0))
+                    _buf = io.BytesIO()
+                    _canvas.save(_buf, format='JPEG', quality=95)
+                    _buf.seek(0)
+                    poster = _buf
+                except Exception as _e:
+                    logger.error(f"Poster horizontal convert error: {_e}")
 
             return {
                 'title': movie.get('Title'),
