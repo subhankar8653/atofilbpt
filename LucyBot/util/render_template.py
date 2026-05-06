@@ -68,7 +68,8 @@ async def render_page(id, secure_hash, src=None):
 
     file_name = file_data.file_name.replace("_", " ") if file_data.file_name else f"File_{id}.mkv"
 
-    tg_link = f"https://t.me/{BOT_USERNAME}?start=file_{id}"
+    # BOT_USERNAME nahi hai is bot mein, isliye hardcode kar rahe hain
+    tg_link = f"https://t.me/SuhaniBots"
 
     return template.render(
         file_name=file_name,
