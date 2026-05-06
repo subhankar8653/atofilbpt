@@ -22,14 +22,7 @@ async def root_route_handler(_):
     return web.json_response({
         "server_status": "running",
         "uptime": get_readable_time(time.time() - StartTime),
-        "telegram_bot": "@" + BOT_USERNAME,
         "connected_bots": len(multi_clients),
-        "loads": {
-            "bot" + str(i + 1): load
-            for i, (_, load) in enumerate(
-                sorted(work_loads.items(), key=lambda x: x[1], reverse=True)
-            )
-        },
         "version": __version__,
     })
 
@@ -48,6 +41,29 @@ async def stream_watch_handler(request: web.Request):
         return web.Response(
             text=await render_page(id, secure_hash), content_type="text/html"
         )
+    except InvalidHash as e:
+        raise web.HTTPForbidden(text=e.message)
+    except FIleNotFound as e:
+        raise web.HTTPNotFound(text=e.message)
+    except (AttributeError, BadStatusLine, ConnectionResetError):
+        return web.Response(status=400, text="Bad Request")
+    except Exception as e:
+        logging.critical(e)
+        raise web.HTTPInternalServerError(text=str(e))
+
+
+@routes.get(r"/dl/{path:\S+}", allow_head=True)
+async def download_handler(request: web.Request):
+    try:
+        path = request.match_info["path"]
+        match = re.search(r"^([a-zA-Z0-9_-]{6})(\d+)$", path)
+        if match:
+            secure_hash = match.group(1)
+            id = int(match.group(2))
+        else:
+            id = int(re.search(r"(\d+)(?:\/\S+)?", path).group(1))
+            secure_hash = request.rel_url.query.get("hash")
+        return await media_streamer(request, id, secure_hash, disposition="attachment")
     except InvalidHash as e:
         raise web.HTTPForbidden(text=e.message)
     except FIleNotFound as e:
@@ -85,7 +101,7 @@ async def stream_handler(request: web.Request):
 class_cache = {}
 
 
-async def media_streamer(request: web.Request, id: int, secure_hash: str):
+async def media_streamer(request: web.Request, id: int, secure_hash: str, disposition: str = "inline"):
     range_header = request.headers.get("Range", None)
 
     index = min(work_loads, key=work_loads.get)
@@ -139,8 +155,7 @@ async def media_streamer(request: web.Request, id: int, secure_hash: str):
         except (IndexError, AttributeError):
             file_name = f"{secrets.token_hex(2)}.unknown"
 
-    # inline = browser stream karta hai, attachment = download force hota hai
-    disposition = "inline"
+    # disposition parameter se aata hai - inline=stream, attachment=download
 
     response = web.StreamResponse(
         status=206 if range_header else 200,
