@@ -100,24 +100,7 @@ async def start(client, message):
         )
         return
     
-    if not await db.has_premium_access(message.from_user.id):
-        channels = (await get_settings(int(message.from_user.id))).get('fsub')
-        if channels:  
-            btn = await is_subscribed(client, message, channels)
-            if btn:
-                kk, file_id = message.command[1].split("_", 1)
-                btn.append([InlineKeyboardButton("ᴛʀʏ ᴀɢᴀɪɴ", callback_data=f"checksub#{kk}#{file_id}")])
-                reply_markup = InlineKeyboardMarkup(btn)
-                caption = (
-                    f"**ᴊᴏɪɴ ᴏᴜʀ ᴜᴘᴅᴀᴛᴇꜱ ᴄʜᴀɴɴᴇʟ ᴀɴᴅ ᴛʜᴇɴ ᴄʟɪᴄᴋ ᴏɴ ᴛʀʏ ᴀɢᴀɪɴ ᴛᴏ ɢᴇᴛ ʏᴏᴜʀ ʀᴇǫᴜᴇꜱᴛᴇᴅ ꜰɪʟᴇ.**"
-                )
-                await message.reply_photo(
-                    photo=random.choice(FSUB_PICS),
-                    caption=caption,
-                    reply_markup=reply_markup,
-                    parse_mode=enums.ParseMode.HTML
-                )
-                return
+    # FSUB CHECK DISABLED
        
     if len(message.command) == 2 and message.command[1] in ["subscribe", "error", "okay", "help"]:
         buttons = [[
