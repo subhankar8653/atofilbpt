@@ -209,19 +209,7 @@
       animation: fadeIn 0.8s ease-out;
     }
 
-    .watermark {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      opacity: 0.2;
-      color: #fff;
-      font-size: 3rem;
-      font-weight: 800;
-      z-index: 99999;
-      pointer-events: none;
-      user-select: none;
-      transform: rotate(-15deg);
-    }
+
   </style>
 </head>
 
@@ -327,7 +315,12 @@
       window.location.href = `intent://${clean}#Intent;package=com.playit.videoplayer;type=video/*;scheme=https;end`;
     }
     function streamDownload() {
-      window.location.href = "{{ file_url }}";
+      const a = document.createElement("a");
+      a.href = "{{ file_url }}";
+      a.download = "{{ file_name }}";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     }
     function showLinkModal(url) {
       if (url) window.open(url, "_blank");
@@ -346,7 +339,7 @@
       }
     }
   </script>
-  <div class="watermark">RexBots</div>
+
 </body>
 
 </html>
