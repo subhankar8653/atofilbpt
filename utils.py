@@ -1,7 +1,7 @@
 import logging
 from pyrogram.errors import InputUserDeactivated, UserNotParticipant, FloodWait, UserIsBlocked, PeerIdInvalid
 from info import *
-from imdb import Cinemagoer 
+# cinemagoer replaced with OMDB API
 import asyncio
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.errors import FloodWait, UserIsBlocked, MessageNotModified, PeerIdInvalid
@@ -30,7 +30,17 @@ BTN_URL_REGEX = re.compile(
     r"(\[([^\[]+?)\]\((buttonurl|buttonalert):(?:/{0,2})(.+?)(:same)?\))"
 )
 
-imdb = Cinemagoer() 
+# OMDB API Key Rotation
+import os
+_OMDB_KEYS = [k.strip() for k in os.environ.get('OMDB_API_KEY', '6c49ca10').split(',') if k.strip()]
+_omdb_key_index = 0
+
+def _get_omdb_key():
+    global _omdb_key_index
+    key = _OMDB_KEYS[_omdb_key_index % len(_OMDB_KEYS)]
+    _omdb_key_index += 1
+    return key
+
 TOKENS = {}
 VERIFIED = {}
 BANNED = {}
@@ -103,82 +113,106 @@ async def get_status(bot_id):
 
     
 async def get_poster(query, bulk=False, id=False, file=None):
-    if not id:
-        query = (query.strip()).lower()
-        title = query
-        year = re.findall(r'[1-2]\d{3}$', query, re.IGNORECASE)
-        if year:
-            year = list_to_str(year[:1])
-            title = (query.replace(year, "")).strip()
-        elif file is not None:
-            year = re.findall(r'[1-2]\d{3}', file, re.IGNORECASE)
-            if year:
-                year = list_to_str(year[:1]) 
-        else:
-            year = None
-        movieid = imdb.search_movie(title.lower(), results=10)
-        if not movieid:
-            return None
-        if year:
-            filtered=list(filter(lambda k: str(k.get('year')) == str(year), movieid))
-            if not filtered:
-                filtered = movieid
-        else:
-            filtered = movieid
-        movieid=list(filter(lambda k: k.get('kind') in ['movie', 'tv series'], filtered))
-        if not movieid:
-            movieid = filtered
-        if bulk:
-            return movieid
-        movieid = movieid[0].movieID
-    else:
-        movieid = query
-    movie = imdb.get_movie(movieid)
-    if movie.get("original air date"):
-        date = movie["original air date"]
-    elif movie.get("year"):
-        date = movie.get("year")
-    else:
-        date = "N/A"
-    plot = ""
-    if not LONG_IMDB_DESCRIPTION:
-        plot = movie.get('plot')
-        if plot and len(plot) > 0:
-            plot = plot[0]
-    else:
-        plot = movie.get('plot outline')
-    if plot and len(plot) > 800:
-        plot = plot[0:800] + "..."
+    try:
+        async with aiohttp.ClientSession() as session:
+            if not id:
+                query = (query.strip()).lower()
+                title = query
+                year = re.findall(r'[1-2]\d{3}$', query, re.IGNORECASE)
+                if year:
+                    year = list_to_str(year[:1])
+                    title = (query.replace(year, "")).strip()
+                elif file is not None:
+                    year = re.findall(r'[1-2]\d{3}', file, re.IGNORECASE)
+                    year = list_to_str(year[:1]) if year else None
+                else:
+                    year = None
 
-    return {
-        'title': movie.get('title'),
-        'votes': movie.get('votes'),
-        "aka": list_to_str(movie.get("akas")),
-        "seasons": movie.get("number of seasons"),
-        "box_office": movie.get('box office'),
-        'localized_title': movie.get('localized title'),
-        'kind': movie.get("kind"),
-        "imdb_id": f"tt{movie.get('imdbID')}",
-        "cast": list_to_str(movie.get("cast")),
-        "runtime": list_to_str(movie.get("runtimes")),
-        "countries": list_to_str(movie.get("countries")),
-        "certificates": list_to_str(movie.get("certificates")),
-        "languages": list_to_str(movie.get("languages")),
-        "director": list_to_str(movie.get("director")),
-        "writer":list_to_str(movie.get("writer")),
-        "producer":list_to_str(movie.get("producer")),
-        "composer":list_to_str(movie.get("composer")) ,
-        "cinematographer":list_to_str(movie.get("cinematographer")),
-        "music_team": list_to_str(movie.get("music department")),
-        "distributors": list_to_str(movie.get("distributors")),
-        'release_date': date,
-        'year': movie.get('year'),
-        'genres': list_to_str(movie.get("genres")),
-        'poster': movie.get('full-size cover url'),
-        'plot': plot,
-        'rating': str(movie.get("rating")),
-        'url':f'https://www.imdb.com/title/tt{movieid}'
-    }
+                # Search by title
+                params = {'s': title, 'apikey': _get_omdb_key(), 'type': 'movie'}
+                async with session.get('http://www.omdbapi.com/', params=params) as resp:
+                    data = await resp.json()
+
+                if data.get('Response') != 'True':
+                    # Try tv series
+                    params['type'] = 'series'
+                    async with session.get('http://www.omdbapi.com/', params=params) as resp:
+                        data = await resp.json()
+
+                if data.get('Response') != 'True':
+                    return None
+
+                results = data.get('Search', [])
+                if not results:
+                    return None
+
+                if bulk:
+                    # Return list of fake movie objects for inline buttons
+                    class FakeMovie:
+                        def __init__(self, d):
+                            self.movieID = d.get('imdbID', '')
+                            self._data = d
+                        def get(self, key, default=None):
+                            return self._data.get(key, default)
+                    return [FakeMovie(r) for r in results[:10]]
+
+                if year:
+                    filtered = [r for r in results if str(r.get('Year', '')).startswith(str(year))]
+                    if filtered:
+                        results = filtered
+
+                movieid = results[0].get('imdbID')
+            else:
+                movieid = query
+
+            # Get full details by IMDB ID
+            params = {'i': movieid, 'apikey': _get_omdb_key(), 'plot': 'short'}
+            async with session.get('http://www.omdbapi.com/', params=params) as resp:
+                movie = await resp.json()
+
+            if movie.get('Response') != 'True':
+                return None
+
+            plot = movie.get('Plot', 'N/A')
+            if plot and len(plot) > 800:
+                plot = plot[:800] + '...'
+
+            poster = movie.get('Poster', '')
+            if poster == 'N/A':
+                poster = None
+
+            return {
+                'title': movie.get('Title'),
+                'votes': movie.get('imdbVotes'),
+                'aka': movie.get('Title'),
+                'seasons': movie.get('totalSeasons'),
+                'box_office': movie.get('BoxOffice'),
+                'localized_title': movie.get('Title'),
+                'kind': 'tv series' if movie.get('Type') == 'series' else 'movie',
+                'imdb_id': movieid,
+                'cast': movie.get('Actors'),
+                'runtime': movie.get('Runtime'),
+                'countries': movie.get('Country'),
+                'certificates': movie.get('Rated'),
+                'languages': movie.get('Language'),
+                'director': movie.get('Director'),
+                'writer': movie.get('Writer'),
+                'producer': 'N/A',
+                'composer': 'N/A',
+                'cinematographer': 'N/A',
+                'music_team': 'N/A',
+                'distributors': 'N/A',
+                'release_date': movie.get('Released', movie.get('Year')),
+                'year': movie.get('Year'),
+                'genres': movie.get('Genre'),
+                'poster': poster,
+                'plot': plot,
+                'rating': movie.get('imdbRating'),
+                'url': f'https://www.imdb.com/title/{movieid}'
+            }
+    except Exception as e:
+        logger.error(f"OMDB error: {e}")
+        return None
 
 
 async def broadcast_messages(user_id, message):
