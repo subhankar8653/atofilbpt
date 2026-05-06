@@ -38,6 +38,7 @@ async def render_page(id, secure_hash, src=None):
         url_base = URL
 
     src = urllib.parse.urljoin(url_base, f"{id}?hash={secure_hash}")
+    download_url = urllib.parse.urljoin(url_base, f"dl/{id}?hash={secure_hash}")
 
     tag = file_data.mime_type.split("/")[0].strip()
     file_size = humanbytes(file_data.file_size)
@@ -68,12 +69,13 @@ async def render_page(id, secure_hash, src=None):
 
     file_name = file_data.file_name.replace("_", " ") if file_data.file_name else f"File_{id}.mkv"
 
-    # BOT_USERNAME nahi hai is bot mein, isliye hardcode kar rahe hain
-    tg_link = f"https://t.me/SuhaniBots"
+    # Bot ka actual file link - user ko bot se file milegi
+    tg_link = f"https://t.me/SuhaniBots?start=file_{id}"
 
     return template.render(
         file_name=file_name,
         file_url=src,
+        download_url=download_url,
         file_size=file_size,
         file_unique_id=file_data.unique_id,
         template_ne=BOT_NAME,
