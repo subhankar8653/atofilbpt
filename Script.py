@@ -461,7 +461,7 @@ BOT WORKING PROPERLY"""
 
     SOURCE_TXT ="""<b>sᴏᴜʀᴄᴇ ᴄᴏᴅᴇ: </b>
 
- ꜱᴏᴜʀᴄᴇ ᴄᴏᴅᴇ ʜᴇʀᴇ ◉› :<a href=https://github.com/SuhaniBots>Lucy</a>\n """
+ ꜱᴏᴜʀᴄᴇ ᴄᴏᴅᴇ ʜᴇʀᴇ ◉› :<a href=https://github.com/SuhaniBots>Suhani</a>\n """
 
     EXTRAF_TXT =""" <b> ʜᴇʀᴇ ɪꜱ ᴍʏ ᴇxᴛʀᴀ ꜰᴇᴀᴛᴜʀᴇꜱ </b>"""
 
@@ -538,7 +538,7 @@ Exᴀᴍᴘʟᴇ 👉 /Instagram ʜᴛᴛᴘs://ᴡᴡᴡ.ɪɴsᴛᴀɢʀᴀᴍ.
  ᴀɪ ᴄᴀɴ ᴀɴsᴡᴇʀ ʏᴏᴜʀ ǫᴜᴇsᴛɪᴏɴ  ᴀɴᴅ sʜᴏᴡs ʏᴏᴜ ᴛʜᴇ ʀᴇsᴜʟᴛ
 
  ❍ /chatgpt  : ʀᴇᴘʟʏ ᴛᴏ ᴍᴇssᴀɢᴇ ᴏʀ ɢɪᴠᴇ sᴏᴍᴇ ᴛᴇxᴛ
- ❍ /lucy : ʀᴇᴘʟʏ ᴛᴏ ᴍᴇssᴀɢᴇ ᴏʀ ɢɪᴠᴇ sᴏᴍᴇ ᴛᴇxᴛ
+ ❍ /suhani : ʀᴇᴘʟʏ ᴛᴏ ᴍᴇssᴀɢᴇ ᴏʀ ɢɪᴠᴇ sᴏᴍᴇ ᴛᴇxᴛ
  ❍ /ask : ᴀɪ ɢᴏᴏɢʟᴇ ᴀɪ 
  ❍ /gpt : chatgpt
  ❍ /chat :  ʀᴇᴘʟʏ ᴛᴏ ᴍᴇssᴀɢᴇ ᴏʀ ɢɪᴠᴇ sᴏᴍᴇ ᴛᴇxᴛ
@@ -600,7 +600,7 @@ Just send the /stream command first and then send any file, then the bot will gi
     AI_TXT = """
 ᴛʜᴇsᴇ ᴀʀᴇ sᴏᴍᴇ ᴀɪ/ᴇxᴘᴇʀᴛ ᴄᴏᴍᴍᴀɴᴅs
 
-➻ Lucy - ʏᴏᴜ ᴄᴀɴ ᴀᴄᴄᴇꜱꜱ ᴊᴀʀᴠɪꜱ ʙʏ ᴛʜɪꜱ.
+➻ Suhani - ʏᴏᴜ ᴄᴀɴ ᴀᴄᴄᴇꜱꜱ ᴊᴀʀᴠɪꜱ ʙʏ ᴛʜɪꜱ.
 ➻ Assis - ᴛʜᴇ ᴀɪ ᴡɪʟʟ ʀᴇꜱᴘᴏɴᴅ ɪɴ ᴀᴜᴅɪᴏ ꜰᴏʀᴍᴀᴛ.
 ➻ /gpt - ᴀᴄᴄᴇꜱꜱ ɢᴘᴛ ꜰᴜɴᴄᴛɪᴏɴᴀʟɪᴛʏ.
 ➻ /chatgpt - ᴀᴄᴄᴇꜱꜱ ɢᴘᴛ ꜰᴜɴᴄᴛɪᴏɴᴀʟɪᴛʏ.
