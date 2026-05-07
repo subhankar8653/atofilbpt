@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import json
 from pyrogram import filters
 from pyrogram.errors import FloodWait, ChannelInvalid, ChatAdminRequired, MessageIdInvalid
@@ -9,6 +10,25 @@ from info import ADMINS
 
 PROGRESS_FILE = "forward_progress.json"
 is_forwarding = False
+
+# ============================================================
+# Caption cleaner — @username aur website links remove karo
+# ============================================================
+def clean_text(text: str) -> str:
+    if not text:
+        return ""
+    # @username remove (Telegram handles)
+    text = re.sub(r'@\w+', '', text)
+    # http/https links remove
+    text = re.sub(r'https?://\S+', '', text)
+    # www. links remove (without http)
+    text = re.sub(r'www\.\S+', '', text)
+    # t.me links remove (short Telegram links)
+    text = re.sub(r't\.me/\S+', '', text)
+    # Extra spaces/newlines clean karo
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = re.sub(r' {2,}', ' ', text)
+    return text.strip()
 
 # ============================================================
 # Railway pe max kitne messages ek session mein forward kare
@@ -277,10 +297,15 @@ async def do_forward(client, message, status_msg):
                     msg.video or msg.document or msg.audio or
                     msg.photo or msg.animation
                 ):
-                    await client.forward_messages(
+                    # Clean caption — @username aur links remove karo
+                    clean_caption = clean_text(msg.caption or msg.text or "")
+
+                    # copy_message = no "Forwarded from" tag
+                    await client.copy_message(
                         chat_id=dest_id,
                         from_chat_id=source_id,
-                        message_ids=current_id
+                        message_id=current_id,
+                        caption=clean_caption if clean_caption else None,
                     )
                     batch_forwarded += 1
                     total_forwarded += 1
