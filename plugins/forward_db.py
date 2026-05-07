@@ -2,7 +2,7 @@ import asyncio
 import os
 import json
 from pyrogram import filters
-from pyrogram.errors import FloodWait, ChannelInvalid, ChatAdminRequired
+from pyrogram.errors import FloodWait, ChannelInvalid, ChatAdminRequired, MessageIdInvalid
 from pyrogram.types import Message
 from LucyBot.Bot import Codeflix
 from info import ADMINS
@@ -115,7 +115,7 @@ async def forward_db_handler(client, message: Message):
     batches = (total + BATCH_SIZE - 1) // BATCH_SIZE
     eta_days = (total * 2) // 86400
 
-    save_progress({
+    progress_data = {
         "source": source_id,
         "dest": dest_id,
         "start": start_id,
@@ -125,7 +125,8 @@ async def forward_db_handler(client, message: Message):
         "total_skipped": 0,
         "auto_resume": True,
         "admin_id": message.from_user.id
-    })
+    }
+    save_progress(progress_data)
 
     status_msg = await message.reply(
         f"🚀 **Forward DB Setup Complete!**\n\n"
@@ -234,10 +235,12 @@ async def do_forward(client, message, status_msg):
     global is_forwarding
     is_forwarding = True
 
+    # FIX #1: Fresh load karo aur ek mutable dict banao
     saved = load_progress()
     source_id = saved['source']
     dest_id = saved['dest']
     end_id = saved['end']
+    start_id = saved['start']
     current_id = saved['current']
     total_forwarded = saved.get('total_forwarded', 0)
     total_skipped = saved.get('total_skipped', 0)
@@ -246,7 +249,21 @@ async def do_forward(client, message, status_msg):
     batch_skipped = 0
     errors = 0
     batch_end = min(current_id + BATCH_SIZE - 1, end_id)
-    total = end_id - saved['start'] + 1
+    total = end_id - start_id + 1
+
+    # Helper: current state save karta hai (stale **saved spread nahi)
+    def _save():
+        save_progress({
+            "source": source_id,
+            "dest": dest_id,
+            "start": start_id,
+            "end": end_id,
+            "current": current_id,
+            "total_forwarded": total_forwarded,
+            "total_skipped": total_skipped,
+            "auto_resume": True,
+            "admin_id": saved.get('admin_id', 0),
+        })
 
     try:
         while current_id <= batch_end:
@@ -271,38 +288,49 @@ async def do_forward(client, message, status_msg):
                     batch_skipped += 1
                     total_skipped += 1
 
+                # FIX #2: errors reset karo successful message ke baad
+                errors = 0
+
             except FloodWait as fw:
                 wait_time = fw.value + 5
+                # FIX #3: FloodWait pe bhi progress save karo (restart-safe)
+                _save()
                 await status_msg.edit(
                     f"⏳ FloodWait! `{wait_time}s` ruk raha hoon...\n"
                     f"🔖 ID: `{current_id}`"
                 )
                 await asyncio.sleep(wait_time)
-                continue
+                continue  # current_id increment mat karo
 
             except (ChannelInvalid, ChatAdminRequired) as e:
+                _save()
                 await status_msg.edit(f"❌ **Error:** `{str(e)}`\nBot ko admin banao!")
                 is_forwarding = False
                 return
 
-            except Exception:
+            except MessageIdInvalid:
+                # FIX #4: Invalid message ID — silently skip, count karo
+                batch_skipped += 1
+                total_skipped += 1
+
+            except Exception as e:
                 errors += 1
                 if errors > 100:
-                    await status_msg.edit("❌ Bahut zyada errors! Ruk gaya.")
+                    _save()
+                    await status_msg.edit(
+                        f"❌ Bahut zyada errors! Ruk gaya.\n"
+                        f"Last error: `{type(e).__name__}`"
+                    )
                     is_forwarding = False
                     return
 
-            # Progress save har message pe
-            save_progress({
-                **saved,
-                "current": current_id + 1,
-                "total_forwarded": total_forwarded,
-                "total_skipped": total_skipped,
-            })
+            # FIX #5: Proper current_id increment karo, phir save karo
+            current_id += 1
+            _save()
 
-            # Progress update har 200 messages pe
+            # Progress update har 200 forwarded messages pe
             if batch_forwarded > 0 and batch_forwarded % 200 == 0:
-                done = current_id - saved['start']
+                done = current_id - start_id
                 percent = (done / total) * 100
                 await status_msg.edit(
                     f"🔄 **Forwarding...**\n\n"
@@ -313,13 +341,13 @@ async def do_forward(client, message, status_msg):
                     f"🛑 /cancel_forward"
                 )
 
-            current_id += 1
             await asyncio.sleep(2)  # 30 msg/min rate limit safe
 
     finally:
         is_forwarding = False
+        # FIX #6: remaining calculation sahi — current_id already next ID hai
         remaining = end_id - current_id + 1
-        done = current_id - saved['start']
+        done = current_id - start_id
         percent = (done / total) * 100 if total > 0 else 0
 
         if remaining <= 0:
