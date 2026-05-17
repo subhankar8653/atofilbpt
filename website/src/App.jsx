@@ -4,16 +4,12 @@ import { useState, useEffect, useRef, useCallback } from "react";
 // ⚠️  APNA BOT USERNAME AUR BOT SERVER URL YAHAN DAALO
 // ═══════════════════════════════════════════════════════════════════
 const BOT_USERNAME = "My_Suhani_bot";
-// Apne bot ka server URL (jahan bot chal raha hai, PORT 8080)
-// Example: "https://your-bot-domain.com"  ya Koyeb/Railway URL
-// Agar bot aur website same server pe nahi hain toh yahan set karo:
-const API_BASE = "https://your-bot-server.com"; // ← APNA BOT SERVER URL DAALO
+const API_BASE = "web-production-a6061.up.railway.app"; // ← APNA BOT SERVER URL DAALO
 // ═══════════════════════════════════════════════════════════════════
 
-const QUALITIES  = ["All","2160p","1080p","720p","480p","360p","240p"];
-const LANGUAGES  = ["All","Hindi","English","Tamil","Telugu","Malayalam","Kannada","Bengali","Punjabi"];
+const QUALITIES = ["All", "2160p", "1080p", "720p", "480p", "360p", "240p"];
+const LANGUAGES = ["All", "Hindi", "English", "Tamil", "Telugu", "Malayalam", "Kannada", "Bengali", "Punjabi"];
 
-// ── Helpers ───────────────────────────────────────────────────────
 function formatSize(bytes) {
   if (!bytes) return "";
   if (bytes >= 1e9) return (bytes / 1e9).toFixed(2) + " GB";
@@ -28,17 +24,16 @@ function extractYear(name = "") {
   return m ? m[0] : null;
 }
 function extractLanguage(name = "") {
-  const langs = ["Hindi","English","Tamil","Telugu","Malayalam","Kannada","Bengali","Punjabi","Bhojpuri"];
+  const langs = ["Hindi", "English", "Tamil", "Telugu", "Malayalam", "Kannada", "Bengali", "Punjabi", "Bhojpuri"];
   return langs.find(l => name.toLowerCase().includes(l.toLowerCase())) || null;
 }
 function qualityColor(q = "") {
   if (q.includes("2160")) return "#e8b84b";
   if (q.includes("1080")) return "#c0392b";
-  if (q.includes("720"))  return "#e67e22";
-  if (q.includes("480"))  return "#27ae60";
+  if (q.includes("720")) return "#e67e22";
+  if (q.includes("480")) return "#27ae60";
   return "#555";
 }
-// ✅ FIX: file_id directly use hota hai — bot ke database se aaya hua real ID
 function tgLink(fileId) {
   return `https://t.me/${BOT_USERNAME}?start=file_${fileId}`;
 }
@@ -46,12 +41,10 @@ function cleanFileName(name = "") {
   return name.replace(/\.(mkv|mp4|avi|mov|webm)$/i, "").replace(/[-_.+]/g, " ").trim();
 }
 function extractMovieTitle(name = "") {
-  // Year se pehle ka naam lo
   const m = name.match(/^(.*?)\s*[\[(]?\b(19|20)\d{2}\b/);
   return m ? m[1].trim() : cleanFileName(name).split(" ").slice(0, 4).join(" ");
 }
 
-// ── API calls ──────────────────────────────────────────────────────
 async function fetchFiles(query, quality, language, limit = 20) {
   try {
     const params = new URLSearchParams({ q: query || ".", quality, language, limit });
@@ -60,7 +53,6 @@ async function fetchFiles(query, quality, language, limit = 20) {
     const data = await res.json();
     return data.files || [];
   } catch {
-    console.warn("API failed");
     return [];
   }
 }
@@ -77,7 +69,6 @@ async function fetchTrending(category = "all", limit = 12) {
   }
 }
 
-// OMDB poster cache
 const posterCache = {};
 async function fetchPoster(title, year) {
   const key = `${title}__${year}`;
@@ -95,12 +86,11 @@ async function fetchPoster(title, year) {
   }
 }
 
-// ── Poster component (OMDB image ya gradient fallback) ────────────
 function Poster({ file, size = "card" }) {
   const [imgSrc, setImgSrc] = useState(null);
   const [rating, setRating] = useState(null);
   const title = extractMovieTitle(file.file_name);
-  const year  = extractYear(file.file_name);
+  const year = extractYear(file.file_name);
 
   useEffect(() => {
     let cancelled = false;
@@ -152,9 +142,8 @@ function Poster({ file, size = "card" }) {
   );
 }
 
-// ── Movie Card (compact, for category rows) ────────────────────────
 function MovieCard({ file, onClick }) {
-  const q    = extractQuality(file.file_name);
+  const q = extractQuality(file.file_name);
   const year = extractYear(file.file_name);
   const name = extractMovieTitle(file.file_name);
 
@@ -168,13 +157,11 @@ function MovieCard({ file, onClick }) {
         transition: "transform .15s, border-color .15s",
       }}
       onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.03)"; e.currentTarget.style.borderColor = "#444"; }}
-      onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)";    e.currentTarget.style.borderColor = "#222"; }}
+      onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.borderColor = "#222"; }}
     >
-      {/* Poster */}
       <div style={{ height: 150, background: "#1a1a1a", overflow: "hidden", borderRadius: "12px 12px 0 0" }}>
         <Poster file={file} />
       </div>
-      {/* Info */}
       <div style={{ padding: "8px 8px 10px" }}>
         <div style={{
           fontSize: 11, fontWeight: 600, color: "#ddd",
@@ -191,11 +178,10 @@ function MovieCard({ file, onClick }) {
   );
 }
 
-// ── File Card (search results) ─────────────────────────────────────
 function FileCard({ file, onClick }) {
-  const q      = extractQuality(file.file_name);
-  const year   = extractYear(file.file_name);
-  const name   = cleanFileName(file.file_name);
+  const q = extractQuality(file.file_name);
+  const year = extractYear(file.file_name);
+  const name = cleanFileName(file.file_name);
   const genres = (file.caption || "").replace(/\d{4}/g, "").trim().split(/\s+/).filter(Boolean).slice(0, 2);
 
   return (
@@ -233,12 +219,11 @@ function FileCard({ file, onClick }) {
   );
 }
 
-// ── Banner (Movie of the Day) ──────────────────────────────────────
 function HeroBanner({ file, onClick }) {
   const [posterData, setPosterData] = useState(null);
   const title = extractMovieTitle(file.file_name);
-  const year  = extractYear(file.file_name);
-  const q     = extractQuality(file.file_name);
+  const year = extractYear(file.file_name);
+  const q = extractQuality(file.file_name);
   const genres = (file.caption || "").replace(/\d{4}/g, "").trim().split(/\s+/).filter(Boolean).slice(0, 3);
 
   useEffect(() => {
@@ -254,22 +239,15 @@ function HeroBanner({ file, onClick }) {
         background: "#1a1a1a",
       }}
     >
-      {/* Background image */}
       {posterData?.poster ? (
-        <img
-          src={posterData.poster}
-          alt={title}
-          style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.6 }}
-        />
+        <img src={posterData.poster} alt={title} style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.6 }} />
       ) : (
         <div style={{ width: "100%", height: "100%", background: "linear-gradient(135deg,#1a1a2e,#16213e)" }} />
       )}
-      {/* Gradient overlay */}
       <div style={{
         position: "absolute", inset: 0,
         background: "linear-gradient(to right, rgba(0,0,0,.85) 40%, transparent 100%)",
       }} />
-      {/* Text */}
       <div style={{ position: "absolute", bottom: 0, left: 0, padding: "16px 18px" }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: "#f39c12", letterSpacing: "2px", marginBottom: 6 }}>
           MOVIE OF THE DAY
@@ -290,8 +268,7 @@ function HeroBanner({ file, onClick }) {
           {genres.map(g => (
             <span key={g} style={{
               padding: "3px 10px", borderRadius: 20,
-              background: "rgba(255,255,255,.12)", fontSize: 10,
-              color: "#ccc", fontWeight: 600,
+              background: "rgba(255,255,255,.12)", fontSize: 10, color: "#ccc", fontWeight: 600,
             }}>{g}</span>
           ))}
         </div>
@@ -300,7 +277,6 @@ function HeroBanner({ file, onClick }) {
   );
 }
 
-// ── Category Row ────────────────────────────────────────────────────
 function CategoryRow({ title, files, onFileClick }) {
   if (!files.length) return null;
   return (
@@ -319,16 +295,14 @@ function CategoryRow({ title, files, onFileClick }) {
   );
 }
 
-// ── Detail Modal ────────────────────────────────────────────────────
 function DetailModal({ file, onClose }) {
   const [posterData, setPosterData] = useState(null);
-  const q      = extractQuality(file.file_name);
-  const year   = extractYear(file.file_name);
-  const name   = cleanFileName(file.file_name);
-  const title  = extractMovieTitle(file.file_name);
+  const q = extractQuality(file.file_name);
+  const year = extractYear(file.file_name);
+  const name = cleanFileName(file.file_name);
+  const title = extractMovieTitle(file.file_name);
   const genres = (file.caption || "").replace(/\d{4}/g, "").trim().split(/\s+/).filter(Boolean);
-  // ✅ FIX: Real file_id se Telegram link — bot isko correctly parse karega
-  const link   = tgLink(file.file_id);
+  const link = tgLink(file.file_id);
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
@@ -353,14 +327,9 @@ function DetailModal({ file, onClose }) {
           animation: "slideUp .28s cubic-bezier(.32,1.4,.6,1)",
         }}
       >
-        {/* Poster banner */}
         <div style={{ position: "relative", height: 260, background: "#1a1a1a" }}>
           {posterData?.poster ? (
-            <img
-              src={posterData.poster}
-              alt={title}
-              style={{ width: "100%", height: "100%", objectFit: "cover" }}
-            />
+            <img src={posterData.poster} alt={title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           ) : (
             <div style={{ position: "absolute", inset: 0 }}><Poster file={file} size="banner" /></div>
           )}
@@ -380,7 +349,6 @@ function DetailModal({ file, onClose }) {
           >✕</button>
         </div>
 
-        {/* Details */}
         <div style={{ padding: "0 18px 28px" }}>
           <div style={{ fontSize: 19, fontWeight: 800, color: "#fff", lineHeight: 1.3, marginBottom: 12 }}>
             {name}
@@ -411,7 +379,6 @@ function DetailModal({ file, onClose }) {
             </p>
           )}
 
-          {/* Action buttons */}
           <div style={{ display: "flex", gap: 10 }}>
             <a
               href={link}
@@ -426,7 +393,7 @@ function DetailModal({ file, onClose }) {
               }}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-2.03 9.571c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.893.65z"/>
+                <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-2.03 9.571c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.893.65z" />
               </svg>
               Open in Telegram
             </a>
@@ -443,22 +410,20 @@ function DetailModal({ file, onClose }) {
               }}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/>
-                <circle cx="18" cy="19" r="3"/>
-                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
-                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+                <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" />
+                <circle cx="18" cy="19" r="3" />
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
               </svg>
             </button>
           </div>
         </div>
       </div>
-
       <style>{`@keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}`}</style>
     </div>
   );
 }
 
-// ── Filter Row ──────────────────────────────────────────────────────
 function FilterRow({ label, items, active, onSelect, accent }) {
   return (
     <div style={{ marginBottom: 12 }}>
@@ -487,47 +452,43 @@ function FilterRow({ label, items, active, onSelect, accent }) {
   );
 }
 
-// ── Tabs ──────────────────────────────────────────────────────────
 const TABS = [
-  { id: "home",   label: "Home"   },
+  { id: "home", label: "Home" },
   { id: "search", label: "Search" },
 ];
 
-// ── Main App ───────────────────────────────────────────────────────
 export default function App() {
-  const [tab,      setTab]      = useState("home");
-  const [query,    setQuery]    = useState("");
-  const [quality,  setQuality]  = useState("All");
+  const [tab, setTab] = useState("home");
+  const [query, setQuery] = useState("");
+  const [quality, setQuality] = useState("All");
   const [language, setLanguage] = useState("All");
-  const [files,    setFiles]    = useState([]);
-  const [loading,  setLoading]  = useState(false);
+  const [files, setFiles] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(null);
 
-  // Home categories state
-  const [nowPlaying,   setNowPlaying]   = useState([]);
-  const [globalTrend,  setGlobalTrend]  = useState([]);
-  const [seriesTrend,  setSeriesTrend]  = useState([]);
-  const [hindiFils,    setHindiFils]    = useState([]);
-  const [malayalamFils,setMalayalamFils]= useState([]);
-  const [tamilFils,    setTamilFils]    = useState([]);
-  const [upcomingInd,  setUpcomingInd]  = useState([]);
-  const [homeLoading,  setHomeLoading]  = useState(true);
-  const [heroBanner,   setHeroBanner]   = useState(null);
+  const [nowPlaying, setNowPlaying] = useState([]);
+  const [globalTrend, setGlobalTrend] = useState([]);
+  const [seriesTrend, setSeriesTrend] = useState([]);
+  const [hindiFils, setHindiFils] = useState([]);
+  const [malayalamFils, setMalayalamFils] = useState([]);
+  const [tamilFils, setTamilFils] = useState([]);
+  const [upcomingInd, setUpcomingInd] = useState([]);
+  const [homeLoading, setHomeLoading] = useState(true);
+  const [heroBanner, setHeroBanner] = useState(null);
 
   const inputRef = useRef(null);
 
-  // Load home data
   useEffect(() => {
     if (tab !== "home") return;
     setHomeLoading(true);
     Promise.all([
-      fetchTrending("all",       12),
-      fetchTrending("all",       20),
-      fetchTrending("series",    10),
-      fetchTrending("hindi",     10),
+      fetchTrending("all", 12),
+      fetchTrending("all", 20),
+      fetchTrending("series", 10),
+      fetchTrending("hindi", 10),
       fetchTrending("malayalam", 10),
-      fetchTrending("tamil",     10),
-      fetchTrending("movies",    10),
+      fetchTrending("tamil", 10),
+      fetchTrending("movies", 10),
     ]).then(([all, global, series, hindi, mal, tamil, movies]) => {
       setNowPlaying(all.slice(0, 8));
       setGlobalTrend(global.slice(0, 10));
@@ -541,7 +502,6 @@ export default function App() {
     });
   }, [tab]);
 
-  // Search
   const doSearch = useCallback(async () => {
     if (!query.trim() && quality === "All" && language === "All") {
       setFiles([]);
@@ -573,13 +533,12 @@ export default function App() {
       }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
           <span style={{ fontSize: 26, fontWeight: 900, fontFamily: "'Bebas Neue',sans-serif", letterSpacing: 3 }}>
-            <span style={{ color: "#f39c12" }}>SUHANI</span>
-            <span style={{ color: "#e74c3c" }}>BOT</span>
+            <span style={{ color: "#f39c12" }}>ONE</span>
+            <span style={{ color: "#e74c3c" }}>PLEX</span>
           </span>
           <span style={{ fontSize: 11, color: "#555", fontWeight: 600 }}>🤖 @{BOT_USERNAME}</span>
         </div>
 
-        {/* Tabs */}
         <div style={{ display: "flex", gap: 4, marginBottom: 0 }}>
           {TABS.map(t => (
             <button
@@ -601,7 +560,6 @@ export default function App() {
       {tab === "home" && (
         <div style={{ paddingBottom: 24 }}>
           {homeLoading ? (
-            // Skeleton
             <div style={{ padding: "20px 16px" }}>
               <div style={{ height: 200, borderRadius: 20, background: "#1a1a1a", marginBottom: 24, animation: "pulse 1.4s infinite" }} />
               {[1, 2, 3].map(i => (
@@ -615,17 +573,14 @@ export default function App() {
             </div>
           ) : (
             <>
-              {/* Hero Banner */}
               {heroBanner && <div style={{ paddingTop: 16 }}><HeroBanner file={heroBanner} onClick={setSelected} /></div>}
-
-              {/* Category rows */}
-              <CategoryRow title="NOW PLAYING"      files={nowPlaying}    onFileClick={setSelected} />
-              <CategoryRow title="GLOBAL TRENDING"  files={globalTrend}   onFileClick={setSelected} />
-              <CategoryRow title="TRENDING SERIES"  files={seriesTrend}   onFileClick={setSelected} />
-              <CategoryRow title="HINDI MOVIES"     files={hindiFils}     onFileClick={setSelected} />
+              <CategoryRow title="NOW PLAYING" files={nowPlaying} onFileClick={setSelected} />
+              <CategoryRow title="GLOBAL TRENDING" files={globalTrend} onFileClick={setSelected} />
+              <CategoryRow title="TRENDING SERIES" files={seriesTrend} onFileClick={setSelected} />
+              <CategoryRow title="HINDI MOVIES" files={hindiFils} onFileClick={setSelected} />
               <CategoryRow title="MALAYALAM SERIES" files={malayalamFils} onFileClick={setSelected} />
-              <CategoryRow title="TAMIL SERIES"     files={tamilFils}     onFileClick={setSelected} />
-              <CategoryRow title="UPCOMING INDIAN"  files={upcomingInd}   onFileClick={setSelected} />
+              <CategoryRow title="TAMIL SERIES" files={tamilFils} onFileClick={setSelected} />
+              <CategoryRow title="UPCOMING INDIAN" files={upcomingInd} onFileClick={setSelected} />
             </>
           )}
         </div>
@@ -634,9 +589,7 @@ export default function App() {
       {/* ══ SEARCH TAB ══ */}
       {tab === "search" && (
         <div>
-          {/* Search bar */}
           <div style={{ padding: "16px 16px 0" }}>
-            {/* Hero banner for search page */}
             {heroBanner && (
               <div
                 onClick={() => setSelected(heroBanner)}
@@ -649,7 +602,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Trending searches */}
             <div style={{ fontSize: 10, fontWeight: 700, color: "#444", letterSpacing: "1.5px", marginBottom: 10 }}>
               TRENDING SEARCHES
             </div>
@@ -671,7 +623,6 @@ export default function App() {
               })}
             </div>
 
-            {/* Search input card */}
             <div style={{ background: "#161616", borderRadius: 18, padding: "16px", border: "1px solid #222", marginBottom: 20 }}>
               <div style={{
                 display: "flex", alignItems: "center", gap: 10,
@@ -679,7 +630,7 @@ export default function App() {
                 borderRadius: 12, padding: "10px 14px", marginBottom: 14,
               }}>
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="2.5">
-                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                  <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
                 </svg>
                 <input
                   ref={inputRef}
@@ -702,17 +653,16 @@ export default function App() {
                   }}
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3">
-                    <line x1="5" y1="12" x2="19" y2="12"/>
-                    <polyline points="12 5 19 12 12 19"/>
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
                   </svg>
                 </button>
               </div>
-              <FilterRow label="QUALITY"  items={QUALITIES}  active={quality}  onSelect={setQuality}  accent />
-              <FilterRow label="LANGUAGE" items={LANGUAGES}  active={language} onSelect={setLanguage} />
+              <FilterRow label="QUALITY" items={QUALITIES} active={quality} onSelect={setQuality} accent />
+              <FilterRow label="LANGUAGE" items={LANGUAGES} active={language} onSelect={setLanguage} />
             </div>
           </div>
 
-          {/* Results */}
           <div style={{ padding: "0 16px 24px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <span style={{ fontSize: 13, color: "#555" }}>
@@ -758,12 +708,11 @@ export default function App() {
           All contents are publicly available on Telegram. We do not host any files.
         </p>
         <div style={{ display: "flex", justifyContent: "center", gap: 16 }}>
-          <span>© 2026 Suhani</span>
+          <span>© 2026 OnePlex</span>
           <a href={`https://t.me/${BOT_USERNAME}`} style={{ color: "#555", textDecoration: "none" }}>Report issue</a>
         </div>
       </div>
 
-      {/* Modal */}
       {selected && <DetailModal file={selected} onClose={() => setSelected(null)} />}
 
       <style>{`
