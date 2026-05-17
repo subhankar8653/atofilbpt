@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 // ═══════════════════════════════════════════════════════════════════
 // ⚠️  SIRF YAHAN APNA BOT USERNAME DAALO
 // ═══════════════════════════════════════════════════════════════════
-const BOT_USERNAME = "YourBotUsername";   // e.g. "SuhaniFilterBot"
+const BOT_USERNAME = "My_Suhani_bot";   // e.g. "SuhaniFilterBot"
 // ═══════════════════════════════════════════════════════════════════
 // Agar bot aur website same server pe hain toh:
 // const API_BASE = "https://your-bot-domain.com";
