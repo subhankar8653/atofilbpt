@@ -42,12 +42,21 @@ function cleanFileName(name = "") {
 }
 function extractMovieTitle(name = "") {
   let n = name.replace(/\.(mkv|mp4|avi|mov|webm)$/i, "");
-  n = n.replace(/[_\-.+]/g, " ").trim();
+  // Replace separators with space
+  n = n.replace(/[_+]/g, " ").replace(/\.(?!\d)/g, " ").trim();
+  // Remove timestamps like 16:20, 17:45
+  n = n.replace(/\d{1,2}:\d{2}/g, " ");
+  // Remove year and everything after
   n = n.replace(/\b(19|20)\d{2}\b.*/i, "").trim();
-  n = n.replace(/\b(480p|720p|1080p|2160p|4k|hdrip|webrip|web\s?dl|bluray|hdcam|dvdrip|tataplay|hotstar|zee5|sonyliv|amazon|netflix|hbomax|predvd|hdts|camrip|x264|x265|h264|h265|hevc|aac|dd5|dts|multi|dual|hindi|english|tamil|telugu|malayalam|kannada|bengali|punjabi|org|hq|esub|sub|dubbed|proper|repack|S\d{2}E\d{2}|E\d{2,3}|\d{1,2}:\d{2})\b/gi, " ");
+  // Remove episode codes like S01E02
+  n = n.replace(/\bS\d{2}E?\d*\b/gi, " ");
+  // Remove quality/source/codec keywords
+  n = n.replace(/\b(480p|720p|1080p|2160p|4k|hdrip|webrip|web\s?dl|bluray|hdcam|dvdrip|tataplay|hotstar|zee5|sonyliv|amazon|netflix|hbomax|predvd|hdts|camrip|x264|x265|h264|h265|hevc|aac|dd5|dts|multi|dual|hindi|english|tamil|telugu|malayalam|kannada|bengali|punjabi|org|hq|esub|sub|dubbed|proper|repack)\b/gi, " ");
+  // Remove leftover standalone numbers (episode numbers, etc)
+  n = n.replace(/\b\d{1,2}\b/g, " ");
   n = n.replace(/\s+/g, " ").trim();
   const words = n.split(" ").filter(w => w.length > 1);
-  return words.slice(0, 5).join(" ") || cleanFileName(name).split(" ").slice(0, 3).join(" ");
+  return words.slice(0, 4).join(" ") || cleanFileName(name).split(" ").slice(0, 3).join(" ");
 }
 
 async function fetchFiles(query, quality, language, limit = 20) {
@@ -154,7 +163,7 @@ function MovieCard({ file, onClick }) {
 
   return (
     <div
-      onClick={() => onClick(file)}
+      onClick={onClick}
       style={{
         width: 110, flexShrink: 0, cursor: "pointer",
         borderRadius: 12, overflow: "hidden",
@@ -294,7 +303,7 @@ function CategoryRow({ title, files, onFileClick }) {
         display: "flex", gap: 10, overflowX: "auto", paddingLeft: 16, paddingRight: 16, paddingBottom: 4,
         scrollbarWidth: "none",
       }}>
-        {files.map(f => <MovieCard key={f.file_id} file={f} onClick={onFileClick} />)}
+        {files.map(f => <MovieCard key={f.file_id} file={f} onClick={() => onFileClick(extractMovieTitle(f.file_name))} />)}
       </div>
     </div>
   );
@@ -526,6 +535,13 @@ export default function App() {
 
   const clearAll = () => { setQuery(""); setQuality("All"); setLanguage("All"); };
 
+  const handleHomeCardClick = (movieTitle) => {
+    setQuery(movieTitle);
+    setQuality("All");
+    setLanguage("All");
+    setTab("search");
+  };
+
   return (
     <div style={{ background: "#0d0d0d", minHeight: "100vh", fontFamily: "'DM Sans',sans-serif", color: "#eee", maxWidth: 480, margin: "0 auto" }}>
       <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Bebas+Neue&display=swap" />
@@ -579,13 +595,13 @@ export default function App() {
           ) : (
             <>
               {heroBanner && <div style={{ paddingTop: 16 }}><HeroBanner file={heroBanner} onClick={setSelected} /></div>}
-              <CategoryRow title="NOW PLAYING" files={nowPlaying} onFileClick={setSelected} />
-              <CategoryRow title="GLOBAL TRENDING" files={globalTrend} onFileClick={setSelected} />
-              <CategoryRow title="TRENDING SERIES" files={seriesTrend} onFileClick={setSelected} />
-              <CategoryRow title="HINDI MOVIES" files={hindiFils} onFileClick={setSelected} />
-              <CategoryRow title="MALAYALAM SERIES" files={malayalamFils} onFileClick={setSelected} />
-              <CategoryRow title="TAMIL SERIES" files={tamilFils} onFileClick={setSelected} />
-              <CategoryRow title="UPCOMING INDIAN" files={upcomingInd} onFileClick={setSelected} />
+              <CategoryRow title="NOW PLAYING" files={nowPlaying} onFileClick={handleHomeCardClick} />
+              <CategoryRow title="GLOBAL TRENDING" files={globalTrend} onFileClick={handleHomeCardClick} />
+              <CategoryRow title="TRENDING SERIES" files={seriesTrend} onFileClick={handleHomeCardClick} />
+              <CategoryRow title="HINDI MOVIES" files={hindiFils} onFileClick={handleHomeCardClick} />
+              <CategoryRow title="MALAYALAM SERIES" files={malayalamFils} onFileClick={handleHomeCardClick} />
+              <CategoryRow title="TAMIL SERIES" files={tamilFils} onFileClick={handleHomeCardClick} />
+              <CategoryRow title="UPCOMING INDIAN" files={upcomingInd} onFileClick={handleHomeCardClick} />
             </>
           )}
         </div>
