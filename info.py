@@ -77,7 +77,8 @@ COLLECTION_NAME = environ.get('COLLECTION_NAME', 'Lucy_files')
 # ============================
 MOVIE_UPDATE_NOTIFICATION = bool(environ.get('MOVIE_UPDATE_NOTIFICATION', False))  # Notification On (True) / Off (False)
 IMAGE_FETCH = bool(environ.get('IMAGE_FETCH', True))  # On (True) / Off (False)
-OMDB_API_KEY = environ.get('OMDB_API_KEY', '')							  # OMDB API Key for movie posters on website (get free key from omdbapi.com)
+OMDB_API_KEY = environ.get('OMDB_API_KEY', '')                            # OMDB API Key (legacy)
+TMDB_API_KEY = environ.get('TMDB_API_KEY', '')                            # TMDB API Key for movie posters on website (get free key from themoviedb.org)
 CAPTION_LANGUAGES = ["Bhojpuri", "Hindi", "Bengali", "Tamil", "English", "Bangla", "Telugu", "Malayalam", "Kannada", "Marathi", "Punjabi", "Bengoli", "Gujrati", "Korean", "Gujarati", "Spanish", "French", "German", "Chinese", "Arabic", "Portuguese", "Russian", "Japanese", "Odia", "Assamese", "Urdu"]
 
 # ============================
