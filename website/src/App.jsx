@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 // ⚠️  APNA BOT USERNAME AUR BOT SERVER URL YAHAN DAALO
 // ═══════════════════════════════════════════════════════════════════
 const BOT_USERNAME = "My_Suhani_bot";
-const API_BASE = "web-production-a6061.up.railway.app"; // ← APNA BOT SERVER URL DAALO
+const API_BASE = "https://web-production-a6061.up.railway.app";
 // ═══════════════════════════════════════════════════════════════════
 
 const QUALITIES = ["All", "2160p", "1080p", "720p", "480p", "360p", "240p"];
