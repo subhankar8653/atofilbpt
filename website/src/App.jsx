@@ -75,29 +75,20 @@ async function fetchTrending(category = "all", limit = 12) {
   }
 }
 
-// ── FIXED: TMDB Poster Cache with proper timeout & validation ─────
+// ── TMDB Poster Cache ─────────────────────────────────────────────
 const posterCache = {};
 async function fetchPoster(title, year) {
   const key = `${title}__${year}`;
   if (posterCache[key] !== undefined) return posterCache[key];
-
-  // Prevent duplicate requests
   posterCache[key] = null;
-
   try {
     const params = new URLSearchParams({ title, ...(year ? { year } : {}) });
-    // AbortController se 8 second timeout
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
-    const res = await fetch(`${API_BASE}/api/poster?${params}`, {
-      signal: controller.signal,
-    });
+    const res = await fetch(`${API_BASE}/api/poster?${params}`, { signal: controller.signal });
     clearTimeout(timer);
-
     if (!res.ok) throw new Error("poster API failed");
     const data = await res.json();
-
-    // FIX: Validate ki poster URL real TMDB URL hai
     if (data?.poster && typeof data.poster === "string" && data.poster.startsWith("https://")) {
       posterCache[key] = data;
       return data;
@@ -105,13 +96,12 @@ async function fetchPoster(title, year) {
     posterCache[key] = null;
     return null;
   } catch {
-    // Network error ya timeout — cache null rakho aur return karo
     posterCache[key] = null;
     return null;
   }
 }
 
-// ── FIXED: Poster Component with proper image loading ────────────
+// ── Poster Component ────────────────────────────────────────────
 function Poster({ file, size = "card" }) {
   const [imgSrc, setImgSrc] = useState(null);
   const [imgLoaded, setImgLoaded] = useState(false);
@@ -122,11 +112,9 @@ function Poster({ file, size = "card" }) {
 
   useEffect(() => {
     let cancelled = false;
-    // Reset on title change
     setImgSrc(null);
     setImgLoaded(false);
     setImgFailed(false);
-
     fetchPoster(title, year).then(data => {
       if (!cancelled && data?.poster) {
         setImgSrc(data.poster);
@@ -142,7 +130,6 @@ function Poster({ file, size = "card" }) {
   if (imgSrc && !imgFailed) {
     return (
       <div style={{ width: "100%", height: "100%", position: "relative", borderRadius: "inherit" }}>
-        {/* Shimmer placeholder jab tak image load na ho */}
         {!imgLoaded && (
           <div style={{
             position: "absolute", inset: 0, borderRadius: "inherit",
@@ -157,7 +144,6 @@ function Poster({ file, size = "card" }) {
             }} />
           </div>
         )}
-        {/* FIX: crossOrigin="anonymous" TMDB images ke liye */}
         <img
           src={imgSrc}
           alt={title}
@@ -189,7 +175,6 @@ function Poster({ file, size = "card" }) {
     );
   }
 
-  // Fallback — colorful gradient with initials
   return (
     <div style={{
       width: "100%", height: "100%",
@@ -211,10 +196,9 @@ function Poster({ file, size = "card" }) {
   );
 }
 
-// ── Movie Card ───────────────────────────────────────────────────────
+// ── Movie Card — NO quality badge, only poster + name ────────────────
 function MovieCard({ file, onClick }) {
   const [hov, setHov] = useState(false);
-  const q = extractQuality(file.file_name);
   const year = extractYear(file.file_name);
   const name = extractMovieTitle(file.file_name);
 
@@ -234,13 +218,7 @@ function MovieCard({ file, onClick }) {
     >
       <div style={{ height: 158, background: "#1a1a1a", overflow: "hidden", position: "relative" }}>
         <Poster file={file} />
-        {q && (
-          <div style={{
-            position: "absolute", top: 6, right: 6,
-            background: qualityColor(q), borderRadius: 5,
-            padding: "2px 5px", fontSize: 8, fontWeight: 800, color: "#fff",
-          }}>{q}</div>
-        )}
+        {/* Quality badge REMOVED from home cards */}
       </div>
       <div style={{ padding: "8px 8px 10px" }}>
         <div style={{
@@ -254,7 +232,7 @@ function MovieCard({ file, onClick }) {
   );
 }
 
-// ── File Card (search results) ───────────────────────────────────────
+// ── File Card (search results) — quality dikhega yahan ──────────────
 function FileCard({ file, onClick }) {
   const [hov, setHov] = useState(false);
   const q = extractQuality(file.file_name);
@@ -306,7 +284,6 @@ function HeroBanner({ file, onClick }) {
   const [bgLoaded, setBgLoaded] = useState(false);
   const title = extractMovieTitle(file.file_name);
   const year = extractYear(file.file_name);
-  const q = extractQuality(file.file_name);
   const hue = [...title].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
 
   useEffect(() => {
@@ -359,7 +336,6 @@ function HeroBanner({ file, onClick }) {
             </span>
           )}
           {year && <span style={{ fontSize: 11, color: "#777" }}>{year}</span>}
-          {q && <span style={{ fontSize: 10, fontWeight: 700, color: qualityColor(q), background: `${qualityColor(q)}1a`, padding: "2px 7px", borderRadius: 5 }}>{q}</span>}
         </div>
         {posterData?.plot && (
           <p style={{ fontSize: 11, color: "#555", lineHeight: 1.55, marginTop: 8, marginBottom: 0, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
@@ -433,12 +409,10 @@ function DetailModal({ file, onClose }) {
         onClick={e => e.stopPropagation()}
         style={{ background: "#111", borderRadius: "24px 24px 0 0", width: "100%", maxWidth: 480, overflow: "hidden", animation: "slideUp .3s cubic-bezier(.32,1.4,.6,1)", maxHeight: "92vh", overflowY: "auto" }}
       >
-        {/* Drag handle */}
         <div style={{ display: "flex", justifyContent: "center", padding: "10px 0 0" }}>
           <div style={{ width: 36, height: 4, borderRadius: 2, background: "#2a2a2a" }} />
         </div>
 
-        {/* Poster Header */}
         <div style={{ position: "relative", height: 280, background: `linear-gradient(135deg,hsl(${hue},35%,10%),hsl(${(hue+60)%360},25%,7%))` }}>
           {posterData?.poster ? (
             <img
@@ -459,7 +433,6 @@ function DetailModal({ file, onClose }) {
           >✕</button>
         </div>
 
-        {/* Content */}
         <div style={{ padding: "0 18px 34px" }}>
           <div style={{ fontSize: 20, fontWeight: 900, color: "#fff", lineHeight: 1.3, marginBottom: 12 }}>{name}</div>
 
@@ -572,6 +545,7 @@ function SkeletonFile() {
 
 // ── Main App ─────────────────────────────────────────────────────────
 export default function App() {
+  // "home" = home page, "search" = search results page
   const [tab, setTab] = useState("home");
   const [query, setQuery] = useState("");
   const [quality, setQuality] = useState("All");
@@ -617,38 +591,49 @@ export default function App() {
     });
   }, [tab]);
 
-  const doSearch = useCallback(async () => {
-    if (!query.trim() && quality === "All" && language === "All") { setFiles([]); return; }
+  const doSearch = useCallback(async (q = query) => {
+    if (!q.trim() && quality === "All" && language === "All") { setFiles([]); return; }
     setLoading(true);
-    const results = await fetchFiles(query, quality, language);
+    const results = await fetchFiles(q, quality, language);
     setFiles(results);
     setLoading(false);
   }, [query, quality, language]);
 
   useEffect(() => {
     if (tab !== "search") return;
-    const t = setTimeout(doSearch, 350);
+    const t = setTimeout(() => doSearch(), 350);
     return () => clearTimeout(t);
   }, [doSearch, tab]);
 
   const clearAll = () => { setQuery(""); setQuality("All"); setLanguage("All"); };
 
+  // Home card click: set query + switch to search + auto-search
   const handleHomeCardClick = (movieTitle) => {
     setQuery(movieTitle);
     setQuality("All");
     setLanguage("All");
     setTab("search");
+    // Immediately trigger search with this title
+    setLoading(true);
+    fetchFiles(movieTitle, "All", "All").then(results => {
+      setFiles(results);
+      setLoading(false);
+    });
   };
 
   return (
     <div style={{ background: "#0d0d0d", minHeight: "100vh", fontFamily: "'DM Sans',sans-serif", color: "#eee", maxWidth: 480, margin: "0 auto" }}>
       <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&family=Bebas+Neue&display=swap" />
 
-      {/* Header */}
-      <div style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(13,13,13,.97)", borderBottom: "1px solid #181818", padding: "14px 16px 0", backdropFilter: "blur(12px)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-          <span style={{ fontSize: 28, fontWeight: 900, fontFamily: "'Bebas Neue',sans-serif", letterSpacing: 3, lineHeight: 1 }}>
-            <span style={{ color: "#f39c12" }}>ONE</span><span style={{ color: "#e74c3c" }}>PLEX</span>
+      {/* Header — sirf logo + search button, koi tabs nahi */}
+      <div style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(13,13,13,.97)", borderBottom: "1px solid #181818", padding: "14px 16px 14px", backdropFilter: "blur(12px)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          {/* Logo — click karne pe home pe wapas */}
+          <span
+            onClick={() => setTab("home")}
+            style={{ fontSize: 28, fontWeight: 900, fontFamily: "'Bebas Neue',sans-serif", letterSpacing: 3, lineHeight: 1, cursor: "pointer" }}
+          >
+            <span style={{ color: "#f39c12" }}>SUHANI</span><span style={{ color: "#e74c3c" }}> SEARCH</span>
           </span>
           <button
             onClick={() => { setTab("search"); setTimeout(() => inputRef.current?.focus(), 150); }}
@@ -657,11 +642,6 @@ export default function App() {
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             Search...
           </button>
-        </div>
-        <div style={{ display: "flex" }}>
-          {[{ id: "home", label: "🏠 Home" }, { id: "search", label: "🔍 Search" }].map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} style={{ flex: 1, padding: "10px 0", border: "none", cursor: "pointer", background: "transparent", fontSize: 12, fontWeight: 700, color: tab === t.id ? "#f39c12" : "#444", borderBottom: tab === t.id ? "2px solid #f39c12" : "2px solid transparent", transition: "all .2s" }}>{t.label}</button>
-          ))}
         </div>
       </div>
 
@@ -695,7 +675,7 @@ export default function App() {
         </div>
       )}
 
-      {/* SEARCH */}
+      {/* SEARCH PAGE */}
       {tab === "search" && (
         <div>
           <div style={{ padding: "18px 16px 0" }}>
@@ -706,7 +686,7 @@ export default function App() {
                   {nowPlaying.slice(0, 6).map(f => {
                     const t = extractMovieTitle(f.file_name);
                     return (
-                      <button key={f.file_id} onClick={() => setQuery(t)} style={{ padding: "7px 14px", borderRadius: 20, background: "#181818", border: "1px solid #252525", color: "#888", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+                      <button key={f.file_id} onClick={() => handleHomeCardClick(t)} style={{ padding: "7px 14px", borderRadius: 20, background: "#181818", border: "1px solid #252525", color: "#888", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
                         <span style={{ fontSize: 10 }}>🔥</span>{t}
                       </button>
                     );
@@ -784,7 +764,7 @@ export default function App() {
       <div style={{ textAlign: "center", padding: "12px 16px 28px", borderTop: "1px solid #181818", fontSize: 11, color: "#2e2e2e" }}>
         <p style={{ margin: "0 0 6px", lineHeight: 1.7 }}>All contents are publicly available on Telegram.<br/>We do not host any files.</p>
         <div style={{ display: "flex", justifyContent: "center", gap: 16, alignItems: "center" }}>
-          <span>© 2026 OnePlex</span>
+          <span>© 2026 Suhani Search</span>
           <span style={{ color: "#1e1e1e" }}>•</span>
           <a href={`https://t.me/${BOT_USERNAME}`} style={{ color: "#333", textDecoration: "none" }}>Report issue</a>
         </div>
