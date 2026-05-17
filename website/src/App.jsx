@@ -5,12 +5,15 @@ import { useState, useEffect, useRef, useCallback } from "react";
 // ═══════════════════════════════════════════════════════════════════
 const BOT_USERNAME = "My_Suhani_bot";
 const API_BASE = "https://web-production-a6061.up.railway.app";
+
+// ⚠️  TMDB API KEY YAHAN DAALO — themoviedb.org pe free milti hai
+// Railway env se bhi kaam karta hai, lekin frontend ke liye yahan daalo
+const TMDB_API_KEY = "a8c1b6b3487fbc94ca6bd229d9abed14"; // <-- SIRF YEH BADLO
 // ═══════════════════════════════════════════════════════════════════
 
 const QUALITIES = ["All", "2160p", "1080p", "720p", "480p", "360p", "240p"];
 const LANGUAGES = ["All", "Hindi", "English", "Tamil", "Telugu", "Malayalam", "Kannada", "Bengali", "Punjabi"];
 
-// ── Utility functions ────────────────────────────────────────────────
 function formatSize(bytes) {
   if (!bytes) return "";
   if (bytes >= 1e9) return (bytes / 1e9).toFixed(2) + " GB";
@@ -50,7 +53,7 @@ function extractMovieTitle(name = "") {
   return words.slice(0, 4).join(" ") || cleanFileName(name).split(" ").slice(0, 3).join(" ");
 }
 
-// ── API Functions ────────────────────────────────────────────────────
+// ── API: Files ───────────────────────────────────────────────────────
 async function fetchFiles(query, quality, language, limit = 20) {
   try {
     const params = new URLSearchParams({ q: query || ".", quality, language, limit });
@@ -58,9 +61,7 @@ async function fetchFiles(query, quality, language, limit = 20) {
     if (!res.ok) throw new Error("API error");
     const data = await res.json();
     return data.files || [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 async function fetchTrending(category = "all", limit = 12) {
@@ -70,38 +71,64 @@ async function fetchTrending(category = "all", limit = 12) {
     if (!res.ok) throw new Error("API error");
     const data = await res.json();
     return data.files || [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
-// ── TMDB Poster Cache ─────────────────────────────────────────────
+// ── TMDB Direct Poster Fetch (frontend se seedha TMDB call) ──────────
 const posterCache = {};
-async function fetchPoster(title, year) {
-  const key = `${title}__${year}`;
+
+async function fetchPosterFromTMDB(title, year) {
+  const key = `tmdb_${title}__${year}`;
   if (posterCache[key] !== undefined) return posterCache[key];
   posterCache[key] = null;
+
+  // Pehle backend se try karo
   try {
     const params = new URLSearchParams({ title, ...(year ? { year } : {}) });
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
+    const timer = setTimeout(() => controller.abort(), 5000);
     const res = await fetch(`${API_BASE}/api/poster?${params}`, { signal: controller.signal });
     clearTimeout(timer);
-    if (!res.ok) throw new Error("poster API failed");
-    const data = await res.json();
-    if (data?.poster && typeof data.poster === "string" && data.poster.startsWith("https://")) {
-      posterCache[key] = data;
-      return data;
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.poster && typeof data.poster === "string" && data.poster.startsWith("https://")) {
+        posterCache[key] = data;
+        return data;
+      }
     }
-    posterCache[key] = null;
-    return null;
+  } catch { /* backend fail — TMDB direct try karenge */ }
+
+  // Backend fail ho to TMDB seedha call karo
+  if (!TMDB_API_KEY || TMDB_API_KEY === "apna_tmdb_api_key_yahan_daalo") {
+    return null; // API key nahi hai
+  }
+
+  try {
+    const searchUrl = `https://api.themoviedb.org/3/search/multi?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(title)}${year ? `&year=${year}` : ""}&language=en-US&page=1`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(searchUrl, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error("TMDB search fail");
+    const data = await res.json();
+    const result = (data.results || []).find(r => r.poster_path);
+    if (!result) return null;
+
+    const posterUrl = `https://image.tmdb.org/t/p/w500${result.poster_path}`;
+    const rating = result.vote_average ? result.vote_average.toFixed(1) : null;
+    const plot = result.overview || null;
+    const genre = null; // genre ke liye alag call chahiye, skip
+
+    const out = { poster: posterUrl, imdb_rating: rating, plot, genre };
+    posterCache[key] = out;
+    return out;
   } catch {
     posterCache[key] = null;
     return null;
   }
 }
 
-// ── Poster Component ────────────────────────────────────────────
+// ── Poster Component ────────────────────────────────────────────────
 function Poster({ file, size = "card" }) {
   const [imgSrc, setImgSrc] = useState(null);
   const [imgLoaded, setImgLoaded] = useState(false);
@@ -115,7 +142,7 @@ function Poster({ file, size = "card" }) {
     setImgSrc(null);
     setImgLoaded(false);
     setImgFailed(false);
-    fetchPoster(title, year).then(data => {
+    fetchPosterFromTMDB(title, year).then(data => {
       if (!cancelled && data?.poster) {
         setImgSrc(data.poster);
         setRating(data.imdb_rating);
@@ -145,17 +172,10 @@ function Poster({ file, size = "card" }) {
           </div>
         )}
         <img
-          src={imgSrc}
-          alt={title}
-          crossOrigin="anonymous"
-          loading="lazy"
-          decoding="async"
+          src={imgSrc} alt={title} crossOrigin="anonymous" loading="lazy" decoding="async"
           style={{
-            width: "100%", height: "100%", objectFit: "cover",
-            borderRadius: "inherit",
-            opacity: imgLoaded ? 1 : 0,
-            transition: "opacity 0.4s ease",
-            display: "block",
+            width: "100%", height: "100%", objectFit: "cover", borderRadius: "inherit",
+            opacity: imgLoaded ? 1 : 0, transition: "opacity 0.4s ease", display: "block",
           }}
           onLoad={() => setImgLoaded(true)}
           onError={() => { setImgFailed(true); setImgLoaded(false); }}
@@ -175,16 +195,14 @@ function Poster({ file, size = "card" }) {
     );
   }
 
+  // Fallback — colorful gradient with initials
   return (
     <div style={{
-      width: "100%", height: "100%",
-      display: "flex", flexDirection: "column",
-      alignItems: "center", justifyContent: "center",
-      borderRadius: "inherit",
+      width: "100%", height: "100%", display: "flex", flexDirection: "column",
+      alignItems: "center", justifyContent: "center", borderRadius: "inherit",
       background: `linear-gradient(145deg,hsl(${hue},55%,16%),hsl(${(hue+50)%360},45%,10%))`,
       fontSize: size === "banner" ? "38px" : "22px",
-      fontWeight: "900", color: `hsl(${hue},70%,60%)`,
-      letterSpacing: "2px", gap: 4,
+      fontWeight: "900", color: `hsl(${hue},70%,60%)`, letterSpacing: "2px", gap: 4,
     }}>
       {initials || "🎬"}
       {size === "banner" && (
@@ -196,35 +214,27 @@ function Poster({ file, size = "card" }) {
   );
 }
 
-// ── Movie Card — NO quality badge, only poster + name ────────────────
+// ── Movie Card — NO quality badge ────────────────────────────────────
 function MovieCard({ file, onClick }) {
   const [hov, setHov] = useState(false);
   const year = extractYear(file.file_name);
   const name = extractMovieTitle(file.file_name);
-
   return (
-    <div
-      onClick={onClick}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
+    <div onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{
-        width: 115, flexShrink: 0, cursor: "pointer",
-        borderRadius: 14, overflow: "hidden", background: "#161616",
-        border: `1px solid ${hov ? "#363636" : "#1e1e1e"}`,
+        width: 115, flexShrink: 0, cursor: "pointer", borderRadius: 14, overflow: "hidden",
+        background: "#161616", border: `1px solid ${hov ? "#363636" : "#1e1e1e"}`,
         transform: hov ? "scale(1.04) translateY(-2px)" : "scale(1)",
         transition: "transform .2s, border-color .2s, box-shadow .2s",
         boxShadow: hov ? "0 10px 28px rgba(0,0,0,.55)" : "none",
-      }}
-    >
+      }}>
       <div style={{ height: 158, background: "#1a1a1a", overflow: "hidden", position: "relative" }}>
         <Poster file={file} />
-        {/* Quality badge REMOVED from home cards */}
       </div>
       <div style={{ padding: "8px 8px 10px" }}>
         <div style={{
-          fontSize: 11, fontWeight: 600, color: "#ccc", lineHeight: 1.4,
-          marginBottom: 4, display: "-webkit-box",
-          WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+          fontSize: 11, fontWeight: 600, color: "#ccc", lineHeight: 1.4, marginBottom: 4,
+          display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
         }}>{name}</div>
         {year && <span style={{ fontSize: 9, color: "#555" }}>{year}</span>}
       </div>
@@ -232,46 +242,34 @@ function MovieCard({ file, onClick }) {
   );
 }
 
-// ── File Card (search results) — quality dikhega yahan ──────────────
+// ── File Card (search results) ───────────────────────────────────────
 function FileCard({ file, onClick }) {
   const [hov, setHov] = useState(false);
   const q = extractQuality(file.file_name);
   const year = extractYear(file.file_name);
   const name = cleanFileName(file.file_name);
-
   return (
-    <div
-      onClick={() => onClick(file)}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
+    <div onClick={() => onClick(file)} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{
         display: "flex", gap: 12, padding: 14,
-        background: hov ? "#1b1b1b" : "#161616",
-        borderRadius: 16, cursor: "pointer",
+        background: hov ? "#1b1b1b" : "#161616", borderRadius: 16, cursor: "pointer",
         border: `1px solid ${hov ? "#2e2e2e" : "#1e1e1e"}`,
         transition: "background .15s, border-color .15s, transform .15s",
         transform: hov ? "translateX(3px)" : "translateX(0)",
-      }}
-    >
-      <div style={{
-        width: 66, height: 88, flexShrink: 0, borderRadius: 10,
-        overflow: "hidden", boxShadow: "0 4px 14px rgba(0,0,0,.45)",
       }}>
+      <div style={{ width: 66, height: 88, flexShrink: 0, borderRadius: 10, overflow: "hidden", boxShadow: "0 4px 14px rgba(0,0,0,.45)" }}>
         <Poster file={file} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{
-          fontSize: 13.5, fontWeight: 700, color: "#eee", lineHeight: 1.4,
-          marginBottom: 8, display: "-webkit-box",
-          WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+          fontSize: 13.5, fontWeight: 700, color: "#eee", lineHeight: 1.4, marginBottom: 8,
+          display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
         }}>{name}</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
           {q && <span style={{ padding: "2px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700, background: qualityColor(q), color: "#fff" }}>{q}</span>}
           {year && <span style={{ padding: "2px 8px", borderRadius: 6, fontSize: 10, background: "#222", color: "#777" }}>{year}</span>}
         </div>
-        {file.file_size > 0 && (
-          <span style={{ fontSize: 11, color: "#444" }}>💾 {formatSize(file.file_size)}</span>
-        )}
+        {file.file_size > 0 && <span style={{ fontSize: 11, color: "#444" }}>💾 {formatSize(file.file_size)}</span>}
       </div>
       <div style={{ display: "flex", alignItems: "center", color: "#333", paddingRight: 2 }}>›</div>
     </div>
@@ -287,41 +285,29 @@ function HeroBanner({ file, onClick }) {
   const hue = [...title].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
 
   useEffect(() => {
-    setPosterData(null);
-    setBgLoaded(false);
-    fetchPoster(title, year).then(data => {
-      if (data?.poster) setPosterData(data);
-    });
+    setPosterData(null); setBgLoaded(false);
+    fetchPosterFromTMDB(title, year).then(data => { if (data?.poster) setPosterData(data); });
   }, [title, year]);
 
   return (
-    <div
-      onClick={() => onClick(file)}
+    <div onClick={() => onClick(file)}
       style={{
-        margin: "0 16px 26px", borderRadius: 22, overflow: "hidden",
-        position: "relative", height: 215, cursor: "pointer",
+        margin: "0 16px 26px", borderRadius: 22, overflow: "hidden", position: "relative",
+        height: 215, cursor: "pointer",
         background: `linear-gradient(135deg,hsl(${hue},35%,10%),hsl(${(hue+60)%360},25%,6%))`,
         boxShadow: "0 16px 44px rgba(0,0,0,.65)",
-      }}
-    >
+      }}>
       {posterData?.poster && (
-        <img
-          src={posterData.poster}
-          alt={title}
-          crossOrigin="anonymous"
-          loading="lazy"
+        <img src={posterData.poster} alt={title} crossOrigin="anonymous" loading="lazy"
           style={{
             position: "absolute", inset: 0, width: "100%", height: "100%",
             objectFit: "cover", objectPosition: "center top",
             opacity: bgLoaded ? 0.5 : 0, transition: "opacity 0.6s ease",
           }}
-          onLoad={() => setBgLoaded(true)}
-          onError={() => setBgLoaded(false)}
-        />
+          onLoad={() => setBgLoaded(true)} onError={() => setBgLoaded(false)} />
       )}
       <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to right,rgba(0,0,0,.94) 35%,rgba(0,0,0,.25))" }} />
       <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top,rgba(0,0,0,.9) 0%,transparent 55%)" }} />
-
       <div style={{ position: "absolute", bottom: 0, left: 0, right: "25%", padding: "18px 20px" }}>
         <div style={{ fontSize: 9, fontWeight: 800, color: "#f39c12", letterSpacing: "2.5px", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ width: 18, height: 2, background: "#f39c12", display: "inline-block", borderRadius: 2 }} />
@@ -343,15 +329,12 @@ function HeroBanner({ file, onClick }) {
           </p>
         )}
       </div>
-
       <div style={{
-        position: "absolute", right: 18, bottom: 18,
-        width: 46, height: 46, borderRadius: "50%",
-        background: "linear-gradient(135deg,#f39c12,#e74c3c)",
-        display: "flex", alignItems: "center", justifyContent: "center",
+        position: "absolute", right: 18, bottom: 18, width: 46, height: 46, borderRadius: "50%",
+        background: "linear-gradient(135deg,#f39c12,#e74c3c)", display: "flex", alignItems: "center", justifyContent: "center",
         boxShadow: "0 4px 18px rgba(243,156,18,.45)",
       }}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z" /></svg>
       </div>
     </div>
   );
@@ -391,7 +374,7 @@ function DetailModal({ file, onClose }) {
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
-    fetchPoster(title, year).then(data => { if (data?.poster) setPosterData(data); });
+    fetchPosterFromTMDB(title, year).then(data => { if (data?.poster) setPosterData(data); });
     return () => { document.body.style.overflow = ""; };
   }, [title, year]);
 
@@ -401,41 +384,24 @@ function DetailModal({ file, onClose }) {
   };
 
   return (
-    <div
-      onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.88)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(10px)" }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{ background: "#111", borderRadius: "24px 24px 0 0", width: "100%", maxWidth: 480, overflow: "hidden", animation: "slideUp .3s cubic-bezier(.32,1.4,.6,1)", maxHeight: "92vh", overflowY: "auto" }}
-      >
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.88)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(10px)" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: "#111", borderRadius: "24px 24px 0 0", width: "100%", maxWidth: 480, overflow: "hidden", animation: "slideUp .3s cubic-bezier(.32,1.4,.6,1)", maxHeight: "92vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "center", padding: "10px 0 0" }}>
           <div style={{ width: 36, height: 4, borderRadius: 2, background: "#2a2a2a" }} />
         </div>
-
         <div style={{ position: "relative", height: 280, background: `linear-gradient(135deg,hsl(${hue},35%,10%),hsl(${(hue+60)%360},25%,7%))` }}>
           {posterData?.poster ? (
-            <img
-              src={posterData.poster}
-              alt={title}
-              crossOrigin="anonymous"
+            <img src={posterData.poster} alt={title} crossOrigin="anonymous"
               style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top", opacity: bgLoaded ? 1 : 0, transition: "opacity 0.5s ease" }}
-              onLoad={() => setBgLoaded(true)}
-              onError={() => setBgLoaded(false)}
-            />
+              onLoad={() => setBgLoaded(true)} onError={() => setBgLoaded(false)} />
           ) : (
             <div style={{ position: "absolute", inset: 0 }}><Poster file={file} size="banner" /></div>
           )}
           <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom,transparent 30%,#111 100%)" }} />
-          <button
-            onClick={onClose}
-            style={{ position: "absolute", top: 14, right: 14, width: 36, height: 36, borderRadius: "50%", background: "rgba(0,0,0,.75)", border: "1px solid #2a2a2a", color: "#aaa", fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
-          >✕</button>
+          <button onClick={onClose} style={{ position: "absolute", top: 14, right: 14, width: 36, height: 36, borderRadius: "50%", background: "rgba(0,0,0,.75)", border: "1px solid #2a2a2a", color: "#aaa", fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
         </div>
-
         <div style={{ padding: "0 18px 34px" }}>
           <div style={{ fontSize: 20, fontWeight: 900, color: "#fff", lineHeight: 1.3, marginBottom: 12 }}>{name}</div>
-
           <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 14 }}>
             {q && <span style={{ padding: "4px 12px", borderRadius: 8, fontSize: 11, fontWeight: 700, background: qualityColor(q), color: "#fff" }}>{q}</span>}
             {year && <span style={{ padding: "4px 12px", borderRadius: 8, fontSize: 11, background: "#222", color: "#888" }}>{year}</span>}
@@ -446,40 +412,21 @@ function DetailModal({ file, onClose }) {
               </span>
             )}
           </div>
-
-          {posterData?.genre && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
-              {posterData.genre.split(", ").map(g => (
-                <span key={g} style={{ padding: "4px 12px", borderRadius: 20, fontSize: 10, background: "#1c1c1c", color: "#666", border: "1px solid #252525" }}>{g}</span>
-              ))}
-            </div>
-          )}
-
           {posterData?.plot && (
-            <p style={{ fontSize: 12.5, color: "#5a5a5a", lineHeight: 1.7, marginBottom: 20, borderLeft: "2px solid #222", paddingLeft: 12 }}>
-              {posterData.plot}
-            </p>
+            <p style={{ fontSize: 12.5, color: "#5a5a5a", lineHeight: 1.7, marginBottom: 20, borderLeft: "2px solid #222", paddingLeft: 12 }}>{posterData.plot}</p>
           )}
-
           <div style={{ display: "flex", gap: 10 }}>
-            <a
-              href={link}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ flex: 1, padding: "15px 0", borderRadius: 16, background: "linear-gradient(135deg,#f39c12,#e74c3c)", color: "#fff", fontSize: 14, fontWeight: 700, textAlign: "center", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, boxShadow: "0 4px 22px rgba(243,156,18,.32)" }}
-            >
+            <a href={link} target="_blank" rel="noopener noreferrer"
+              style={{ flex: 1, padding: "15px 0", borderRadius: 16, background: "linear-gradient(135deg,#f39c12,#e74c3c)", color: "#fff", fontSize: 14, fontWeight: 700, textAlign: "center", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, boxShadow: "0 4px 22px rgba(243,156,18,.32)" }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-2.03 9.571c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.893.65z" />
               </svg>
               Open in Telegram
             </a>
-            <button
-              onClick={handleShare}
-              style={{ width: 54, height: 54, borderRadius: 16, background: "#1e1e1e", border: "1px solid #2a2a2a", color: "#777", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all .15s" }}
-            >
+            <button onClick={handleShare} style={{ width: 54, height: 54, borderRadius: 16, background: "#1e1e1e", border: "1px solid #2a2a2a", color: "#777", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+                <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
               </svg>
             </button>
           </div>
@@ -499,18 +446,14 @@ function FilterRow({ label, items, active, onSelect, accent }) {
         {items.map(item => {
           const on = active === item;
           return (
-            <button
-              key={item}
-              onClick={() => onSelect(item)}
-              style={{
-                padding: "6px 15px", borderRadius: 20, border: "none", cursor: "pointer",
-                fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", transition: "all .15s",
-                background: on ? (accent ? "linear-gradient(135deg,#f39c12,#e74c3c)" : "#f0f0f0") : "#1e1e1e",
-                color: on ? (accent ? "#fff" : "#111") : "#555",
-                boxShadow: on && accent ? "0 2px 12px rgba(243,156,18,.3)" : "none",
-                transform: on ? "scale(1.04)" : "scale(1)",
-              }}
-            >{item}</button>
+            <button key={item} onClick={() => onSelect(item)} style={{
+              padding: "6px 15px", borderRadius: 20, border: "none", cursor: "pointer",
+              fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", transition: "all .15s",
+              background: on ? (accent ? "linear-gradient(135deg,#f39c12,#e74c3c)" : "#f0f0f0") : "#1e1e1e",
+              color: on ? (accent ? "#fff" : "#111") : "#555",
+              boxShadow: on && accent ? "0 2px 12px rgba(243,156,18,.3)" : "none",
+              transform: on ? "scale(1.04)" : "scale(1)",
+            }}>{item}</button>
           );
         })}
       </div>
@@ -545,7 +488,6 @@ function SkeletonFile() {
 
 // ── Main App ─────────────────────────────────────────────────────────
 export default function App() {
-  // "home" = home page, "search" = search results page
   const [tab, setTab] = useState("home");
   const [query, setQuery] = useState("");
   const [quality, setQuality] = useState("All");
@@ -571,13 +513,9 @@ export default function App() {
     if (tab !== "home") return;
     setHomeLoading(true);
     Promise.all([
-      fetchTrending("all", 12),
-      fetchTrending("all", 20),
-      fetchTrending("series", 10),
-      fetchTrending("hindi", 10),
-      fetchTrending("malayalam", 10),
-      fetchTrending("tamil", 10),
-      fetchTrending("movies", 10),
+      fetchTrending("all", 12), fetchTrending("all", 20), fetchTrending("series", 10),
+      fetchTrending("hindi", 10), fetchTrending("malayalam", 10),
+      fetchTrending("tamil", 10), fetchTrending("movies", 10),
     ]).then(([all, global, series, hindi, mal, tamil, movies]) => {
       setNowPlaying(all.slice(0, 8));
       setGlobalTrend(global.slice(0, 10));
@@ -607,13 +545,11 @@ export default function App() {
 
   const clearAll = () => { setQuery(""); setQuality("All"); setLanguage("All"); };
 
-  // Home card click: set query + switch to search + auto-search
   const handleHomeCardClick = (movieTitle) => {
     setQuery(movieTitle);
     setQuality("All");
     setLanguage("All");
     setTab("search");
-    // Immediately trigger search with this title
     setLoading(true);
     fetchFiles(movieTitle, "All", "All").then(results => {
       setFiles(results);
@@ -625,21 +561,15 @@ export default function App() {
     <div style={{ background: "#0d0d0d", minHeight: "100vh", fontFamily: "'DM Sans',sans-serif", color: "#eee", maxWidth: 480, margin: "0 auto" }}>
       <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&family=Bebas+Neue&display=swap" />
 
-      {/* Header — sirf logo + search button, koi tabs nahi */}
+      {/* Header */}
       <div style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(13,13,13,.97)", borderBottom: "1px solid #181818", padding: "14px 16px 14px", backdropFilter: "blur(12px)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          {/* Logo — click karne pe home pe wapas */}
-          <span
-            onClick={() => setTab("home")}
-            style={{ fontSize: 28, fontWeight: 900, fontFamily: "'Bebas Neue',sans-serif", letterSpacing: 3, lineHeight: 1, cursor: "pointer" }}
-          >
+          <span onClick={() => setTab("home")} style={{ fontSize: 28, fontWeight: 900, fontFamily: "'Bebas Neue',sans-serif", letterSpacing: 3, lineHeight: 1, cursor: "pointer" }}>
             <span style={{ color: "#f39c12" }}>SUHANI</span><span style={{ color: "#e74c3c" }}> SEARCH</span>
           </span>
-          <button
-            onClick={() => { setTab("search"); setTimeout(() => inputRef.current?.focus(), 150); }}
-            style={{ background: "#181818", border: "1px solid #252525", borderRadius: 22, padding: "7px 14px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", color: "#555", fontSize: 12 }}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <button onClick={() => { setTab("search"); setTimeout(() => inputRef.current?.focus(), 150); }}
+            style={{ background: "#181818", border: "1px solid #252525", borderRadius: 22, padding: "7px 14px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", color: "#555", fontSize: 12 }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2.5"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
             Search...
           </button>
         </div>
@@ -675,7 +605,7 @@ export default function App() {
         </div>
       )}
 
-      {/* SEARCH PAGE */}
+      {/* SEARCH */}
       {tab === "search" && (
         <div>
           <div style={{ padding: "18px 16px 0" }}>
@@ -686,7 +616,8 @@ export default function App() {
                   {nowPlaying.slice(0, 6).map(f => {
                     const t = extractMovieTitle(f.file_name);
                     return (
-                      <button key={f.file_id} onClick={() => handleHomeCardClick(t)} style={{ padding: "7px 14px", borderRadius: 20, background: "#181818", border: "1px solid #252525", color: "#888", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+                      <button key={f.file_id} onClick={() => handleHomeCardClick(t)}
+                        style={{ padding: "7px 14px", borderRadius: 20, background: "#181818", border: "1px solid #252525", color: "#888", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
                         <span style={{ fontSize: 10 }}>🔥</span>{t}
                       </button>
                     );
@@ -694,23 +625,17 @@ export default function App() {
                 </div>
               </>
             )}
-
-            {/* Search Box */}
             <div style={{ background: "#141414", borderRadius: 20, padding: "14px 16px", border: `1px solid ${focused ? "#2e2e2e" : "#1e1e1e"}`, marginBottom: 18, transition: "border-color .2s", boxShadow: focused ? "0 0 0 3px rgba(243,156,18,.05)" : "none" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#1a1a1a", border: `1px solid ${focused ? "#2e2e2e" : "#222"}`, borderRadius: 14, padding: "11px 14px", marginBottom: 16, transition: "border-color .2s" }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                <input
-                  ref={inputRef}
-                  value={query}
-                  onChange={e => setQuery(e.target.value)}
-                  onFocus={() => setFocused(true)}
-                  onBlur={() => setFocused(false)}
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2.5"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+                <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)}
+                  onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
                   onKeyDown={e => e.key === "Enter" && doSearch()}
                   placeholder="Search movies, series..."
-                  style={{ flex: 1, background: "transparent", border: "none", outline: "none", fontSize: 14, color: "#eee" }}
-                />
+                  style={{ flex: 1, background: "transparent", border: "none", outline: "none", fontSize: 14, color: "#eee" }} />
                 {query && (
-                  <button onClick={() => { setQuery(""); inputRef.current?.focus(); }} style={{ background: "#252525", border: "none", borderRadius: "50%", width: 22, height: 22, color: "#666", cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+                  <button onClick={() => { setQuery(""); inputRef.current?.focus(); }}
+                    style={{ background: "#252525", border: "none", borderRadius: "50%", width: 22, height: 22, color: "#666", cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
                 )}
               </div>
               <FilterRow label="QUALITY" items={QUALITIES} active={quality} onSelect={setQuality} accent />
@@ -727,9 +652,7 @@ export default function App() {
                 <button onClick={clearAll} style={{ background: "none", border: "none", color: "#e74c3c", fontSize: 12, cursor: "pointer", fontWeight: 700 }}>Clear all</button>
               )}
             </div>
-
-            {loading && <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{[1,2,3,4].map(i => <SkeletonFile key={i} />)}</div>}
-
+            {loading && <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{[1, 2, 3, 4].map(i => <SkeletonFile key={i} />)}</div>}
             {!loading && (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {files.map((f, i) => (
@@ -739,7 +662,6 @@ export default function App() {
                 ))}
               </div>
             )}
-
             {!loading && files.length === 0 && (query || quality !== "All" || language !== "All") && (
               <div style={{ textAlign: "center", padding: "70px 20px" }}>
                 <div style={{ fontSize: 56, marginBottom: 16 }}>🎬</div>
@@ -748,12 +670,11 @@ export default function App() {
                 <button onClick={clearAll} style={{ marginTop: 20, padding: "10px 24px", borderRadius: 20, background: "linear-gradient(135deg,#f39c12,#e74c3c)", border: "none", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Reset Filters</button>
               </div>
             )}
-
             {!loading && files.length === 0 && !query && quality === "All" && language === "All" && (
               <div style={{ textAlign: "center", padding: "60px 20px" }}>
                 <div style={{ fontSize: 52, marginBottom: 16 }}>🔍</div>
                 <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 8, color: "#ccc" }}>Search anything</div>
-                <div style={{ fontSize: 13, color: "#444", lineHeight: 1.6 }}>Type a movie name, series title,<br/>or pick from trending above</div>
+                <div style={{ fontSize: 13, color: "#444", lineHeight: 1.6 }}>Type a movie name, series title,<br />or pick from trending above</div>
               </div>
             )}
           </div>
@@ -762,7 +683,7 @@ export default function App() {
 
       {/* Footer */}
       <div style={{ textAlign: "center", padding: "12px 16px 28px", borderTop: "1px solid #181818", fontSize: 11, color: "#2e2e2e" }}>
-        <p style={{ margin: "0 0 6px", lineHeight: 1.7 }}>All contents are publicly available on Telegram.<br/>We do not host any files.</p>
+        <p style={{ margin: "0 0 6px", lineHeight: 1.7 }}>All contents are publicly available on Telegram.<br />We do not host any files.</p>
         <div style={{ display: "flex", justifyContent: "center", gap: 16, alignItems: "center" }}>
           <span>© 2026 Suhani Search</span>
           <span style={{ color: "#1e1e1e" }}>•</span>
