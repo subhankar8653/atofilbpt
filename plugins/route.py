@@ -66,14 +66,13 @@ async def api_search_handler(request: web.Request):
         return web.json_response({"files": [], "total": 0}, status=500)
 
 
-# ── /api/poster — OMDB se movie poster fetch karna ───────────────────────────
+# ── /api/poster — TMDB se movie poster fetch karna ───────────────────────────
 @routes.get("/api/poster")
 async def api_poster_handler(request: web.Request):
     """
-    OMDB API se movie poster fetch karta hai.
+    TMDB API se movie/series poster fetch karta hai.
     Usage: /api/poster?title=Inception&year=2010
-    OMDB_API_KEY env variable mein set karo (info.py mein add karo):
-      OMDB_API_KEY = environ.get('OMDB_API_KEY', '')
+    TMDB_API_KEY env variable mein set karo Railway mein.
     """
     try:
         title = request.rel_url.query.get("title", "").strip()
@@ -81,30 +80,78 @@ async def api_poster_handler(request: web.Request):
         if not title:
             return web.json_response({"poster": None, "error": "title required"}, status=400)
 
-        omdb_key = getattr(__import__('info'), 'OMDB_API_KEY', '') or ""
-        if not omdb_key:
-            return web.json_response({"poster": None, "error": "OMDB_API_KEY not set"}, status=200)
+        tmdb_key = getattr(__import__('info'), 'TMDB_API_KEY', '') or ""
+        if not tmdb_key:
+            return web.json_response({"poster": None, "error": "TMDB_API_KEY not set"}, status=200)
 
-        params = {"apikey": omdb_key, "t": title, "type": "movie"}
-        if year:
-            params["y"] = year
+        headers = {"Authorization": f"Bearer {tmdb_key}", "accept": "application/json"}
+        base_img = "https://image.tmdb.org/t/p/w500"
 
         async with aiohttp_client.ClientSession() as session:
-            async with session.get("https://www.omdbapi.com/", params=params, timeout=aiohttp_client.ClientTimeout(total=5)) as resp:
+            # Search movie first
+            params = {"query": title, "language": "en-US", "page": 1}
+            if year:
+                params["year"] = year
+
+            result = None
+
+            # Try movie search
+            async with session.get(
+                "https://api.themoviedb.org/3/search/movie",
+                params=params, headers=headers,
+                timeout=aiohttp_client.ClientTimeout(total=6)
+            ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    poster = data.get("Poster", "")
-                    if poster and poster != "N/A":
-                        imdb_rating = data.get("imdbRating", "N/A")
-                        genre       = data.get("Genre", "")
-                        plot        = data.get("Plot", "")
-                        return web.json_response({
-                            "poster": poster,
-                            "imdb_rating": imdb_rating,
-                            "genre": genre,
-                            "plot": plot,
-                        })
-        return web.json_response({"poster": None})
+                    results = data.get("results", [])
+                    if results:
+                        result = results[0]
+                        media_type = "movie"
+
+            # If not found, try TV search
+            if not result:
+                tv_params = {"query": title, "language": "en-US", "page": 1}
+                async with session.get(
+                    "https://api.themoviedb.org/3/search/tv",
+                    params=tv_params, headers=headers,
+                    timeout=aiohttp_client.ClientTimeout(total=6)
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        results = data.get("results", [])
+                        if results:
+                            result = results[0]
+                            media_type = "tv"
+
+            if not result:
+                return web.json_response({"poster": None})
+
+            poster_path = result.get("poster_path")
+            poster_url  = f"{base_img}{poster_path}" if poster_path else None
+            rating      = result.get("vote_average")
+            imdb_rating = f"{rating:.1f}" if rating else "N/A"
+            plot        = result.get("overview", "")
+            genre       = ""
+
+            # Fetch genre names
+            item_id = result.get("id")
+            if item_id:
+                detail_url = f"https://api.themoviedb.org/3/{media_type}/{item_id}"
+                async with session.get(
+                    detail_url, headers=headers,
+                    timeout=aiohttp_client.ClientTimeout(total=5)
+                ) as dresp:
+                    if dresp.status == 200:
+                        ddata = await dresp.json()
+                        genres = ddata.get("genres", [])
+                        genre  = ", ".join(g["name"] for g in genres[:3])
+
+            return web.json_response({
+                "poster":      poster_url,
+                "imdb_rating": imdb_rating,
+                "genre":       genre,
+                "plot":        plot,
+            })
 
     except Exception as e:
         logging.error(f"Poster API error: {e}")
