@@ -41,8 +41,13 @@ function cleanFileName(name = "") {
   return name.replace(/\.(mkv|mp4|avi|mov|webm)$/i, "").replace(/[-_.+]/g, " ").trim();
 }
 function extractMovieTitle(name = "") {
-  const m = name.match(/^(.*?)\s*[\[(]?\b(19|20)\d{2}\b/);
-  return m ? m[1].trim() : cleanFileName(name).split(" ").slice(0, 4).join(" ");
+  let n = name.replace(/\.(mkv|mp4|avi|mov|webm)$/i, "");
+  n = n.replace(/[_\-.+]/g, " ").trim();
+  n = n.replace(/\b(19|20)\d{2}\b.*/i, "").trim();
+  n = n.replace(/\b(480p|720p|1080p|2160p|4k|hdrip|webrip|web\s?dl|bluray|hdcam|dvdrip|tataplay|hotstar|zee5|sonyliv|amazon|netflix|hbomax|predvd|hdts|camrip|x264|x265|h264|h265|hevc|aac|dd5|dts|multi|dual|hindi|english|tamil|telugu|malayalam|kannada|bengali|punjabi|org|hq|esub|sub|dubbed|proper|repack|S\d{2}E\d{2}|E\d{2,3}|\d{1,2}:\d{2})\b/gi, " ");
+  n = n.replace(/\s+/g, " ").trim();
+  const words = n.split(" ").filter(w => w.length > 1);
+  return words.slice(0, 5).join(" ") || cleanFileName(name).split(" ").slice(0, 3).join(" ");
 }
 
 async function fetchFiles(query, quality, language, limit = 20) {
