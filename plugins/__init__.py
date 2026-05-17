@@ -1,13 +1,13 @@
 
 from aiohttp import web
-from .route import routes
+from .route import routes, cors_middleware
 from asyncio import sleep 
 from datetime import datetime
 from database.users_chats_db import db
 from info import LOG_CHANNEL
 
 async def web_server():
-    web_app = web.Application(client_max_size=30000000)
+    web_app = web.Application(client_max_size=30000000, middlewares=[cors_middleware])
     web_app.add_routes(routes)
     return web_app
 

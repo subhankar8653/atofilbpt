@@ -12,10 +12,57 @@ from LucyBot.zzint import StartTime, __version__
 from LucyBot.util.custom_dl import ByteStreamer
 from LucyBot.util.time_format import get_readable_time
 from LucyBot.util.render_template import render_page
+from database.ia_filterdb import get_search_results
 from info import *
 
 
 routes = web.RouteTableDef()
+
+# ── CORS middleware — website se API call ke liye zaroori ─────────────────────
+@web.middleware
+async def cors_middleware(request, handler):
+    if request.method == "OPTIONS":
+        return web.Response(headers={
+            "Access-Control-Allow-Origin":  "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
+        })
+    response = await handler(request)
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    return response
+
+# ── /api/search — website ke liye file search endpoint ───────────────────────
+@routes.get("/api/search")
+async def api_search_handler(request: web.Request):
+    try:
+        q        = request.rel_url.query.get("q", "").strip()
+        quality  = request.rel_url.query.get("quality",  "All")
+        language = request.rel_url.query.get("language", "All")
+        limit    = min(int(request.rel_url.query.get("limit", "20")), 50)
+
+        files, _, total = await get_search_results(None, q or ".", max_results=limit)
+
+        result = []
+        for f in files:
+            name = f.file_name or ""
+            if quality != "All":
+                if not re.search(quality, name, re.IGNORECASE):
+                    continue
+            if language != "All":
+                if not re.search(language, name, re.IGNORECASE):
+                    continue
+            result.append({
+                "file_id":   f.file_id,
+                "file_name": name,
+                "file_size": f.file_size or 0,
+                "caption":   f.caption or "",
+            })
+
+        return web.json_response({"files": result, "total": len(result)})
+
+    except Exception as e:
+        logging.error(f"API search error: {e}")
+        return web.json_response({"files": [], "total": 0}, status=500)
 
 @routes.get("/", allow_head=True)
 async def root_route_handler(_):
