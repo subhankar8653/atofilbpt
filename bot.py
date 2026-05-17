@@ -37,9 +37,9 @@ botStartTime = time.time()
 ppath = "plugins/*.py"
 files = glob.glob(ppath)
 
-async def Lucy_start():
+async def Suhani_start():
     print('\n')
-    print('\nInitalizing Lucy')
+    print('\nInitalizing Suhani')
     await Codeflix.start()
     bot_info = await Codeflix.get_me()
     Codeflix.username = bot_info.username
@@ -47,14 +47,14 @@ async def Lucy_start():
     for name in files:
         with open(name) as a:
             patt = Path(a.name)
-            plugin_name = patt.stem.replace(".py", "")
+            plugin_name = patt.stem
             plugins_dir = Path(f"plugins/{plugin_name}.py")
             import_path = "plugins.{}".format(plugin_name)
             spec = importlib.util.spec_from_file_location(import_path, plugins_dir)
             load = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(load)
             sys.modules["plugins." + plugin_name] = load
-            print("Lucy Bot Imported => " + plugin_name)
+            print("Suhani Bot Imported => " + plugin_name)
     if ON_HEROKU:
         asyncio.create_task(ping_server()) 
     b_users, b_chats = await db.get_banned()
@@ -86,8 +86,8 @@ async def Lucy_start():
     tz = pytz.timezone('Asia/Kolkata')
     today = date.today()
     now = datetime.now(tz)
-    time = now.strftime("%H:%M:%S %p")
-    await Codeflix.send_message(chat_id=LOG_CHANNEL, text=script.RESTART_TXT.format(temp.B_LINK, today, time))
+    current_time = now.strftime("%H:%M:%S %p")
+    await Codeflix.send_message(chat_id=LOG_CHANNEL, text=script.RESTART_TXT.format(temp.B_LINK, today, current_time))
     app = web.AppRunner(await web_server())
     await app.setup()
     bind_address = "0.0.0.0"
@@ -97,6 +97,6 @@ async def Lucy_start():
 if __name__ == '__main__':
     loop = asyncio.get_event_loop()
     try:
-        loop.run_until_complete(Lucy_start())
+        loop.run_until_complete(Suhani_start())
     except KeyboardInterrupt:
         logging.info('Service Stopped Bye 👋')
