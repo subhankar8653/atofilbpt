@@ -5,6 +5,7 @@ import logging
 import secrets
 import time
 import mimetypes
+import aiohttp as aiohttp_client
 from aiohttp.http_exceptions import BadStatusLine
 from LucyBot.Bot import multi_clients, work_loads, Codeflix
 from LucyBot.server.exceptions import FIleNotFound, InvalidHash
@@ -63,6 +64,93 @@ async def api_search_handler(request: web.Request):
     except Exception as e:
         logging.error(f"API search error: {e}")
         return web.json_response({"files": [], "total": 0}, status=500)
+
+
+# ── /api/poster — OMDB se movie poster fetch karna ───────────────────────────
+@routes.get("/api/poster")
+async def api_poster_handler(request: web.Request):
+    """
+    OMDB API se movie poster fetch karta hai.
+    Usage: /api/poster?title=Inception&year=2010
+    OMDB_API_KEY env variable mein set karo (info.py mein add karo):
+      OMDB_API_KEY = environ.get('OMDB_API_KEY', '')
+    """
+    try:
+        title = request.rel_url.query.get("title", "").strip()
+        year  = request.rel_url.query.get("year", "").strip()
+        if not title:
+            return web.json_response({"poster": None, "error": "title required"}, status=400)
+
+        omdb_key = getattr(__import__('info'), 'OMDB_API_KEY', '') or ""
+        if not omdb_key:
+            return web.json_response({"poster": None, "error": "OMDB_API_KEY not set"}, status=200)
+
+        params = {"apikey": omdb_key, "t": title, "type": "movie"}
+        if year:
+            params["y"] = year
+
+        async with aiohttp_client.ClientSession() as session:
+            async with session.get("https://www.omdbapi.com/", params=params, timeout=aiohttp_client.ClientTimeout(total=5)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    poster = data.get("Poster", "")
+                    if poster and poster != "N/A":
+                        imdb_rating = data.get("imdbRating", "N/A")
+                        genre       = data.get("Genre", "")
+                        plot        = data.get("Plot", "")
+                        return web.json_response({
+                            "poster": poster,
+                            "imdb_rating": imdb_rating,
+                            "genre": genre,
+                            "plot": plot,
+                        })
+        return web.json_response({"poster": None})
+
+    except Exception as e:
+        logging.error(f"Poster API error: {e}")
+        return web.json_response({"poster": None})
+
+
+# ── /api/trending — trending/latest files fetch karna ────────────────────────
+@routes.get("/api/trending")
+async def api_trending_handler(request: web.Request):
+    """
+    Latest indexed files return karta hai — homepage categories ke liye.
+    category param: all | series | movies | hindi | malayalam | tamil
+    """
+    try:
+        category = request.rel_url.query.get("category", "all").lower()
+        limit    = min(int(request.rel_url.query.get("limit", "12")), 30)
+
+        # Category ke hisaab se search query set karo
+        query_map = {
+            "series":   "S0",          # S01, S02 etc wale series hain
+            "movies":   ".",
+            "hindi":    "Hindi",
+            "malayalam":"Malayalam",
+            "tamil":    "Tamil",
+            "telugu":   "Telugu",
+            "all":      ".",
+        }
+        q = query_map.get(category, ".")
+        files, _, total = await get_search_results(None, q, max_results=limit)
+
+        result = []
+        for f in files:
+            name = f.file_name or ""
+            result.append({
+                "file_id":   f.file_id,
+                "file_name": name,
+                "file_size": f.file_size or 0,
+                "caption":   f.caption or "",
+            })
+
+        return web.json_response({"files": result, "total": len(result)})
+
+    except Exception as e:
+        logging.error(f"Trending API error: {e}")
+        return web.json_response({"files": [], "total": 0}, status=500)
+
 
 @routes.get("/", allow_head=True)
 async def root_route_handler(_):
@@ -179,7 +267,6 @@ async def media_streamer(request: web.Request, id: int, secure_hash: str, dispos
         from_bytes = 0
         until_bytes = file_size - 1
 
-    # Validate range
     if until_bytes >= file_size or from_bytes < 0 or until_bytes < from_bytes:
         return web.Response(
             status=416,
@@ -201,8 +288,6 @@ async def media_streamer(request: web.Request, id: int, secure_hash: str, dispos
             file_name = f"{secrets.token_hex(2)}.{mime_type.split('/')[1]}"
         except (IndexError, AttributeError):
             file_name = f"{secrets.token_hex(2)}.unknown"
-
-    # disposition parameter se aata hai - inline=stream, attachment=download
 
     response = web.StreamResponse(
         status=206 if range_header else 200,
