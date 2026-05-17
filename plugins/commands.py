@@ -80,7 +80,7 @@ async def start(client, message):
             gtxt = "ɢᴏᴏᴅ ᴇᴠᴇɴɪɴɢ 👋"
         else:
             gtxt = "ɢᴏᴏᴅ ɴɪɢʜᴛ 👋"
-        m=await message.reply_text("<i>ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ <b>ʟᴜᴄʏ</b>.\nʜᴏᴘᴇ ʏᴏᴜ'ʀᴇ ᴅᴏɪɴɢ ᴡᴇʟʟ...</i>")
+        m=await message.reply_text("<i>ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ <b>ꜱᴜʜᴀɴɪ</b>.\nʜᴏᴘᴇ ʏᴏᴜ'ʀᴇ ᴅᴏɪɴɢ ᴡᴇʟʟ...</i>")
         await asyncio.sleep(0.4)
         await m.edit_text("⏳")
         await asyncio.sleep(0.5)
@@ -351,13 +351,13 @@ async def start(client, message):
             current_time = now.strftime("%H:%M:%S")
             current_date = now.strftime("%Y-%m-%d")
             
-            lucy_message = (
+            verify_message = (
                 f"Name: {message.from_user.mention}\n"
                 f"Time: {current_time}\n"
                 f"Date: {current_date}\n"
                 f"#verify_completed"
             )
-            await client.send_message(chat_id=VERIFIED_LOG, text=lucy_message)
+            await client.send_message(chat_id=VERIFIED_LOG, text=verify_message)
 
         else:
             return await message.reply_text(
