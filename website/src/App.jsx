@@ -94,26 +94,24 @@ function extractSeason(name = "") {
 function isSeries(name = "") {
   return /[Ss]\d{1,2}[Ee]\d{1,3}|\b[Ee]pisode[\s._]?\d|\b[Ee][Pp]\d/i.test(name);
 }
-// Language extract karo — NO promotion, clean only
+// Language extract karo — sirf full word match, NO short codes (prevent false match)
 function extractLanguage(name = "") {
-  // Clean first
   name = stripPromotion(name);
+  // Order matters — longer/specific first to avoid false positives
   const langs = [
-    ["Hindi",["hindi","hin"]],
-    ["English",["english","eng"]],
-    ["Tamil",["tamil","tam"]],
-    ["Telugu",["telugu","tel"]],
-    ["Malayalam",["malayalam","mal"]],
-    ["Kannada",["kannada","kan"]],
-    ["Bengali",["bengali","ban"]],
-    ["Punjabi",["punjabi","pan"]],
-    ["Multi",["multi","multilingual"]],
-    ["Dual",["dual","dubbed"]],
+    ["Malayalam", /\bmalayalam\b/i],
+    ["Kannada",   /\bkannada\b/i],
+    ["Bengali",   /\bbengali\b/i],
+    ["Punjabi",   /\bpunjabi\b/i],
+    ["Telugu",    /\btelugu\b/i],
+    ["Tamil",     /\btamil\b/i],
+    ["English",   /\benglish\b/i],
+    ["Hindi",     /\bhindi\b/i],
+    ["Multi",     /\b(multi|multilingual)\b/i],
+    ["Dual",      /\b(dual|dubbed)\b/i],
   ];
-  for (const [label, variants] of langs) {
-    for (const v of variants) {
-      if (new RegExp("\\b" + v + "\\b", "i").test(name)) return label;
-    }
+  for (const [label, rx] of langs) {
+    if (rx.test(name)) return label;
   }
   return null;
 }
@@ -159,7 +157,22 @@ async function fetchFiles(query, quality, language, limit = 50) {
     const res = await fetch(`${API_BASE}/api/search?${params}`);
     if (!res.ok) throw new Error("API error");
     const data = await res.json();
-    return data.files || [];
+    let files = data.files || [];
+
+    // Client-side filter bhi lagao — API filter reliable nahi hota
+    if (quality && quality !== "All") {
+      files = files.filter(f => {
+        const q = extractQuality(f.file_name);
+        return q && q.toUpperCase() === quality.toUpperCase().replace("P","") + "P";
+      });
+    }
+    if (language && language !== "All") {
+      files = files.filter(f => {
+        const l = extractLanguage(f.file_name);
+        return l && l.toLowerCase() === language.toLowerCase();
+      });
+    }
+    return files;
   } catch { return []; }
 }
 
@@ -1048,7 +1061,14 @@ export default function App() {
           <div style={{ padding: "0 16px 30px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <span style={{ fontSize: 12, color: "#3a3a3a", fontWeight: 600 }}>
-                {loading ? "Searching..." : (query || quality !== "All" || language !== "All") ? `${files.length} result${files.length !== 1 ? "s" : ""} found` : ""}
+                {loading ? "Searching..." : (query || quality !== "All" || language !== "All") ? (() => {
+                const g = groupFilesForDisplay(files, quality);
+                if (g.type === "series") {
+                  const totalEp = g.seasons.reduce((sum, s) => sum + s.epGroups.length, 0);
+                  return `${totalEp} episode${totalEp !== 1 ? "s" : ""} found`;
+                }
+                return `${files.length} result${files.length !== 1 ? "s" : ""} found`;
+              })() : ""}
               </span>
               {(query || quality !== "All" || language !== "All") && (
                 <button onClick={clearAll} style={{ background: "none", border: "none", color: "#e74c3c", fontSize: 12, cursor: "pointer", fontWeight: 700 }}>Clear all</button>
