@@ -287,7 +287,10 @@ const CATEGORY_LANG_FILTER = {
 async function fetchDBCategory(category, limit = 12) {
   try {
     const params = new URLSearchParams({ category, limit: limit * 4 });
-    const res = await fetch(`${API_BASE}/api/trending?${params}`);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 18000); // 18s timeout
+    const res = await fetch(`${API_BASE}/api/trending?${params}`, { signal: controller.signal });
+    clearTimeout(timer);
     if (!res.ok) throw new Error();
     const data = await res.json();
     let files = data.files || [];
@@ -334,7 +337,7 @@ async function fetchDBCategory(category, limit = 12) {
 }
 
 // ── TMDB Card ─────────────────────────────────────────────────────────
-function TMDBCard({ item, onClick }) {
+function TMDBCard({ item, onClick, gridMode = false }) {
   const [hov, setHov] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
@@ -347,10 +350,11 @@ function TMDBCard({ item, onClick }) {
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{
-        width: 120, flexShrink: 0, cursor: "pointer", borderRadius: 16, overflow: "hidden",
+        width: gridMode ? "100%" : 120,
+        flexShrink: 0, cursor: "pointer", borderRadius: 16, overflow: "hidden",
         background: "#141414",
         border: `1px solid ${hov ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)"}`,
-        transform: hov ? "scale(1.05) translateY(-4px)" : "scale(1)",
+        transform: hov ? "scale(1.03) translateY(-2px)" : "scale(1)",
         transition: "transform .25s cubic-bezier(.34,1.56,.64,1), border-color .2s, box-shadow .2s",
         boxShadow: hov ? `0 16px 40px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,0.06)` : "0 2px 8px rgba(0,0,0,.3)",
       }}
@@ -959,6 +963,52 @@ function SkeletonFile() {
   );
 }
 
+// ── Category Full Page ────────────────────────────────────────────────
+function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
+  const [items, setItems] = useState(initialItems || []);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!category) return;
+    setLoading(true);
+    fetchDBCategory(category, 50).then(data => {
+      if (data && data.length > 0) setItems(data);
+      setLoading(false);
+    });
+  }, [category]);
+
+  return (
+    <div style={{ paddingBottom: 36 }}>
+      {/* Header */}
+      <div style={{ padding: "16px 16px 12px", display: "flex", alignItems: "center", gap: 12, position: "sticky", top: 64, zIndex: 50, background: "rgba(10,10,10,0.95)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+        <button onClick={onBack}
+          style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "50%", width: 34, height: 34, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2.5" strokeLinecap="round"><path d="M19 12H5M12 5l-7 7 7 7" /></svg>
+        </button>
+        <span style={{ fontSize: 15, fontWeight: 900, color: "#e8e8e8", letterSpacing: 0.5 }}>{title}</span>
+        {loading && <div style={{ marginLeft: "auto", width: 16, height: 16, borderRadius: "50%", border: "2px solid rgba(243,156,18,0.3)", borderTopColor: "#f39c12", animation: "spin 0.8s linear infinite" }} />}
+        {!loading && <span style={{ marginLeft: "auto", fontSize: 11, color: "#444" }}>{items.length} titles</span>}
+      </div>
+
+      {/* 3-column grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, padding: "14px 12px" }}>
+        {items.map((item, i) => (
+          <div key={item.id || i} style={{ animation: `fadeIn .2s ease ${Math.min(i, 12) * 0.03}s both` }}>
+            <TMDBCard item={item} onClick={onItemClick} gridMode />
+          </div>
+        ))}
+      </div>
+
+      {!loading && items.length === 0 && (
+        <div style={{ textAlign: "center", padding: "60px 20px" }}>
+          <div style={{ fontSize: 44, marginBottom: 12 }}>🎬</div>
+          <div style={{ fontSize: 14, color: "#555" }}>Koi content nahi mila</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main App ──────────────────────────────────────────────────────────
 function App() {
   const [tab, setTab] = useState("home");
@@ -978,17 +1028,35 @@ function App() {
     englishFils: [], topRated: [], heroBanner: null,
   });
   const [homeLoading, setHomeLoading] = useState(true);
+  const [serverWaking, setServerWaking] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   const inputRef = useRef(null);
 
   useEffect(() => {
     if (tab !== "home") return;
     setHomeLoading(true);
+    setServerWaking(false);
+    setLoadError(false);
+
+    // Agar 4 sec mein response nahi aaya toh "server warm ho raha hai" dikhao
+    const wakingTimer = setTimeout(() => setServerWaking(true), 4000);
+    // 25 sec mein bhi kuch nahi aaya toh error state
+    const errorTimer = setTimeout(() => {
+      setHomeLoading(false);
+      setLoadError(true);
+      setServerWaking(false);
+    }, 25000);
+
     Promise.all([
       fetchDBCategory("all", 12),
       fetchDBCategory("series", 12),
       fetchDBCategory("hindi", 12),
     ]).then(([latest, series, bolly]) => {
+      clearTimeout(wakingTimer);
+      clearTimeout(errorTimer);
+      setServerWaking(false);
+      setLoadError(false);
       const globalItems = latest
         .filter((_, idx) => idx >= 3)
         .concat(bolly.slice(0, 3))
@@ -1022,7 +1090,15 @@ function App() {
           }));
         });
       }, 1000);
+    }).catch(() => {
+      clearTimeout(wakingTimer);
+      clearTimeout(errorTimer);
+      setHomeLoading(false);
+      setLoadError(true);
+      setServerWaking(false);
     });
+
+    return () => { clearTimeout(wakingTimer); clearTimeout(errorTimer); };
   }, [tab]);
 
   const doSearch = useCallback(async (q = query) => {
@@ -1105,6 +1181,20 @@ function App() {
         <div style={{ paddingBottom: 36 }}>
           {homeLoading ? (
             <div style={{ padding: "20px 16px" }}>
+              {/* Server waking up banner */}
+              {serverWaking && (
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  background: "rgba(243,156,18,0.08)", border: "1px solid rgba(243,156,18,0.2)",
+                  borderRadius: 14, padding: "12px 16px", marginBottom: 20,
+                }}>
+                  <div style={{ width: 18, height: 18, borderRadius: "50%", border: "2px solid rgba(243,156,18,0.3)", borderTopColor: "#f39c12", animation: "spin 0.9s linear infinite", flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#f39c12" }}>Server warm ho raha hai...</div>
+                    <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>Render free server 30-60 sec leta hai. Thoda wait karo 🙏</div>
+                  </div>
+                </div>
+              )}
               <div style={{ height: 220, borderRadius: 24, background: "rgba(255,255,255,0.03)", marginBottom: 32, animation: "pulse 1.8s ease infinite" }} />
               {[1, 2, 3].map(i => (
                 <div key={i} style={{ marginBottom: 32 }}>
@@ -1115,6 +1205,24 @@ function App() {
                 </div>
               ))}
             </div>
+          ) : loadError ? (
+            <div style={{ textAlign: "center", padding: "80px 24px" }}>
+              <div style={{ fontSize: 52, marginBottom: 16 }}>🔌</div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: "#ccc", marginBottom: 8 }}>Server se connect nahi hua</div>
+              <div style={{ fontSize: 13, color: "#555", lineHeight: 1.6, marginBottom: 28 }}>
+                Bot server (Render) temporarily down lag raha hai.<br />Thodi der baad try karo ya search use karo.
+              </div>
+              <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+                <button onClick={() => { setHomeLoading(true); setLoadError(false); }}
+                  style={{ padding: "12px 28px", borderRadius: 50, background: "linear-gradient(135deg,#f39c12,#e74c3c)", border: "none", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                  🔄 Retry
+                </button>
+                <button onClick={() => { setTab("search"); setTimeout(() => inputRef.current?.focus(), 150); }}
+                  style={{ padding: "12px 28px", borderRadius: 50, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#aaa", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                  🔍 Search karo
+                </button>
+              </div>
+            </div>
           ) : (
             <>
               {homeData.heroBanner && (
@@ -1122,17 +1230,17 @@ function App() {
                   <HeroBannerTMDB item={homeData.heroBanner} onClick={handleTMDBCardClick} />
                 </div>
               )}
-              <TMDBCategoryRow title="NOW PLAYING" items={homeData.nowPlaying} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "NOW PLAYING", items: homeData.nowPlaying })} />
-              <TMDBCategoryRow title="GLOBAL TRENDING" items={homeData.globalTrend} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "GLOBAL TRENDING", items: homeData.globalTrend })} />
-              <TMDBCategoryRow title="TRENDING SERIES" items={homeData.seriesTrend} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "TRENDING SERIES", items: homeData.seriesTrend })} />
-              <TMDBCategoryRow title="BOLLYWOOD" items={homeData.bollywood} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "BOLLYWOOD", items: homeData.bollywood })} />
-              <TMDBCategoryRow title="TAMIL MOVIES" items={homeData.tamilFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "TAMIL MOVIES", items: homeData.tamilFils })} />
-              <TMDBCategoryRow title="MALAYALAM MOVIES" items={homeData.malayalamFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "MALAYALAM MOVIES", items: homeData.malayalamFils })} />
-              <TMDBCategoryRow title="TELUGU MOVIES" items={homeData.teluguFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "TELUGU MOVIES", items: homeData.teluguFils })} />
-              <TMDBCategoryRow title="KANNADA MOVIES" items={homeData.kannadaFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "KANNADA MOVIES", items: homeData.kannadaFils })} />
-              <TMDBCategoryRow title="BENGALI MOVIES" items={homeData.bengaliFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "BENGALI MOVIES", items: homeData.bengaliFils })} />
-              <TMDBCategoryRow title="ENGLISH MOVIES" items={homeData.englishFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "ENGLISH MOVIES", items: homeData.englishFils })} />
-              <TMDBCategoryRow title="TOP RATED ALL TIME" items={homeData.topRated} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "TOP RATED ALL TIME", items: homeData.topRated })} />
+              <TMDBCategoryRow title="NOW PLAYING" items={homeData.nowPlaying} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "NOW PLAYING", category: "all", items: homeData.nowPlaying })} />
+              <TMDBCategoryRow title="GLOBAL TRENDING" items={homeData.globalTrend} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "GLOBAL TRENDING", category: "all", items: homeData.globalTrend })} />
+              <TMDBCategoryRow title="TRENDING SERIES" items={homeData.seriesTrend} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "TRENDING SERIES", category: "series", items: homeData.seriesTrend })} />
+              <TMDBCategoryRow title="BOLLYWOOD" items={homeData.bollywood} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "BOLLYWOOD", category: "hindi", items: homeData.bollywood })} />
+              <TMDBCategoryRow title="TAMIL MOVIES" items={homeData.tamilFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "TAMIL MOVIES", category: "tamil", items: homeData.tamilFils })} />
+              <TMDBCategoryRow title="MALAYALAM MOVIES" items={homeData.malayalamFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "MALAYALAM MOVIES", category: "malayalam", items: homeData.malayalamFils })} />
+              <TMDBCategoryRow title="TELUGU MOVIES" items={homeData.teluguFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "TELUGU MOVIES", category: "telugu", items: homeData.teluguFils })} />
+              <TMDBCategoryRow title="KANNADA MOVIES" items={homeData.kannadaFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "KANNADA MOVIES", category: "kannada", items: homeData.kannadaFils })} />
+              <TMDBCategoryRow title="BENGALI MOVIES" items={homeData.bengaliFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "BENGALI MOVIES", category: "bengali", items: homeData.bengaliFils })} />
+              <TMDBCategoryRow title="ENGLISH MOVIES" items={homeData.englishFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "ENGLISH MOVIES", category: "english", items: homeData.englishFils })} />
+              <TMDBCategoryRow title="TOP RATED ALL TIME" items={homeData.topRated} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "TOP RATED ALL TIME", category: "all", items: homeData.topRated })} />
             </>
           )}
         </div>
@@ -1140,20 +1248,13 @@ function App() {
 
       {/* ── CATEGORY PAGE ── */}
       {tab === "home" && categoryPage && (
-        <div style={{ paddingBottom: 36 }}>
-          <div style={{ padding: "16px 16px 8px", display: "flex", alignItems: "center", gap: 12 }}>
-            <button onClick={() => setCategoryPage(null)}
-              style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: "#888", padding: 0 }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2.5" strokeLinecap="round"><path d="M19 12H5M12 5l-7 7 7 7" /></svg>
-            </button>
-            <span style={{ fontSize: 15, fontWeight: 800, color: "#e8e8e8" }}>{categoryPage.title}</span>
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, padding: "10px 16px" }}>
-            {categoryPage.items.map(item => (
-              <TMDBCard key={item.id} item={item} onClick={handleTMDBCardClick} />
-            ))}
-          </div>
-        </div>
+        <CategoryPage
+          title={categoryPage.title}
+          category={categoryPage.category}
+          initialItems={categoryPage.items}
+          onBack={() => setCategoryPage(null)}
+          onItemClick={handleTMDBCardClick}
+        />
       )}
 
       {/* ── SEARCH TAB ── */}
