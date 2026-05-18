@@ -86,7 +86,7 @@ async function fetchTrending(category = "all", limit = 12) {
   } catch { return []; }
 }
 
-// ── TMDB Direct API Calls (Proper Categories) ────────────────────────
+// ── TMDB enrichment — ek file ka poster+info fetch karo ─────────────
 async function tmdbGet(endpoint, params = {}) {
   try {
     const p = new URLSearchParams({ api_key: TMDB_API_KEY, language: "en-US", ...params });
@@ -96,160 +96,77 @@ async function tmdbGet(endpoint, params = {}) {
   } catch { return null; }
 }
 
-// TMDB se proper category data fetch karo
-async function fetchTMDBNowPlaying() {
-  const data = await tmdbGet("/movie/now_playing", { page: 1 });
-  return (data?.results || []).slice(0, 10).map(m => ({
-    id: m.id,
-    title: m.title,
-    poster: m.poster_path ? `${TMDB_IMG}${m.poster_path}` : null,
-    backdrop: m.backdrop_path ? `${TMDB_IMG_ORIG}${m.backdrop_path}` : null,
-    rating: m.vote_average ? m.vote_average.toFixed(1) : null,
-    year: m.release_date ? m.release_date.slice(0, 4) : null,
-    overview: m.overview || null,
-    type: "movie",
-  }));
-}
-
-async function fetchTMDBTrendingMovies() {
-  const data = await tmdbGet("/trending/movie/week");
-  return (data?.results || []).slice(0, 12).map(m => ({
-    id: m.id,
-    title: m.title,
-    poster: m.poster_path ? `${TMDB_IMG}${m.poster_path}` : null,
-    backdrop: m.backdrop_path ? `${TMDB_IMG_ORIG}${m.backdrop_path}` : null,
-    rating: m.vote_average ? m.vote_average.toFixed(1) : null,
-    year: m.release_date ? m.release_date.slice(0, 4) : null,
-    overview: m.overview || null,
-    type: "movie",
-  }));
-}
-
-async function fetchTMDBTrendingSeries() {
-  const data = await tmdbGet("/trending/tv/week");
-  return (data?.results || []).slice(0, 10).map(m => ({
-    id: m.id,
-    title: m.name,
-    poster: m.poster_path ? `${TMDB_IMG}${m.poster_path}` : null,
-    backdrop: m.backdrop_path ? `${TMDB_IMG_ORIG}${m.backdrop_path}` : null,
-    rating: m.vote_average ? m.vote_average.toFixed(1) : null,
-    year: m.first_air_date ? m.first_air_date.slice(0, 4) : null,
-    overview: m.overview || null,
-    type: "series",
-  }));
-}
-
-async function fetchTMDBBollywood() {
-  // Hindi movies — TMDB original_language=hi
-  const data = await tmdbGet("/discover/movie", {
-    with_original_language: "hi",
-    sort_by: "popularity.desc",
-    page: 1,
-  });
-  return (data?.results || []).slice(0, 10).map(m => ({
-    id: m.id,
-    title: m.title,
-    poster: m.poster_path ? `${TMDB_IMG}${m.poster_path}` : null,
-    rating: m.vote_average ? m.vote_average.toFixed(1) : null,
-    year: m.release_date ? m.release_date.slice(0, 4) : null,
-    overview: m.overview || null,
-    type: "movie",
-  }));
-}
-
-async function fetchTMDBTamil() {
-  const data = await tmdbGet("/discover/movie", {
-    with_original_language: "ta",
-    sort_by: "popularity.desc",
-    page: 1,
-  });
-  return (data?.results || []).slice(0, 10).map(m => ({
-    id: m.id,
-    title: m.title,
-    poster: m.poster_path ? `${TMDB_IMG}${m.poster_path}` : null,
-    rating: m.vote_average ? m.vote_average.toFixed(1) : null,
-    year: m.release_date ? m.release_date.slice(0, 4) : null,
-    overview: m.overview || null,
-    type: "movie",
-  }));
-}
-
-async function fetchTMDBMalayalam() {
-  const data = await tmdbGet("/discover/movie", {
-    with_original_language: "ml",
-    sort_by: "popularity.desc",
-    page: 1,
-  });
-  return (data?.results || []).slice(0, 10).map(m => ({
-    id: m.id,
-    title: m.title,
-    poster: m.poster_path ? `${TMDB_IMG}${m.poster_path}` : null,
-    rating: m.vote_average ? m.vote_average.toFixed(1) : null,
-    year: m.release_date ? m.release_date.slice(0, 4) : null,
-    overview: m.overview || null,
-    type: "movie",
-  }));
-}
-
-async function fetchTMDBTopRated() {
-  const data = await tmdbGet("/movie/top_rated", { page: 1 });
-  return (data?.results || []).slice(0, 10).map(m => ({
-    id: m.id,
-    title: m.title,
-    poster: m.poster_path ? `${TMDB_IMG}${m.poster_path}` : null,
-    rating: m.vote_average ? m.vote_average.toFixed(1) : null,
-    year: m.release_date ? m.release_date.slice(0, 4) : null,
-    overview: m.overview || null,
-    type: "movie",
-  }));
-}
-
-// Poster TMDB se search by name (search results ke liye)
-const posterCache = {};
-async function fetchPosterFromTMDB(title, year) {
-  const key = `p_${title}_${year}`;
-  if (posterCache[key] !== undefined) return posterCache[key];
-  posterCache[key] = null;
-
-  // Pehle backend se try karo
+const tmdbCache = {};
+async function enrichWithTMDB(title, year) {
+  const key = `e_${title}_${year}`;
+  if (tmdbCache[key] !== undefined) return tmdbCache[key];
+  tmdbCache[key] = null;
   try {
-    const params = new URLSearchParams({ title, ...(year ? { year } : {}) });
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch(`${API_BASE}/api/poster?${params}`, { signal: controller.signal });
-    clearTimeout(timer);
-    if (res.ok) {
-      const data = await res.json();
-      if (data?.poster && typeof data.poster === "string" && data.poster.startsWith("https://")) {
-        posterCache[key] = data;
-        return data;
-      }
-    }
-  } catch { /* backend fail */ }
-
-  // TMDB direct search
-  if (!TMDB_API_KEY) return null;
-  try {
-    const searchUrl = `${TMDB_BASE}/search/multi?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(title)}${year ? `&year=${year}` : ""}&language=en-US&page=1`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 7000);
-    const res = await fetch(searchUrl, { signal: controller.signal });
-    clearTimeout(timer);
-    if (!res.ok) throw new Error("TMDB fail");
-    const data = await res.json();
-    const result = (data.results || []).find(r => r.poster_path);
-    if (!result) { posterCache[key] = null; return null; }
+    const data = await tmdbGet("/search/multi", {
+      query: title, ...(year ? { year } : {}), page: 1,
+    });
+    const result = (data?.results || []).find(r => r.poster_path);
+    if (!result) return null;
     const out = {
-      poster: `${TMDB_IMG}${result.poster_path}`,
-      imdb_rating: result.vote_average ? result.vote_average.toFixed(1) : null,
-      plot: result.overview || null,
+      id: result.id,
+      title: result.title || result.name || title,
+      poster: result.poster_path ? `${TMDB_IMG}${result.poster_path}` : null,
+      backdrop: result.backdrop_path ? `${TMDB_IMG_ORIG}${result.backdrop_path}` : null,
+      rating: result.vote_average ? result.vote_average.toFixed(1) : null,
+      year: (result.release_date || result.first_air_date || "").slice(0, 4) || year,
+      overview: result.overview || null,
+      type: result.media_type === "tv" ? "series" : "movie",
     };
-    posterCache[key] = out;
+    tmdbCache[key] = out;
     return out;
-  } catch {
-    posterCache[key] = null;
-    return null;
-  }
+  } catch { return null; }
+}
+
+// Database se files lo, deduplicate karo by title, TMDB se enrich karo
+async function fetchDBCategory(category, limit = 12) {
+  try {
+    const params = new URLSearchParams({ category, limit: limit * 3 });
+    const res = await fetch(`${API_BASE}/api/trending?${params}`);
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    const files = data.files || [];
+
+    // Title ke basis pe deduplicate karo
+    const seen = new Set();
+    const unique = [];
+    for (const f of files) {
+      const title = extractMovieTitle(f.file_name);
+      const key = title.toLowerCase().replace(/\s+/g, "");
+      if (key.length > 2 && !seen.has(key)) {
+        seen.add(key);
+        unique.push({ ...f, _title: title, _year: extractYear(f.file_name) });
+      }
+      if (unique.length >= limit) break;
+    }
+
+    // TMDB se parallel enrich karo
+    const enriched = await Promise.all(
+      unique.map(async f => {
+        const tmdb = await enrichWithTMDB(f._title, f._year);
+        if (tmdb) {
+          return { ...tmdb, _file: f }; // TMDB data + original file reference
+        }
+        // TMDB nahi mila — sirf DB data se fallback card banao
+        return {
+          id: f.file_id,
+          title: f._title,
+          poster: null,
+          backdrop: null,
+          rating: null,
+          year: f._year,
+          overview: null,
+          type: "movie",
+          _file: f,
+        };
+      })
+    );
+    return enriched.filter(Boolean);
+  } catch { return []; }
 }
 
 // ── TMDB Card (Home Page ke liye — seedha TMDB data) ─────────────────
@@ -647,28 +564,29 @@ export default function App() {
 
   const inputRef = useRef(null);
 
-  // Home data — TMDB se proper categories
+  // Home data — DB se files, TMDB se enrich
   useEffect(() => {
     if (tab !== "home") return;
     setHomeLoading(true);
     Promise.all([
-      fetchTMDBNowPlaying(),
-      fetchTMDBTrendingMovies(),
-      fetchTMDBTrendingSeries(),
-      fetchTMDBBollywood(),
-      fetchTMDBTamil(),
-      fetchTMDBMalayalam(),
-      fetchTMDBTopRated(),
-    ]).then(([np, trendMov, trendSer, bolly, tamil, mal, topR]) => {
-      setNowPlaying(np);
-      setGlobalTrend(trendMov);
-      setSeriesTrend(trendSer);
+      fetchDBCategory("all", 10),       // Latest all
+      fetchDBCategory("all", 20),       // Global trending (more items)
+      fetchDBCategory("series", 10),    // Series
+      fetchDBCategory("hindi", 10),     // Bollywood
+      fetchDBCategory("tamil", 10),     // Tamil
+      fetchDBCategory("malayalam", 10), // Malayalam
+    ]).then(([latest, global, series, bolly, tamil, mal]) => {
+      setNowPlaying(latest);
+      // Global trending mein latest wale duplicate na aayein
+      const latestIds = new Set(latest.map(i => i.id));
+      setGlobalTrend(global.filter(i => !latestIds.has(i.id)).slice(0, 10));
+      setSeriesTrend(series);
       setBollywood(bolly);
       setTamilFils(tamil);
       setMalayalamFils(mal);
-      setTopRated(topR);
-      // Hero banner — now playing ka pehla item (with backdrop)
-      const heroItem = np.find(m => m.backdrop) || np[0] || trendMov[0];
+      setTopRated([]);
+      // Hero banner — backdrop wala pehla item
+      const heroItem = [...latest, ...global].find(m => m.backdrop) || latest[0];
       if (heroItem) setHeroBanner(heroItem);
       setHomeLoading(false);
     });
