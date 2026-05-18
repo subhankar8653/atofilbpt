@@ -40,11 +40,20 @@ function qualityColor(q = "") {
 function tgLink(fileId) {
   return `https://t.me/${BOT_USERNAME}?start=file_${fileId}`;
 }
+function stripPromotion(name = "") {
+  name = name.replace(/@\S+/g, "");
+  name = name.replace(/\[.*?@.*?\]|\(.*?@.*?\)/g, "");
+  name = name.replace(/www\.\S+/gi, "");
+  name = name.replace(/t\.me\/\S+/gi, "");
+  return name.replace(/\s+/g, " ").trim();
+}
 function cleanFileName(name = "") {
+  name = stripPromotion(name);
   return name.replace(/\.(mkv|mp4|avi|mov|webm)$/i, "").replace(/[-_.+]/g, " ").trim();
 }
 function extractMovieTitle(name = "") {
-  let n = name.replace(/\.(mkv|mp4|avi|mov|webm)$/i, "");
+  let n = stripPromotion(name);
+  n = n.replace(/\.(mkv|mp4|avi|mov|webm)$/i, "");
   n = n.replace(/[_+]/g, " ").replace(/\.(?!\d)/g, " ").trim();
   n = n.replace(/\d{1,2}:\d{2}/g, " ");
   n = n.replace(/\b(19|20)\d{2}\b.*/i, "").trim();
