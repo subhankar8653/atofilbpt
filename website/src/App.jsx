@@ -960,7 +960,7 @@ function SkeletonFile() {
 }
 
 // ── Main App ──────────────────────────────────────────────────────────
-export default function App() {
+function App() {
   const [tab, setTab] = useState("home");
   const [query, setQuery] = useState("");
   const [quality, setQuality] = useState("All");
