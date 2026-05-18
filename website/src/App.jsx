@@ -7,7 +7,6 @@ const BOT_USERNAME = "My_Suhani_bot";
 const API_BASE = "https://grouphbot.onrender.com";
 
 // ⚠️  TMDB API KEY — .env file mein VITE_TMDB_KEY=your_key_here likhna
-// themoviedb.org pe free milti hai. Kabhi bhi seedha code mein mat likho!
 const TMDB_API_KEY = import.meta.env.VITE_TMDB_KEY || "";
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMG = "https://image.tmdb.org/t/p/w500";
@@ -32,6 +31,13 @@ function extractYear(name = "") {
   return m ? m[0] : null;
 }
 function qualityColor(q = "") {
+  if (q.includes("2160")) return "linear-gradient(135deg,#f6c90e,#e8a00c)";
+  if (q.includes("1080")) return "linear-gradient(135deg,#e74c3c,#c0392b)";
+  if (q.includes("720")) return "linear-gradient(135deg,#e67e22,#d35400)";
+  if (q.includes("480")) return "linear-gradient(135deg,#27ae60,#1e8449)";
+  return "linear-gradient(135deg,#555,#444)";
+}
+function qualityBg(q = "") {
   if (q.includes("2160")) return "#e8b84b";
   if (q.includes("1080")) return "#c0392b";
   if (q.includes("720")) return "#e67e22";
@@ -59,14 +65,10 @@ function extractMovieTitle(name = "") {
   n = n.replace(/\d{1,2}:\d{2}/g, " ");
   n = n.replace(/\b(19|20)\d{2}\b.*/i, "").trim();
   n = n.replace(/\bS\d{2}E?\d*\b/gi, " ");
-  // FIXED: sirf technical tags remove karo — language/platform words title mein reh sakte hain
-  // Pehle year+season tak ka text lo, phir usmein se sirf quality/codec tags hatao
   n = n.replace(/\b(480p|720p|1080p|2160p|4k|hdrip|webrip|web\s?dl|bluray|hdcam|dvdrip|tataplay|hotstar|zee5|sonyliv|hbomax|predvd|hdts|camrip|x264|x265|h264|h265|hevc|aac|dd5|dts|org|hq|esub|sub|proper|repack)\b/gi, " ");
-  // Language/platform words sirf tab hatao jab woh title ke 2nd word ke baad aayein
-  // (pehle 2 words title mein ho sakte hain jaise "The English", "Amazon Prime" etc.)
   const words = n.split(" ").filter(w => w.length > 0);
   const filtered = words.filter((w, idx) => {
-    if (idx < 2) return true; // pehle 2 words hamesha rakho
+    if (idx < 2) return true;
     return !/^(multi|dual|dubbed|hindi|english|tamil|telugu|malayalam|kannada|bengali|punjabi|amazon|netflix)$/i.test(w);
   });
   n = filtered.join(" ").replace(/\s+/g, " ").trim();
@@ -74,15 +76,12 @@ function extractMovieTitle(name = "") {
   return finalWords.slice(0, 4).join(" ") || cleanFileName(name).split(" ").slice(0, 3).join(" ");
 }
 
-// Episode info extract karo — single (E01) or combined (E01-E04)
 function extractEpisodeInfo(name = "") {
-  // Combined episodes: S01E01-E04, E01-E04, Ep01-04, Episodes 1-4
   const combined = name.match(/[Ss]?\d{0,2}[Ee](\d{1,3})[-–][Ee]?(\d{1,3})/i)
     || name.match(/[Ee]pisodes?\s*(\d{1,3})[-–](\d{1,3})/i);
   if (combined) {
     return { type: "combined", from: parseInt(combined[1]), to: parseInt(combined[2]) };
   }
-  // Single episode: S01E08, E08, Ep08, Episode 8
   const single = name.match(/[Ss]\d{1,2}[Ee](\d{1,3})/i)
     || name.match(/\b[Ee][Pp]?(\d{1,3})\b/)
     || name.match(/\b[Ee]pisode[\s._-]*(\d{1,3})\b/i);
@@ -94,19 +93,15 @@ function extractEpisode(name = "") {
   if (!info) return null;
   return info.type === "combined" ? info.from : info.ep;
 }
-// Season number extract karo
 function extractSeason(name = "") {
   const m = name.match(/[Ss](\d{1,2})[Ee]/i) || name.match(/[Ss]eason[\s._]*(\d{1,2})/i);
   return m ? parseInt(m[1], 10) : null;
 }
-// Series hai ya movie?
 function isSeries(name = "") {
   return /[Ss]\d{1,2}[Ee]\d{1,3}|\b[Ee]pisode[\s._]?\d|\b[Ee][Pp]\d/i.test(name);
 }
-// Language extract karo — sirf full word match, NO short codes (prevent false match)
 function extractLanguage(name = "") {
   name = stripPromotion(name);
-  // Order matters — longer/specific first to avoid false positives
   const langs = [
     ["Malayalam", /\bmalayalam\b/i],
     ["Kannada",   /\bkannada\b/i],
@@ -124,9 +119,6 @@ function extractLanguage(name = "") {
   }
   return null;
 }
-// Clean caption — NO promotion links, no @username, official style
-// Format: Show Name\nSeason X | Episode Y | Language | Quality
-// or: Movie Name\nLanguage | Quality
 function buildCaption(fileName = "") {
   const clean = stripPromotion(fileName).replace(/\.(mkv|mp4|avi|mov|webm)$/i, "");
   const title = extractMovieTitle(fileName);
@@ -136,10 +128,9 @@ function buildCaption(fileName = "") {
   const quality = extractQuality(fileName);
 
   const lines = [];
-  lines.push(title); // Line 1: Title
+  lines.push(title);
 
   if (epInfo) {
-    // Series
     const seasonStr = season ? `Season ${String(season).padStart(2,"0")}` : null;
     let epStr = "";
     if (epInfo.type === "combined") {
@@ -148,15 +139,15 @@ function buildCaption(fileName = "") {
       epStr = `Episode ${String(epInfo.ep).padStart(2,"0")}`;
     }
     const infoLine = [seasonStr, epStr].filter(Boolean).join(" · ");
-    lines.push(infoLine); // Line 2: Season · Episode
+    lines.push(infoLine);
   }
 
   const metaLine = [lang, quality].filter(Boolean).join(" · ");
-  if (metaLine) lines.push(metaLine); // Line 3: Language · Quality
+  if (metaLine) lines.push(metaLine);
 
   return lines.join("\n");
 }
-// Quality priority for sorting (lower = better quality)
+
 const QUALITY_ORDER = { "2160P": 0, "1080P": 1, "720P": 2, "480P": 3, "360P": 4, "240P": 5 };
 
 // ── Bot API ──────────────────────────────────────────────────────────
@@ -167,8 +158,6 @@ async function fetchFiles(query, quality, language, limit = 50) {
     if (!res.ok) throw new Error("API error");
     const data = await res.json();
     let files = data.files || [];
-
-    // Client-side filter bhi lagao — API filter reliable nahi hota
     if (quality && quality !== "All") {
       files = files.filter(f => {
         const q = extractQuality(f.file_name);
@@ -195,7 +184,6 @@ async function fetchTrending(category = "all", limit = 12) {
   } catch { return []; }
 }
 
-// ── TMDB enrichment — ek file ka poster+info fetch karo ─────────────
 async function tmdbGet(endpoint, params = {}) {
   try {
     const p = new URLSearchParams({ api_key: TMDB_API_KEY, language: "en-US", ...params });
@@ -205,15 +193,13 @@ async function tmdbGet(endpoint, params = {}) {
   } catch { return null; }
 }
 
-// LRU-style cache — max 200 entries, phir sabse purani entries hata do
 const TMDB_CACHE_MAX = 200;
 const tmdbCache = new Map();
-const tmdbInFlight = new Map(); // duplicate concurrent requests rokne ke liye
+const tmdbInFlight = new Map();
 
 async function enrichWithTMDB(title, year) {
   const key = `e_${title}_${year}`;
   if (tmdbCache.has(key)) return tmdbCache.get(key);
-  // In-flight deduplication: same key ke liye ek hi fetch hoga
   if (tmdbInFlight.has(key)) return tmdbInFlight.get(key);
 
   const promise = (async () => {
@@ -252,8 +238,6 @@ async function enrichWithTMDB(title, year) {
   return promise;
 }
 
-// ── fetchPosterFromTMDB — Poster & DetailModal ke liye ──────────────
-// enrichWithTMDB ka wrapper jo Poster/DetailModal ka expected format return karta hai
 async function fetchPosterFromTMDB(title, year) {
   try {
     const data = await enrichWithTMDB(title, year);
@@ -266,7 +250,6 @@ async function fetchPosterFromTMDB(title, year) {
   } catch { return null; }
 }
 
-// Category ke liye language filter words
 const CATEGORY_LANG_FILTER = {
   hindi:     /hindi/i,
   tamil:     /tamil/i,
@@ -275,11 +258,9 @@ const CATEGORY_LANG_FILTER = {
   kannada:   /kannada/i,
   bengali:   /bengali/i,
   english:   /english/i,
-  // FIXED: series ke liye isSeries() function use karo — more reliable than raw regex
   series:    null,
 };
 
-// Database se files lo, deduplicate karo by title, TMDB se enrich karo
 async function fetchDBCategory(category, limit = 12) {
   try {
     const params = new URLSearchParams({ category, limit: limit * 4 });
@@ -288,7 +269,6 @@ async function fetchDBCategory(category, limit = 12) {
     const data = await res.json();
     let files = data.files || [];
 
-    // Language-specific categories ke liye extra filter
     const langFilter = CATEGORY_LANG_FILTER[category];
     if (category === "series") {
       files = files.filter(f => isSeries(f.file_name));
@@ -307,7 +287,6 @@ async function fetchDBCategory(category, limit = 12) {
       if (unique.length >= limit) break;
     }
 
-    // TMDB se parallel enrich karo
     const enriched = await Promise.all(
       unique.map(async f => {
         const tmdb = await enrichWithTMDB(f._title, f._year);
@@ -331,7 +310,7 @@ async function fetchDBCategory(category, limit = 12) {
   } catch { return []; }
 }
 
-// ── TMDB Card (Home Page ke liye — seedha TMDB data) ─────────────────
+// ── TMDB Card ─────────────────────────────────────────────────────────
 function TMDBCard({ item, onClick }) {
   const [hov, setHov] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
@@ -345,79 +324,88 @@ function TMDBCard({ item, onClick }) {
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{
-        width: 115, flexShrink: 0, cursor: "pointer", borderRadius: 14, overflow: "hidden",
-        background: "#161616", border: `1px solid ${hov ? "#363636" : "#1e1e1e"}`,
-        transform: hov ? "scale(1.04) translateY(-2px)" : "scale(1)",
-        transition: "transform .2s, border-color .2s, box-shadow .2s",
-        boxShadow: hov ? "0 10px 28px rgba(0,0,0,.55)" : "none",
+        width: 120, flexShrink: 0, cursor: "pointer", borderRadius: 16, overflow: "hidden",
+        background: "#141414",
+        border: `1px solid ${hov ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)"}`,
+        transform: hov ? "scale(1.05) translateY(-4px)" : "scale(1)",
+        transition: "transform .25s cubic-bezier(.34,1.56,.64,1), border-color .2s, box-shadow .2s",
+        boxShadow: hov ? `0 16px 40px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,0.06)` : "0 2px 8px rgba(0,0,0,.3)",
       }}
     >
-      <div style={{ height: 158, background: "#1a1a1a", overflow: "hidden", position: "relative" }}>
+      <div style={{ height: 165, background: "#181818", overflow: "hidden", position: "relative" }}>
         {item.poster && !imgFailed ? (
           <>
             {!imgLoaded && (
               <div style={{
                 position: "absolute", inset: 0,
-                background: `linear-gradient(135deg,hsl(${hue},40%,10%),hsl(${(hue + 60) % 360},30%,7%))`,
+                background: `linear-gradient(160deg,hsl(${hue},40%,11%),hsl(${(hue + 60) % 360},30%,7%))`,
                 display: "flex", alignItems: "center", justifyContent: "center",
               }}>
-                <div style={{ width: 22, height: 22, borderRadius: "50%", border: "2px solid #2a2a2a", borderTopColor: `hsl(${hue},60%,40%)`, animation: "spin 0.9s linear infinite" }} />
+                <div style={{ width: 24, height: 24, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.06)", borderTopColor: `hsl(${hue},70%,50%)`, animation: "spin 0.8s linear infinite" }} />
               </div>
             )}
             <img
               src={item.poster} alt={item.title} loading="lazy" decoding="async"
-              style={{ width: "100%", height: "100%", objectFit: "cover", opacity: imgLoaded ? 1 : 0, transition: "opacity 0.4s ease", display: "block" }}
+              style={{ width: "100%", height: "100%", objectFit: "cover", opacity: imgLoaded ? 1 : 0, transition: "opacity 0.5s ease", display: "block" }}
               onLoad={() => setImgLoaded(true)}
               onError={() => { setImgFailed(true); setImgLoaded(false); }}
             />
+            {/* Hover overlay */}
+            {hov && imgLoaded && (
+              <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.25)", display: "flex", alignItems: "center", justifyContent: "center", transition: "opacity 0.2s" }}>
+                <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(243,156,18,0.9)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 16px rgba(243,156,18,0.5)" }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z" /></svg>
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <div style={{
             width: "100%", height: "100%", display: "flex", flexDirection: "column",
             alignItems: "center", justifyContent: "center",
-            background: `linear-gradient(145deg,hsl(${hue},55%,16%),hsl(${(hue + 50) % 360},45%,10%))`,
-            fontSize: "22px", fontWeight: "900", color: `hsl(${hue},70%,60%)`, letterSpacing: "2px",
+            background: `linear-gradient(160deg,hsl(${hue},55%,18%),hsl(${(hue + 50) % 360},45%,10%))`,
+            fontSize: "24px", fontWeight: "900", color: `hsl(${hue},70%,65%)`, letterSpacing: "2px",
           }}>{initials || "🎬"}</div>
         )}
         {item.rating && item.rating !== "0.0" && imgLoaded && !imgFailed && (
           <div style={{
-            position: "absolute", bottom: 5, left: 5,
-            background: "rgba(0,0,0,.85)", borderRadius: 6, padding: "2px 6px",
-            display: "flex", alignItems: "center", gap: 3, backdropFilter: "blur(4px)",
+            position: "absolute", bottom: 7, left: 7,
+            background: "rgba(0,0,0,0.82)", borderRadius: 8, padding: "3px 7px",
+            display: "flex", alignItems: "center", gap: 3, backdropFilter: "blur(8px)",
+            border: "1px solid rgba(241,196,15,0.2)",
           }}>
-            <span style={{ fontSize: 9, color: "#f1c40f" }}>⭐</span>
-            <span style={{ fontSize: 10, fontWeight: 700, color: "#f1c40f" }}>{item.rating}</span>
+            <span style={{ fontSize: 9, color: "#f1c40f" }}>★</span>
+            <span style={{ fontSize: 10, fontWeight: 800, color: "#f1c40f", fontFamily: "'Space Grotesk',sans-serif" }}>{item.rating}</span>
           </div>
         )}
         {item.type === "series" && (
-          <div style={{ position: "absolute", top: 5, right: 5, background: "rgba(52,152,219,.85)", borderRadius: 4, padding: "1px 5px", fontSize: 8, fontWeight: 700, color: "#fff" }}>SERIES</div>
+          <div style={{ position: "absolute", top: 7, right: 7, background: "rgba(99,102,241,0.9)", borderRadius: 6, padding: "2px 6px", fontSize: 8, fontWeight: 800, color: "#fff", letterSpacing: 0.5, backdropFilter: "blur(4px)" }}>SERIES</div>
         )}
       </div>
-      <div style={{ padding: "8px 8px 10px" }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: "#ccc", lineHeight: 1.4, marginBottom: 4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+      <div style={{ padding: "10px 10px 12px" }}>
+        <div style={{ fontSize: 11.5, fontWeight: 600, color: "#d4d4d4", lineHeight: 1.4, marginBottom: 4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
           {item.title}
         </div>
-        {item.year && <span style={{ fontSize: 9, color: "#555" }}>{item.year}</span>}
+        {item.year && <span style={{ fontSize: 10, color: "#555", fontWeight: 500 }}>{item.year}</span>}
       </div>
     </div>
   );
 }
 
-// ── Hero Banner (TMDB item se) ────────────────────────────────────────
+// ── Hero Banner ────────────────────────────────────────────────────────
 function HeroBannerTMDB({ item, onClick }) {
   const [bgLoaded, setBgLoaded] = useState(false);
   const hue = [...(item.title || "")].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
-
   const bgSrc = item.backdrop || item.poster;
 
   return (
     <div
       onClick={() => onClick(item)}
       style={{
-        margin: "0 16px 26px", borderRadius: 22, overflow: "hidden", position: "relative",
-        height: 215, cursor: "pointer",
+        margin: "0 14px 28px", borderRadius: 24, overflow: "hidden", position: "relative",
+        height: 220, cursor: "pointer",
         background: `linear-gradient(135deg,hsl(${hue},35%,10%),hsl(${(hue + 60) % 360},25%,6%))`,
-        boxShadow: "0 16px 44px rgba(0,0,0,.65)",
+        boxShadow: "0 20px 60px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,0.04)",
       }}
     >
       {bgSrc && (
@@ -426,54 +414,60 @@ function HeroBannerTMDB({ item, onClick }) {
           style={{
             position: "absolute", inset: 0, width: "100%", height: "100%",
             objectFit: "cover", objectPosition: "center top",
-            opacity: bgLoaded ? 0.5 : 0, transition: "opacity 0.6s ease",
+            opacity: bgLoaded ? 0.55 : 0, transition: "opacity 0.7s ease",
           }}
           onLoad={() => setBgLoaded(true)} onError={() => setBgLoaded(false)}
         />
       )}
-      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to right,rgba(0,0,0,.94) 35%,rgba(0,0,0,.25))" }} />
-      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top,rgba(0,0,0,.9) 0%,transparent 55%)" }} />
-      <div style={{ position: "absolute", bottom: 0, left: 0, right: "25%", padding: "18px 20px" }}>
-        <div style={{ fontSize: 9, fontWeight: 800, color: "#f39c12", letterSpacing: "2.5px", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ width: 18, height: 2, background: "#f39c12", display: "inline-block", borderRadius: 2 }} />
+      {/* Gradient overlays */}
+      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to right,rgba(0,0,0,.95) 30%,rgba(0,0,0,.2))" }} />
+      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top,rgba(0,0,0,.95) 0%,transparent 50%)" }} />
+
+      <div style={{ position: "absolute", bottom: 0, left: 0, right: "20%", padding: "20px 22px" }}>
+        <div style={{ fontSize: 9, fontWeight: 800, color: "#f39c12", letterSpacing: "3px", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ width: 20, height: 2, background: "linear-gradient(90deg,#f39c12,#e74c3c)", display: "inline-block", borderRadius: 2 }} />
           FEATURED TODAY
         </div>
-        <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", lineHeight: 1.2, marginBottom: 8, textShadow: "0 2px 8px rgba(0,0,0,.6)" }}>
+        <div style={{ fontSize: 24, fontWeight: 900, color: "#fff", lineHeight: 1.15, marginBottom: 10, textShadow: "0 2px 12px rgba(0,0,0,.8)", letterSpacing: "-0.3px" }}>
           {item.title}
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
           {item.rating && item.rating !== "0.0" && (
-            <span style={{ display: "flex", alignItems: "center", gap: 3, background: "rgba(241,196,15,.12)", borderRadius: 6, padding: "3px 8px", border: "1px solid rgba(241,196,15,.25)" }}>
-              <span style={{ fontSize: 10, color: "#f1c40f" }}>⭐</span>
-              <span style={{ fontSize: 11, color: "#f1c40f", fontWeight: 700 }}>{item.rating}</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 4, background: "rgba(241,196,15,0.1)", borderRadius: 8, padding: "4px 10px", border: "1px solid rgba(241,196,15,0.25)" }}>
+              <span style={{ fontSize: 11, color: "#f1c40f" }}>★</span>
+              <span style={{ fontSize: 12, color: "#f1c40f", fontWeight: 800 }}>{item.rating}</span>
             </span>
           )}
-          {item.year && <span style={{ fontSize: 11, color: "#777" }}>{item.year}</span>}
+          {item.year && <span style={{ fontSize: 12, color: "#666", fontWeight: 500 }}>{item.year}</span>}
+          {item.type === "series" && (
+            <span style={{ fontSize: 10, color: "#a78bfa", fontWeight: 700, background: "rgba(167,139,250,0.1)", padding: "3px 8px", borderRadius: 6, border: "1px solid rgba(167,139,250,0.2)" }}>SERIES</span>
+          )}
         </div>
         {item.overview && (
-          <p style={{ fontSize: 11, color: "#555", lineHeight: 1.55, marginTop: 8, marginBottom: 0, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+          <p style={{ fontSize: 11.5, color: "#555", lineHeight: 1.6, margin: 0, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
             {item.overview}
           </p>
         )}
       </div>
+      {/* Play button */}
       <div style={{
-        position: "absolute", right: 18, bottom: 18, width: 46, height: 46, borderRadius: "50%",
-        background: "linear-gradient(135deg,#f39c12,#e74c3c)", display: "flex", alignItems: "center", justifyContent: "center",
-        boxShadow: "0 4px 18px rgba(243,156,18,.45)",
+        position: "absolute", right: 20, bottom: 20, width: 50, height: 50, borderRadius: "50%",
+        background: "linear-gradient(135deg,#f39c12,#e74c3c)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        boxShadow: "0 6px 24px rgba(243,156,18,.5)",
       }}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z" /></svg>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z" /></svg>
       </div>
     </div>
   );
 }
 
-// ── Poster Component (Search results file ke liye) ───────────────────
+// ── Poster Component ───────────────────────────────────────────────────
 function Poster({ file, seriesTitle = null, size = "card" }) {
   const [imgSrc, setImgSrc] = useState(null);
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
   const [rating, setRating] = useState(null);
-  // Series ke liye seriesTitle pass hota hai — sab episodes same TMDB key se poster share karein
   const title = seriesTitle || extractMovieTitle(file.file_name);
   const year = extractYear(file.file_name);
 
@@ -494,7 +488,7 @@ function Poster({ file, seriesTitle = null, size = "card" }) {
       <div style={{ width: "100%", height: "100%", position: "relative", borderRadius: "inherit" }}>
         {!imgLoaded && (
           <div style={{ position: "absolute", inset: 0, borderRadius: "inherit", background: `linear-gradient(135deg,hsl(${hue},40%,10%),hsl(${(hue + 60) % 360},30%,7%))`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <div style={{ width: 24, height: 24, borderRadius: "50%", border: "2px solid #2a2a2a", borderTopColor: `hsl(${hue},60%,40%)`, animation: "spin 0.9s linear infinite" }} />
+            <div style={{ width: 24, height: 24, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.05)", borderTopColor: `hsl(${hue},60%,50%)`, animation: "spin 0.8s linear infinite" }} />
           </div>
         )}
         <img
@@ -504,9 +498,9 @@ function Poster({ file, seriesTitle = null, size = "card" }) {
           onError={() => { setImgFailed(true); setImgLoaded(false); }}
         />
         {rating && rating !== "N/A" && rating !== "0.0" && imgLoaded && (
-          <div style={{ position: "absolute", bottom: 5, left: 5, background: "rgba(0,0,0,.85)", borderRadius: 6, padding: "2px 6px", display: "flex", alignItems: "center", gap: 3, backdropFilter: "blur(4px)" }}>
-            <span style={{ fontSize: 9, color: "#f1c40f" }}>⭐</span>
-            <span style={{ fontSize: 10, fontWeight: 700, color: "#f1c40f" }}>{rating}</span>
+          <div style={{ position: "absolute", bottom: 5, left: 5, background: "rgba(0,0,0,.85)", borderRadius: 6, padding: "2px 6px", display: "flex", alignItems: "center", gap: 3, backdropFilter: "blur(6px)", border: "1px solid rgba(241,196,15,0.15)" }}>
+            <span style={{ fontSize: 8, color: "#f1c40f" }}>★</span>
+            <span style={{ fontSize: 10, fontWeight: 800, color: "#f1c40f" }}>{rating}</span>
           </div>
         )}
       </div>
@@ -526,39 +520,140 @@ function Poster({ file, seriesTitle = null, size = "card" }) {
   );
 }
 
-// ── File Card (simple — movie ke liye) ─────────────────────────────
+// ── File Card ──────────────────────────────────────────────────────────
 function FileCard({ file, onClick, seriesTitle = null }) {
   const [hov, setHov] = useState(false);
   const q = extractQuality(file.file_name);
   const year = extractYear(file.file_name);
   const name = cleanFileName(file.file_name);
+
   return (
     <div onClick={() => onClick(file)} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{
-        display: "flex", gap: 12, padding: 14,
-        background: hov ? "#1b1b1b" : "#161616", borderRadius: 16, cursor: "pointer",
-        border: `1px solid ${hov ? "#2e2e2e" : "#1e1e1e"}`,
-        transition: "background .15s, border-color .15s, transform .15s",
-        transform: hov ? "translateX(3px)" : "translateX(0)",
+        display: "flex", gap: 14, padding: "14px 16px",
+        background: hov ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.02)",
+        borderRadius: 18, cursor: "pointer",
+        border: `1px solid ${hov ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.05)"}`,
+        transition: "all .2s cubic-bezier(.34,1.56,.64,1)",
+        transform: hov ? "translateX(4px)" : "translateX(0)",
+        boxShadow: hov ? "0 8px 24px rgba(0,0,0,0.4)" : "none",
       }}>
-      <div style={{ width: 66, height: 88, flexShrink: 0, borderRadius: 10, overflow: "hidden", boxShadow: "0 4px 14px rgba(0,0,0,.45)" }}>
+      <div style={{ width: 68, height: 92, flexShrink: 0, borderRadius: 12, overflow: "hidden", boxShadow: "0 6px 18px rgba(0,0,0,.55)" }}>
         <Poster file={file} seriesTitle={seriesTitle} />
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: "#eee", lineHeight: 1.4, marginBottom: 8, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{name}</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
-          {q && <span style={{ padding: "2px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700, background: qualityColor(q), color: "#fff" }}>{q}</span>}
-          {year && <span style={{ padding: "2px 8px", borderRadius: 6, fontSize: 10, background: "#222", color: "#777" }}>{year}</span>}
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: "#e8e8e8", lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{name}</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {q && (
+            <span style={{ padding: "3px 9px", borderRadius: 7, fontSize: 10, fontWeight: 800, background: qualityBg(q), color: "#fff", letterSpacing: 0.3 }}>{q}</span>
+          )}
+          {year && <span style={{ padding: "3px 9px", borderRadius: 7, fontSize: 10, fontWeight: 500, background: "rgba(255,255,255,0.05)", color: "#777", border: "1px solid rgba(255,255,255,0.06)" }}>{year}</span>}
         </div>
-        {file.file_size > 0 && <span style={{ fontSize: 11, color: "#444" }}>💾 {formatSize(file.file_size)}</span>}
+        {file.file_size > 0 && <span style={{ fontSize: 11, color: "#444", fontWeight: 500 }}>💾 {formatSize(file.file_size)}</span>}
       </div>
-      <div style={{ display: "flex", alignItems: "center", color: "#333", paddingRight: 2 }}>›</div>
+      <div style={{ display: "flex", alignItems: "center", color: hov ? "#f39c12" : "#2a2a2a", paddingRight: 2, transition: "color .2s", fontSize: 18 }}>›</div>
     </div>
   );
 }
 
-// ── Episode Quality Row ──────────────────────────────────────────────
-// isCombined=true → combined episodes (e.g. E01–E04), pehle aata hai
+// ── Quality Row ────────────────────────────────────────────────────────
+function QualityRow({ file, quality, lang, isLast, onClick }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        display: "flex", alignItems: "center", padding: "11px 16px",
+        borderBottom: isLast ? "none" : "1px solid rgba(255,255,255,0.04)",
+        background: hov ? "rgba(255,255,255,0.04)" : "transparent",
+        cursor: "pointer", transition: "background .15s", gap: 8,
+      }}
+    >
+      {quality && (
+        <span style={{ padding: "3px 10px", borderRadius: 7, fontSize: 10, fontWeight: 800, background: qualityBg(quality), color: "#fff", flexShrink: 0, letterSpacing: 0.3 }}>
+          {quality}
+        </span>
+      )}
+      {lang && (
+        <span style={{ padding: "3px 10px", borderRadius: 7, fontSize: 10, fontWeight: 600, background: "rgba(255,255,255,0.05)", color: "#777", border: "1px solid rgba(255,255,255,0.08)", flexShrink: 0 }}>
+          {lang}
+        </span>
+      )}
+      {file.file_size > 0 && (
+        <span style={{ fontSize: 10.5, color: "#444" }}>💾 {formatSize(file.file_size)}</span>
+      )}
+      <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={{ fontSize: 10, color: "#f39c12", fontWeight: 600, opacity: hov ? 1 : 0, transition: "opacity .15s" }}>Download</span>
+        <span style={{ color: hov ? "#f39c12" : "#2a2a2a", fontSize: 16, transition: "color .15s" }}>›</span>
+      </div>
+    </div>
+  );
+}
+
+// ── groupFilesForDisplay ──────────────────────────────────────────────
+function groupFilesForDisplay(files, activeQuality) {
+  if (!files.length) return { type: "movie", items: [] };
+
+  const seriesFiles = files.filter(f => isSeries(f.file_name));
+  if (seriesFiles.length === 0) {
+    const filtered = activeQuality !== "All"
+      ? files.filter(f => extractQuality(f.file_name)?.toUpperCase() === activeQuality.toUpperCase())
+      : files;
+    const sorted = [...(filtered.length ? filtered : files)].sort((a, b) => {
+      const qa = QUALITY_ORDER[extractQuality(a.file_name) || ""] ?? 99;
+      const qb = QUALITY_ORDER[extractQuality(b.file_name) || ""] ?? 99;
+      return qa - qb;
+    });
+    return { type: "movie", items: sorted };
+  }
+
+  const seriesTitle = extractMovieTitle(seriesFiles[0].file_name);
+  const seasonMap = {};
+
+  for (const f of seriesFiles) {
+    const s = extractSeason(f.file_name) ?? 1;
+    if (!seasonMap[s]) seasonMap[s] = {};
+    const epInfo = extractEpisodeInfo(f.file_name);
+    let epFrom, epTo, isCombined;
+    if (!epInfo) { epFrom = 99999; epTo = 99999; isCombined = false; }
+    else if (epInfo.type === "combined") { epFrom = epInfo.from; epTo = epInfo.to; isCombined = true; }
+    else { epFrom = epInfo.ep; epTo = epInfo.ep; isCombined = false; }
+
+    const epKey = isCombined ? `c_${epFrom}_${epTo}` : `e_${epFrom}`;
+    if (!seasonMap[s][epKey]) {
+      seasonMap[s][epKey] = { epFrom, epTo, isCombined, files: [] };
+    }
+    const existing = seasonMap[s][epKey].files.findIndex(
+      x => (extractQuality(x.file_name) || "UNKNOWN") === (extractQuality(f.file_name) || "UNKNOWN")
+    );
+    if (existing !== -1) {
+      if ((f.file_size || 0) > (seasonMap[s][epKey].files[existing].file_size || 0)) {
+        seasonMap[s][epKey].files[existing] = f;
+      }
+    } else {
+      seasonMap[s][epKey].files.push(f);
+    }
+  }
+
+  const seasons = Object.entries(seasonMap)
+    .map(([s, epMap]) => ({
+      season: parseInt(s),
+      epGroups: Object.entries(epMap)
+        .map(([key, data]) => ({ key, ...data }))
+        .sort((a, b) => {
+          if (a.isCombined && !b.isCombined) return -1;
+          if (!a.isCombined && b.isCombined) return 1;
+          return a.epFrom - b.epFrom;
+        }),
+    }))
+    .sort((a, b) => a.season - b.season);
+
+  return { type: "series", seriesTitle, seasons };
+}
+
+// ── EpisodeQualityRow ─────────────────────────────────────────────────
 function EpisodeQualityRow({ epFrom, epTo, isCombined, files, seriesTitle, season, onFileClick }) {
   const sorted = [...files].sort((a, b) => {
     const qa = QUALITY_ORDER[extractQuality(a.file_name) || ""] ?? 99;
@@ -566,45 +661,42 @@ function EpisodeQualityRow({ epFrom, epTo, isCombined, files, seriesTitle, seaso
     return qa - qb;
   });
   const bestFile = sorted[0];
-
-  // Label: "Episode 01" or "Episodes 01–04" (combined)
   const epLabel = isCombined
     ? `Episodes ${String(epFrom).padStart(2,"0")}–${String(epTo).padStart(2,"0")}`
     : epFrom === 99999 ? "Episode ??" : `Episode ${String(epFrom).padStart(2,"0")}`;
 
   return (
-    <div style={{ background: "#161616", borderRadius: 16, border: `1px solid ${isCombined ? "#2a3a1a" : "#1e1e1e"}`, overflow: "hidden" }}>
-      {/* Header */}
-      <div style={{ display: "flex", gap: 12, padding: "12px 14px 10px" }}>
-        <div style={{ width: 54, height: 72, flexShrink: 0, borderRadius: 8, overflow: "hidden", boxShadow: "0 4px 14px rgba(0,0,0,.5)" }}>
+    <div style={{
+      background: "rgba(255,255,255,0.025)", borderRadius: 18,
+      border: `1px solid ${isCombined ? "rgba(46,204,113,0.15)" : "rgba(255,255,255,0.06)"}`,
+      overflow: "hidden",
+    }}>
+      <div style={{ display: "flex", gap: 14, padding: "14px 16px 12px" }}>
+        <div style={{ width: 56, height: 76, flexShrink: 0, borderRadius: 10, overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,.5)" }}>
           <Poster file={bestFile} seriesTitle={seriesTitle} />
         </div>
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 4 }}>
-          {/* Badges row */}
-          <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 5 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             {isCombined && (
-              <span style={{ fontSize: 8, fontWeight: 900, color: "#fff", background: "linear-gradient(135deg,#27ae60,#1e8449)", borderRadius: 4, padding: "2px 7px", letterSpacing: 0.5 }}>
+              <span style={{ fontSize: 8, fontWeight: 900, color: "#fff", background: "linear-gradient(135deg,#27ae60,#1e8449)", borderRadius: 5, padding: "2px 8px", letterSpacing: 0.5 }}>
                 COMPLETE PACK
               </span>
             )}
             {season && (
-              <span style={{ fontSize: 8, fontWeight: 800, color: "#fff", background: "linear-gradient(135deg,#2980b9,#1f618d)", borderRadius: 4, padding: "2px 7px" }}>
+              <span style={{ fontSize: 8, fontWeight: 800, color: "#fff", background: "linear-gradient(135deg,#6366f1,#4f46e5)", borderRadius: 5, padding: "2px 8px", letterSpacing: 0.5 }}>
                 S{String(season).padStart(2,"0")}
               </span>
             )}
           </div>
-          {/* Episode label */}
-          <div style={{ fontSize: 12, fontWeight: 800, color: isCombined ? "#2ecc71" : "#f39c12", letterSpacing: 0.5 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 800, color: isCombined ? "#2ecc71" : "#f39c12", letterSpacing: 0.3 }}>
             {epLabel}
           </div>
-          {/* Series title */}
-          <div style={{ fontSize: 12, fontWeight: 600, color: "#aaa", lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#999", lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
             {seriesTitle}
           </div>
         </div>
       </div>
-      {/* Quality rows — line by line */}
-      <div style={{ borderTop: "1px solid #1a1a1a" }}>
+      <div style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
         {sorted.map((f, idx) => (
           <QualityRow
             key={f.file_id}
@@ -620,134 +712,34 @@ function EpisodeQualityRow({ epFrom, epTo, isCombined, files, seriesTitle, seaso
   );
 }
 
-// ── Quality Row — ek quality option line ────────────────────────────
-function QualityRow({ file, quality, lang, isLast, onClick }) {
-  const [hov, setHov] = useState(false);
-  return (
-    <div
-      onClick={onClick}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-      style={{
-        display: "flex", alignItems: "center", padding: "10px 14px",
-        borderBottom: isLast ? "none" : "1px solid #1a1a1a",
-        background: hov ? "#1c1c1c" : "transparent",
-        cursor: "pointer", transition: "background .12s", gap: 8,
-      }}
-    >
-      {quality && (
-        <span style={{ padding: "3px 9px", borderRadius: 5, fontSize: 10, fontWeight: 700, background: qualityColor(quality), color: "#fff", flexShrink: 0 }}>
-          {quality}
-        </span>
-      )}
-      {lang && (
-        <span style={{ padding: "3px 9px", borderRadius: 5, fontSize: 10, fontWeight: 600, background: "#1e1e1e", color: "#888", border: "1px solid #2a2a2a", flexShrink: 0 }}>
-          {lang}
-        </span>
-      )}
-      {file.file_size > 0 && (
-        <span style={{ fontSize: 10, color: "#444" }}>💾 {formatSize(file.file_size)}</span>
-      )}
-      <span style={{ marginLeft: "auto", color: "#2a2a2a", fontSize: 16 }}>›</span>
-    </div>
-  );
-}
-
-// ── groupFilesForDisplay — Season → Episode → Quality grouping ─────────
-function groupFilesForDisplay(files, activeQuality) {
-  if (!files.length) return { type: "empty", items: [] };
-
-  const seriesCount = files.filter(f => isSeries(f.file_name)).length;
-  const isSeriesSearch = seriesCount > files.length / 2;
-
-  if (isSeriesSearch) {
-    const seriesTitle = extractMovieTitle(files[0].file_name);
-
-    // seasonMap: { season: { "combined_key" or ep_num: { isCombined, from, to, files[] } } }
-    const seasonMap = {};
-
-    for (const f of files) {
-      const s = extractSeason(f.file_name) ?? 1;
-      const epInfo = extractEpisodeInfo(f.file_name);
-      const q = extractQuality(f.file_name) || "UNKNOWN";
-
-      if (!seasonMap[s]) seasonMap[s] = {};
-
-      let epKey;
-      let isCombined = false;
-      let epFrom = -1, epTo = -1;
-
-      if (epInfo?.type === "combined") {
-        // Combined episodes: key = "c_from_to"
-        isCombined = true;
-        epFrom = epInfo.from;
-        epTo = epInfo.to;
-        epKey = `c_${epFrom}_${epTo}`;
-      } else if (epInfo?.type === "single") {
-        epKey = String(epInfo.ep);
-        epFrom = epInfo.ep;
-      } else {
-        epKey = "unknown";
-        epFrom = 99999;
-      }
-
-      if (!seasonMap[s][epKey]) {
-        seasonMap[s][epKey] = { isCombined, epFrom, epTo, files: [] };
-      }
-
-      // Same quality duplicate — bada size rakho
-      const existing = seasonMap[s][epKey].files.findIndex(
-        x => (extractQuality(x.file_name) || "UNKNOWN") === q
-      );
-      if (existing !== -1) {
-        if ((f.file_size || 0) > (seasonMap[s][epKey].files[existing].file_size || 0)) {
-          seasonMap[s][epKey].files[existing] = f;
-        }
-      } else {
-        seasonMap[s][epKey].files.push(f);
-      }
-    }
-
-    // Build sorted seasons → epGroups
-    // Combined episodes sabse pehle, phir single episodes by number
-    const seasons = Object.entries(seasonMap)
-      .map(([s, epMap]) => ({
-        season: parseInt(s),
-        epGroups: Object.entries(epMap)
-          .map(([key, data]) => ({ key, ...data }))
-          .sort((a, b) => {
-            // Combined first, then by epFrom
-            if (a.isCombined && !b.isCombined) return -1;
-            if (!a.isCombined && b.isCombined) return 1;
-            return a.epFrom - b.epFrom;
-          }),
-      }))
-      .sort((a, b) => a.season - b.season);
-
-    return { type: "series", seriesTitle, seasons };
-  } else {
-    // Movie: quality sort
-    const sorted = [...files].sort((a, b) => {
-      const qa = QUALITY_ORDER[extractQuality(a.file_name) || ""] ?? 99;
-      const qb = QUALITY_ORDER[extractQuality(b.file_name) || ""] ?? 99;
-      return qa - qb;
-    });
-    return { type: "movie", items: sorted };
-  }
-}
-
 // ── TMDB Category Row ─────────────────────────────────────────────────
 function TMDBCategoryRow({ title, items, onItemClick }) {
   if (!items || !items.length) return null;
+  
+  // Category icons
+  const icons = {
+    "NOW PLAYING": "🎬",
+    "GLOBAL TRENDING": "🌍",
+    "TRENDING SERIES": "📺",
+    "BOLLYWOOD": "🎭",
+    "TAMIL MOVIES": "🌟",
+    "MALAYALAM MOVIES": "🌴",
+    "TELUGU MOVIES": "🎪",
+    "KANNADA MOVIES": "🏔️",
+    "BENGALI MOVIES": "🌊",
+    "ENGLISH MOVIES": "🎥",
+    "TOP RATED ALL TIME": "🏆",
+  };
+
   return (
-    <div style={{ marginBottom: 30 }}>
+    <div style={{ marginBottom: 32 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 16px", marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ width: 3, height: 14, background: "linear-gradient(#f39c12,#e74c3c)", borderRadius: 2, display: "inline-block" }} />
-          <span style={{ fontSize: 12, fontWeight: 800, color: "#ddd", letterSpacing: "1.5px" }}>{title}</span>
+          <span style={{ fontSize: 14 }}>{icons[title] || "🎬"}</span>
+          <span style={{ fontSize: 13, fontWeight: 800, color: "#e8e8e8", letterSpacing: "0.5px" }}>{title}</span>
         </div>
+        <span style={{ fontSize: 11, color: "#444", fontWeight: 500 }}>See all ›</span>
       </div>
-      {/* FIXED: Right fade edge added — user ko pata chale scroll karna hai */}
       <div style={{ position: "relative" }}>
         <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingLeft: 16, paddingRight: 16, paddingBottom: 6, scrollbarWidth: "none" }}>
           {items.map(item => (
@@ -755,8 +747,8 @@ function TMDBCategoryRow({ title, items, onItemClick }) {
           ))}
         </div>
         <div style={{
-          position: "absolute", top: 0, right: 0, bottom: 6, width: 40,
-          background: "linear-gradient(to right, transparent, #0d0d0d)",
+          position: "absolute", top: 0, right: 0, bottom: 6, width: 48,
+          background: "linear-gradient(to right, transparent, #0a0a0a)",
           pointerEvents: "none",
         }} />
       </div>
@@ -764,7 +756,7 @@ function TMDBCategoryRow({ title, items, onItemClick }) {
   );
 }
 
-// ── Detail Modal (search file ke liye) ──────────────────────────────
+// ── Detail Modal ──────────────────────────────────────────────────────
 function DetailModal({ file, onClose }) {
   const [posterData, setPosterData] = useState(null);
   const [bgLoaded, setBgLoaded] = useState(false);
@@ -774,14 +766,13 @@ function DetailModal({ file, onClose }) {
   const title = extractMovieTitle(file.file_name);
   const link = tgLink(file.file_id);
   const hue = [...title].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
+  const [toast, setToast] = useState(null);
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
     fetchPosterFromTMDB(title, year).then(data => { if (data?.poster) setPosterData(data); });
     return () => { document.body.style.overflow = ""; };
   }, [title, year]);
-
-  const [toast, setToast] = useState(null);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -793,62 +784,82 @@ function DetailModal({ file, onClose }) {
       navigator.share({ title: name, url: link }).catch(() => {});
     } else {
       navigator.clipboard?.writeText(link)
-        .then(() => showToast("✅ Link copied to clipboard!"))
-        .catch(() => showToast("❌ Copy failed, please copy manually"));
+        .then(() => showToast("✅ Link copied!"))
+        .catch(() => showToast("❌ Copy failed"));
     }
   };
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.88)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(10px)" }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: "#111", borderRadius: "24px 24px 0 0", width: "100%", maxWidth: 480, overflow: "hidden", animation: "slideUp .3s cubic-bezier(.32,1.4,.6,1)", maxHeight: "92vh", overflowY: "auto" }}>
-        <div style={{ display: "flex", justifyContent: "center", padding: "10px 0 0" }}>
-          <div style={{ width: 36, height: 4, borderRadius: 2, background: "#2a2a2a" }} />
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.9)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(16px)" }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{
+          background: "#111", borderRadius: "28px 28px 0 0", width: "100%", maxWidth: 480,
+          overflow: "hidden", animation: "slideUp .35s cubic-bezier(.32,1.4,.6,1)",
+          maxHeight: "93vh", overflowY: "auto",
+          border: "1px solid rgba(255,255,255,0.06)", borderBottom: "none",
+        }}>
+        {/* Drag handle */}
+        <div style={{ display: "flex", justifyContent: "center", padding: "12px 0 0" }}>
+          <div style={{ width: 40, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.12)" }} />
         </div>
-        <div style={{ position: "relative", height: 280, background: `linear-gradient(135deg,hsl(${hue},35%,10%),hsl(${(hue + 60) % 360},25%,7%))` }}>
+
+        {/* Hero image */}
+        <div style={{ position: "relative", height: 290, background: `linear-gradient(135deg,hsl(${hue},35%,10%),hsl(${(hue + 60) % 360},25%,7%))` }}>
           {posterData?.poster ? (
             <img src={posterData.poster} alt={title}
-              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top", opacity: bgLoaded ? 1 : 0, transition: "opacity 0.5s ease" }}
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top", opacity: bgLoaded ? 1 : 0, transition: "opacity 0.6s ease" }}
               onLoad={() => setBgLoaded(true)} onError={() => setBgLoaded(false)} />
           ) : (
             <div style={{ position: "absolute", inset: 0 }}><Poster file={file} size="banner" /></div>
           )}
-          <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom,transparent 30%,#111 100%)" }} />
-          <button onClick={onClose} style={{ position: "absolute", top: 14, right: 14, width: 36, height: 36, borderRadius: "50%", background: "rgba(0,0,0,.75)", border: "1px solid #2a2a2a", color: "#aaa", fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+          <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom,rgba(0,0,0,0.1) 0%,rgba(17,17,17,1) 100%)" }} />
+          <button onClick={onClose}
+            style={{ position: "absolute", top: 16, right: 16, width: 38, height: 38, borderRadius: "50%", background: "rgba(0,0,0,.75)", border: "1px solid rgba(255,255,255,0.1)", color: "#aaa", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(8px)" }}>✕</button>
         </div>
-        <div style={{ padding: "0 18px 34px" }}>
-          {/* Caption — line by line, NO promotion */}
+
+        {/* Content */}
+        <div style={{ padding: "4px 20px 40px" }}>
           {(() => {
             const lines = buildCaption(file.file_name).split("\n");
             return (
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 20, fontWeight: 900, color: "#fff", lineHeight: 1.2, marginBottom: 6 }}>{lines[0]}</div>
-                {lines[1] && <div style={{ fontSize: 12, fontWeight: 700, color: "#3498db", letterSpacing: 0.5, marginBottom: 3 }}>{lines[1]}</div>}
-                {lines[2] && <div style={{ fontSize: 11, fontWeight: 600, color: "#888", letterSpacing: 0.5 }}>{lines[2]}</div>}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", lineHeight: 1.2, marginBottom: 6, letterSpacing: "-0.3px" }}>{lines[0]}</div>
+                {lines[1] && <div style={{ fontSize: 12, fontWeight: 700, color: "#6366f1", letterSpacing: 0.5, marginBottom: 3 }}>{lines[1]}</div>}
+                {lines[2] && <div style={{ fontSize: 11, fontWeight: 600, color: "#666", letterSpacing: 0.5 }}>{lines[2]}</div>}
               </div>
             );
           })()}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 14 }}>
-            {q && <span style={{ padding: "4px 12px", borderRadius: 8, fontSize: 11, fontWeight: 700, background: qualityColor(q), color: "#fff" }}>{q}</span>}
-            {year && <span style={{ padding: "4px 12px", borderRadius: 8, fontSize: 11, background: "#222", color: "#888" }}>{year}</span>}
-            {file.file_size > 0 && <span style={{ padding: "4px 12px", borderRadius: 8, fontSize: 11, background: "#222", color: "#888" }}>💾 {formatSize(file.file_size)}</span>}
+
+          {/* Badges */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
+            {q && <span style={{ padding: "5px 13px", borderRadius: 9, fontSize: 11, fontWeight: 800, background: qualityBg(q), color: "#fff" }}>{q}</span>}
+            {year && <span style={{ padding: "5px 13px", borderRadius: 9, fontSize: 11, background: "rgba(255,255,255,0.05)", color: "#888", border: "1px solid rgba(255,255,255,0.08)" }}>{year}</span>}
+            {file.file_size > 0 && <span style={{ padding: "5px 13px", borderRadius: 9, fontSize: 11, background: "rgba(255,255,255,0.05)", color: "#888", border: "1px solid rgba(255,255,255,0.08)" }}>💾 {formatSize(file.file_size)}</span>}
             {posterData?.imdb_rating && posterData.imdb_rating !== "N/A" && posterData.imdb_rating !== "0.0" && (
-              <span style={{ padding: "4px 12px", borderRadius: 8, fontSize: 11, fontWeight: 700, background: "rgba(241,196,15,.08)", color: "#f1c40f", border: "1px solid rgba(241,196,15,.18)" }}>
-                ⭐ {posterData.imdb_rating}
+              <span style={{ padding: "5px 13px", borderRadius: 9, fontSize: 11, fontWeight: 800, background: "rgba(241,196,15,0.08)", color: "#f1c40f", border: "1px solid rgba(241,196,15,0.2)" }}>
+                ★ {posterData.imdb_rating}
               </span>
             )}
           </div>
+
+          {/* Plot */}
           {posterData?.plot && (
-            <p style={{ fontSize: 12.5, color: "#5a5a5a", lineHeight: 1.7, marginBottom: 20, borderLeft: "2px solid #222", paddingLeft: 12 }}>{posterData.plot}</p>
+            <p style={{ fontSize: 13, color: "#555", lineHeight: 1.75, marginBottom: 22, padding: "14px 16px", background: "rgba(255,255,255,0.02)", borderRadius: 14, border: "1px solid rgba(255,255,255,0.04)" }}>
+              {posterData.plot}
+            </p>
           )}
+
+          {/* Action buttons */}
           <div style={{ display: "flex", gap: 10 }}>
             <a href={link} target="_blank" rel="noopener noreferrer"
-              style={{ flex: 1, padding: "15px 0", borderRadius: 16, background: "linear-gradient(135deg,#f39c12,#e74c3c)", color: "#fff", fontSize: 14, fontWeight: 700, textAlign: "center", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, boxShadow: "0 4px 22px rgba(243,156,18,.32)" }}>
+              style={{ flex: 1, padding: "16px 0", borderRadius: 18, background: "linear-gradient(135deg,#f39c12,#e74c3c)", color: "#fff", fontSize: 14, fontWeight: 800, textAlign: "center", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, boxShadow: "0 6px 28px rgba(243,156,18,.35)", letterSpacing: 0.3 }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-2.03 9.571c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.893.65z" />
               </svg>
               Open in Telegram
             </a>
-            <button onClick={handleShare} style={{ width: 54, height: 54, borderRadius: 16, background: "#1e1e1e", border: "1px solid #2a2a2a", color: "#777", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <button onClick={handleShare}
+              style={{ width: 56, height: 56, borderRadius: 18, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#777", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all .2s" }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
                 <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
@@ -857,22 +868,21 @@ function DetailModal({ file, onClose }) {
           </div>
         </div>
       </div>
-      <style>{`@keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}`}</style>
-      {/* FIXED: Toast notification — alert() ki jagah */}
+
       {toast && (
         <div style={{
-          position: "fixed", bottom: 90, left: "50%", transform: "translateX(-50%)",
-          background: "#1e1e1e", border: "1px solid #333", borderRadius: 12,
-          padding: "10px 18px", fontSize: 13, fontWeight: 600, color: "#eee",
+          position: "fixed", bottom: 100, left: "50%", transform: "translateX(-50%)",
+          background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 14,
+          padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "#eee",
           zIndex: 2000, whiteSpace: "nowrap", animation: "toastIn 0.25s ease",
-          boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
+          boxShadow: "0 8px 28px rgba(0,0,0,0.7)",
         }}>{toast}</div>
       )}
     </div>
   );
 }
 
-// ── Filter Row ───────────────────────────────────────────────────────
+// ── Filter Pill ────────────────────────────────────────────────────────
 function FilterRow({ label, items, active, onSelect, accent }) {
   return (
     <div style={{ marginBottom: 14 }}>
@@ -882,12 +892,15 @@ function FilterRow({ label, items, active, onSelect, accent }) {
           const on = active === item;
           return (
             <button key={item} onClick={() => onSelect(item)} style={{
-              padding: "6px 15px", borderRadius: 20, border: "none", cursor: "pointer",
-              fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", transition: "all .15s",
-              background: on ? (accent ? "linear-gradient(135deg,#f39c12,#e74c3c)" : "#f0f0f0") : "#1e1e1e",
+              padding: "7px 16px", borderRadius: 50, border: "none", cursor: "pointer",
+              fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", transition: "all .18s",
+              background: on
+                ? (accent ? "linear-gradient(135deg,#f39c12,#e74c3c)" : "rgba(255,255,255,0.9)")
+                : "rgba(255,255,255,0.04)",
               color: on ? (accent ? "#fff" : "#111") : "#555",
-              boxShadow: on && accent ? "0 2px 12px rgba(243,156,18,.3)" : "none",
-              transform: on ? "scale(1.04)" : "scale(1)",
+              boxShadow: on && accent ? "0 4px 16px rgba(243,156,18,.35)" : "none",
+              transform: on ? "scale(1.05)" : "scale(1)",
+              border: on ? "none" : "1px solid rgba(255,255,255,0.06)",
             }}>{item}</button>
           );
         })}
@@ -896,32 +909,32 @@ function FilterRow({ label, items, active, onSelect, accent }) {
   );
 }
 
-// ── Skeleton Loaders ─────────────────────────────────────────────────
+// ── Skeleton Loaders ──────────────────────────────────────────────────
 function SkeletonCard() {
   return (
-    <div style={{ width: 115, flexShrink: 0, borderRadius: 14, overflow: "hidden", background: "#161616", border: "1px solid #1e1e1e" }}>
-      <div style={{ height: 158, background: "#1c1c1c", animation: "pulse 1.6s ease infinite" }} />
-      <div style={{ padding: "8px 8px 12px" }}>
-        <div style={{ height: 10, background: "#1c1c1c", borderRadius: 5, marginBottom: 6, animation: "pulse 1.6s ease infinite" }} />
-        <div style={{ height: 10, background: "#1c1c1c", borderRadius: 5, width: "60%", animation: "pulse 1.6s ease infinite" }} />
+    <div style={{ width: 120, flexShrink: 0, borderRadius: 16, overflow: "hidden", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}>
+      <div style={{ height: 165, background: "rgba(255,255,255,0.03)", animation: "pulse 1.8s ease infinite" }} />
+      <div style={{ padding: "10px 10px 14px" }}>
+        <div style={{ height: 10, background: "rgba(255,255,255,0.04)", borderRadius: 5, marginBottom: 6, animation: "pulse 1.8s ease infinite" }} />
+        <div style={{ height: 10, background: "rgba(255,255,255,0.04)", borderRadius: 5, width: "60%", animation: "pulse 1.8s ease infinite" }} />
       </div>
     </div>
   );
 }
 function SkeletonFile() {
   return (
-    <div style={{ display: "flex", gap: 12, padding: 14, background: "#161616", borderRadius: 16, border: "1px solid #1e1e1e" }}>
-      <div style={{ width: 66, height: 88, borderRadius: 10, background: "#1c1c1c", flexShrink: 0, animation: "pulse 1.6s ease infinite" }} />
+    <div style={{ display: "flex", gap: 14, padding: "14px 16px", background: "rgba(255,255,255,0.02)", borderRadius: 18, border: "1px solid rgba(255,255,255,0.04)" }}>
+      <div style={{ width: 68, height: 92, borderRadius: 12, background: "rgba(255,255,255,0.04)", flexShrink: 0, animation: "pulse 1.8s ease infinite" }} />
       <div style={{ flex: 1 }}>
-        <div style={{ height: 14, background: "#1c1c1c", borderRadius: 6, marginBottom: 8, animation: "pulse 1.6s ease infinite" }} />
-        <div style={{ height: 14, background: "#1c1c1c", borderRadius: 6, width: "75%", marginBottom: 10, animation: "pulse 1.6s ease infinite" }} />
-        <div style={{ height: 20, background: "#1c1c1c", borderRadius: 6, width: "35%", animation: "pulse 1.6s ease infinite" }} />
+        <div style={{ height: 13, background: "rgba(255,255,255,0.04)", borderRadius: 6, marginBottom: 8, animation: "pulse 1.8s ease infinite" }} />
+        <div style={{ height: 13, background: "rgba(255,255,255,0.04)", borderRadius: 6, width: "75%", marginBottom: 10, animation: "pulse 1.8s ease infinite" }} />
+        <div style={{ height: 20, background: "rgba(255,255,255,0.04)", borderRadius: 6, width: "35%", animation: "pulse 1.8s ease infinite" }} />
       </div>
     </div>
   );
 }
 
-// ── Main App ─────────────────────────────────────────────────────────
+// ── Main App ──────────────────────────────────────────────────────────
 export default function App() {
   const [tab, setTab] = useState("home");
   const [query, setQuery] = useState("");
@@ -932,7 +945,6 @@ export default function App() {
   const [selected, setSelected] = useState(null);
   const [focused, setFocused] = useState(false);
 
-  // FIXED: Sab home categories ek object mein — 14 useState se 2 pe aa gaye
   const [homeData, setHomeData] = useState({
     nowPlaying: [], globalTrend: [], seriesTrend: [],
     bollywood: [], tamilFils: [], malayalamFils: [],
@@ -943,13 +955,9 @@ export default function App() {
 
   const inputRef = useRef(null);
 
-  // FIXED: Lazy loading — pehle 3 categories load karo, baaki 1 second baad
-  // Isse home page fast feel karta hai aur server pe load kam hota hai
   useEffect(() => {
     if (tab !== "home") return;
     setHomeLoading(true);
-
-    // Phase 1: Critical categories — turant load karo
     Promise.all([
       fetchDBCategory("all", 12),
       fetchDBCategory("series", 12),
@@ -972,7 +980,6 @@ export default function App() {
       }));
       setHomeLoading(false);
 
-      // Phase 2: Baaki categories thodi der baad load karo
       setTimeout(() => {
         Promise.all([
           fetchDBCategory("tamil", 12),
@@ -1007,10 +1014,8 @@ export default function App() {
   }, [doSearch, tab]);
 
   const clearAll = () => { setQuery(""); setQuality("All"); setLanguage("All"); setFiles([]); };
-  // FIXED: Sirf filters reset karo — query mat hatao
   const clearFilters = () => { setQuality("All"); setLanguage("All"); };
 
-  // FIXED: Atomic search — useEffect debounce bypass karta hai, double fetch nahi hoga
   const handleTMDBCardClick = (itemOrTitle) => {
     const movieTitle = typeof itemOrTitle === "string" ? itemOrTitle : itemOrTitle.title;
     setQuality("All");
@@ -1018,24 +1023,27 @@ export default function App() {
     setTab("search");
     setLoading(true);
     setQuery(movieTitle);
-    // Direct fetch — useEffect ka debounce skip karo
     fetchFiles(movieTitle, "All", "All").then(results => {
       setFiles(results);
       setLoading(false);
     });
   };
 
-  // Trending chips (search page ke liye — now playing titles)
   const trendingChips = homeData.nowPlaying.slice(0, 6);
 
   return (
-    <div style={{ background: "#0d0d0d", minHeight: "100vh", fontFamily: "'DM Sans',sans-serif", color: "#eee", maxWidth: 480, margin: "0 auto" }}>
-      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&family=Bebas+Neue&display=swap" />
+    <div style={{ background: "#0a0a0a", minHeight: "100vh", fontFamily: "'DM Sans',sans-serif", color: "#eee", maxWidth: 480, margin: "0 auto" }}>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;0,9..40,900;1,9..40,400&family=Bebas+Neue&display=swap" />
 
-      {/* Header */}
-      <div style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(13,13,13,.97)", borderBottom: "1px solid #181818", padding: "14px 16px 14px", backdropFilter: "blur(12px)" }}>
+      {/* ── HEADER ── */}
+      <div style={{
+        position: "sticky", top: 0, zIndex: 100,
+        background: "rgba(10,10,10,0.92)",
+        borderBottom: "1px solid rgba(255,255,255,0.05)",
+        padding: "13px 16px",
+        backdropFilter: "blur(20px)",
+      }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          {/* FIXED: Search tab pe back button dikhao — user confuse nahi hoga */}
           {tab === "search" ? (
             <button onClick={() => { setTab("home"); setQuery(""); setFiles([]); }}
               style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, color: "#888", padding: 0 }}>
@@ -1043,32 +1051,38 @@ export default function App() {
               <span style={{ fontSize: 13, fontWeight: 600 }}>Home</span>
             </button>
           ) : (
-            <span style={{ fontSize: 28, fontWeight: 900, fontFamily: "'Bebas Neue',sans-serif", letterSpacing: 3, lineHeight: 1 }}>
-              <span style={{ color: "#f39c12" }}>SUHANI</span><span style={{ color: "#e74c3c" }}> SEARCH</span>
-            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 26, fontWeight: 900, fontFamily: "'Bebas Neue',sans-serif", letterSpacing: 3, lineHeight: 1 }}>
+                <span style={{ color: "#f39c12" }}>SUHANI</span><span style={{ color: "#fff", opacity: 0.9 }}> SEARCH</span>
+              </span>
+            </div>
           )}
           {tab === "home" && (
             <button onClick={() => { setTab("search"); setTimeout(() => inputRef.current?.focus(), 150); }}
-              style={{ background: "#181818", border: "1px solid #252525", borderRadius: 22, padding: "7px 14px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", color: "#555", fontSize: 12 }}>
+              style={{
+                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 50, padding: "8px 16px", display: "flex", alignItems: "center", gap: 7,
+                cursor: "pointer", color: "#555", fontSize: 12, fontWeight: 500, transition: "all .2s",
+              }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2.5"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
-              Search...
+              Search movies...
             </button>
           )}
           {tab === "search" && (
-            <span style={{ fontSize: 18, fontWeight: 900, fontFamily: "'Bebas Neue',sans-serif", letterSpacing: 2, color: "#f39c12" }}>SEARCH</span>
+            <span style={{ fontSize: 17, fontWeight: 900, fontFamily: "'Bebas Neue',sans-serif", letterSpacing: 2, color: "#f39c12" }}>SEARCH</span>
           )}
         </div>
       </div>
 
-      {/* HOME */}
+      {/* ── HOME TAB ── */}
       {tab === "home" && (
-        <div style={{ paddingBottom: 30 }}>
+        <div style={{ paddingBottom: 36 }}>
           {homeLoading ? (
             <div style={{ padding: "20px 16px" }}>
-              <div style={{ height: 215, borderRadius: 22, background: "#181818", marginBottom: 28, animation: "pulse 1.6s ease infinite" }} />
+              <div style={{ height: 220, borderRadius: 24, background: "rgba(255,255,255,0.03)", marginBottom: 32, animation: "pulse 1.8s ease infinite" }} />
               {[1, 2, 3].map(i => (
-                <div key={i} style={{ marginBottom: 30 }}>
-                  <div style={{ height: 14, width: 150, borderRadius: 6, background: "#181818", marginBottom: 14, animation: "pulse 1.6s ease infinite" }} />
+                <div key={i} style={{ marginBottom: 32 }}>
+                  <div style={{ height: 14, width: 150, borderRadius: 6, background: "rgba(255,255,255,0.04)", marginBottom: 14, animation: "pulse 1.8s ease infinite" }} />
                   <div style={{ display: "flex", gap: 10, overflowX: "hidden" }}>
                     {[1, 2, 3].map(j => <SkeletonCard key={j} />)}
                   </div>
@@ -1078,11 +1092,10 @@ export default function App() {
           ) : (
             <>
               {homeData.heroBanner && (
-                <div style={{ paddingTop: 18 }}>
+                <div style={{ paddingTop: 20 }}>
                   <HeroBannerTMDB item={homeData.heroBanner} onClick={handleTMDBCardClick} />
                 </div>
               )}
-              {/* Har category alag alag — koi duplicate nahi */}
               <TMDBCategoryRow title="NOW PLAYING" items={homeData.nowPlaying} onItemClick={handleTMDBCardClick} />
               <TMDBCategoryRow title="GLOBAL TRENDING" items={homeData.globalTrend} onItemClick={handleTMDBCardClick} />
               <TMDBCategoryRow title="TRENDING SERIES" items={homeData.seriesTrend} onItemClick={handleTMDBCardClick} />
@@ -1099,34 +1112,51 @@ export default function App() {
         </div>
       )}
 
-      {/* SEARCH */}
+      {/* ── SEARCH TAB ── */}
       {tab === "search" && (
         <div>
           <div style={{ padding: "18px 16px 0" }}>
+            {/* Trending chips */}
             {trendingChips.length > 0 && !query && (
               <>
                 <div style={{ fontSize: 10, fontWeight: 700, color: "#3a3a3a", letterSpacing: "1.5px", marginBottom: 10 }}>TRENDING NOW</div>
                 <div style={{ display: "flex", gap: 8, overflowX: "auto", marginBottom: 20, scrollbarWidth: "none" }}>
                   {trendingChips.map(item => (
                     <button key={item.id} onClick={() => handleTMDBCardClick(item)}
-                      style={{ padding: "7px 14px", borderRadius: 20, background: "#181818", border: "1px solid #252525", color: "#888", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+                      style={{
+                        padding: "7px 14px", borderRadius: 50, background: "rgba(255,255,255,0.04)",
+                        border: "1px solid rgba(255,255,255,0.07)", color: "#666",
+                        fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer",
+                        display: "flex", alignItems: "center", gap: 5, transition: "all .2s",
+                      }}>
                       <span style={{ fontSize: 10 }}>🔥</span>{item.title}
                     </button>
                   ))}
                 </div>
               </>
             )}
-            <div style={{ background: "#141414", borderRadius: 20, padding: "14px 16px", border: `1px solid ${focused ? "#2e2e2e" : "#1e1e1e"}`, marginBottom: 18, transition: "border-color .2s", boxShadow: focused ? "0 0 0 3px rgba(243,156,18,.05)" : "none" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#1a1a1a", border: `1px solid ${focused ? "#2e2e2e" : "#222"}`, borderRadius: 14, padding: "11px 14px", marginBottom: 16, transition: "border-color .2s" }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2.5"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+
+            {/* Search input + filters */}
+            <div style={{
+              background: "rgba(255,255,255,0.03)", borderRadius: 22, padding: "14px 16px",
+              border: `1px solid ${focused ? "rgba(243,156,18,0.3)" : "rgba(255,255,255,0.06)"}`,
+              marginBottom: 18, transition: "border-color .2s",
+              boxShadow: focused ? "0 0 0 3px rgba(243,156,18,0.06)" : "none",
+            }}>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 10,
+                background: "rgba(255,255,255,0.04)", border: `1px solid ${focused ? "rgba(243,156,18,0.2)" : "rgba(255,255,255,0.07)"}`,
+                borderRadius: 14, padding: "11px 14px", marginBottom: 16, transition: "border-color .2s",
+              }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2.5"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
                 <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)}
                   onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
                   onKeyDown={e => e.key === "Enter" && doSearch()}
                   placeholder="Search movies, series..."
-                  style={{ flex: 1, background: "transparent", border: "none", outline: "none", fontSize: 14, color: "#eee" }} />
+                  style={{ flex: 1, background: "transparent", border: "none", outline: "none", fontSize: 14, color: "#eee", fontFamily: "inherit" }} />
                 {query && (
                   <button onClick={() => { setQuery(""); inputRef.current?.focus(); }}
-                    style={{ background: "#252525", border: "none", borderRadius: "50%", width: 22, height: 22, color: "#666", cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+                    style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: "50%", width: 22, height: 22, color: "#666", cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
                 )}
               </div>
               <FilterRow label="QUALITY" items={QUALITIES} active={quality} onSelect={setQuality} accent />
@@ -1134,23 +1164,25 @@ export default function App() {
             </div>
           </div>
 
-          <div style={{ padding: "0 16px 30px" }}>
+          <div style={{ padding: "0 16px 36px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <span style={{ fontSize: 12, color: "#3a3a3a", fontWeight: 600 }}>
                 {loading ? "Searching..." : (query || quality !== "All" || language !== "All") ? (() => {
-                const g = groupFilesForDisplay(files, quality);
-                if (g.type === "series") {
-                  const totalEp = g.seasons.reduce((sum, s) => sum + s.epGroups.length, 0);
-                  return `${files.length} files · ${totalEp} episode group${totalEp !== 1 ? "s" : ""} found`;
-                }
-                return `${files.length} result${files.length !== 1 ? "s" : ""} found`;
-              })() : ""}
+                  const g = groupFilesForDisplay(files, quality);
+                  if (g.type === "series") {
+                    const totalEp = g.seasons.reduce((sum, s) => sum + s.epGroups.length, 0);
+                    return `${files.length} files · ${totalEp} episode group${totalEp !== 1 ? "s" : ""} found`;
+                  }
+                  return `${files.length} result${files.length !== 1 ? "s" : ""} found`;
+                })() : ""}
               </span>
               {(query || quality !== "All" || language !== "All") && (
                 <button onClick={clearAll} style={{ background: "none", border: "none", color: "#e74c3c", fontSize: 12, cursor: "pointer", fontWeight: 700 }}>Clear all</button>
               )}
             </div>
+
             {loading && <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{[1, 2, 3, 4].map(i => <SkeletonFile key={i} />)}</div>}
+
             {!loading && (() => {
               const grouped = groupFilesForDisplay(files, quality);
               if (grouped.type === "series") {
@@ -1158,14 +1190,13 @@ export default function App() {
                   <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                     {grouped.seasons.map((seasonData) => (
                       <div key={seasonData.season}>
-                        {/* Season divider — sirf multiple seasons pe */}
                         {grouped.seasons.length > 1 && (
                           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                            <div style={{ flex: 1, height: 1, background: "#1e1e1e" }} />
-                            <span style={{ fontSize: 9, fontWeight: 900, color: "#3498db", letterSpacing: 2.5, padding: "5px 14px", borderRadius: 20, border: "1px solid #1a3a5f", background: "#08121e" }}>
+                            <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.05)" }} />
+                            <span style={{ fontSize: 9, fontWeight: 900, color: "#6366f1", letterSpacing: 2.5, padding: "5px 14px", borderRadius: 50, border: "1px solid rgba(99,102,241,0.2)", background: "rgba(99,102,241,0.08)" }}>
                               SEASON {String(seasonData.season).padStart(2, "0")}
                             </span>
-                            <div style={{ flex: 1, height: 1, background: "#1e1e1e" }} />
+                            <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.05)" }} />
                           </div>
                         )}
                         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -1188,7 +1219,6 @@ export default function App() {
                   </div>
                 );
               }
-              // Movie mode
               return (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {grouped.items.map((f, i) => (
@@ -1199,12 +1229,13 @@ export default function App() {
                 </div>
               );
             })()}
+
             {!loading && files.length === 0 && (query || quality !== "All" || language !== "All") && (
               <div style={{ textAlign: "center", padding: "70px 20px" }}>
                 <div style={{ fontSize: 56, marginBottom: 16 }}>🎬</div>
                 <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 8, color: "#ccc" }}>No results found</div>
                 <div style={{ fontSize: 13, color: "#444", lineHeight: 1.6 }}>Try different keywords or change filters</div>
-                <button onClick={clearFilters} style={{ marginTop: 20, padding: "10px 24px", borderRadius: 20, background: "linear-gradient(135deg,#f39c12,#e74c3c)", border: "none", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Reset Filters</button>
+                <button onClick={clearFilters} style={{ marginTop: 20, padding: "11px 26px", borderRadius: 50, background: "linear-gradient(135deg,#f39c12,#e74c3c)", border: "none", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Reset Filters</button>
               </div>
             )}
             {!loading && files.length === 0 && !query && quality === "All" && language === "All" && (
@@ -1218,8 +1249,8 @@ export default function App() {
         </div>
       )}
 
-      {/* Footer */}
-      <div style={{ textAlign: "center", padding: "12px 16px 28px", borderTop: "1px solid #181818", fontSize: 11, color: "#2e2e2e" }}>
+      {/* ── FOOTER ── */}
+      <div style={{ textAlign: "center", padding: "14px 16px 32px", borderTop: "1px solid rgba(255,255,255,0.04)", fontSize: 11, color: "#2a2a2a" }}>
         <p style={{ margin: "0 0 6px", lineHeight: 1.7 }}>All contents are publicly available on Telegram.<br />We do not host any files.</p>
         <div style={{ display: "flex", justifyContent: "center", gap: 16, alignItems: "center" }}>
           <span>© {new Date().getFullYear()} Suhani Search</span>
@@ -1231,16 +1262,19 @@ export default function App() {
       {selected && <DetailModal file={selected} onClose={() => setSelected(null)} />}
 
       <style>{`
-        *{box-sizing:border-box}
-        ::-webkit-scrollbar{height:3px;width:3px}
-        ::-webkit-scrollbar-thumb{background:#252525;border-radius:4px}
-        @keyframes pulse{0%,100%{opacity:.2}50%{opacity:.5}}
-        @keyframes spin{to{transform:rotate(360deg)}}
-        @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}
-        input::placeholder{color:#3a3a3a}
-        div::-webkit-scrollbar{display:none}
-        button{font-family:inherit}
+        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { height: 3px; width: 3px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+        @keyframes pulse { 0%,100%{opacity:.15}50%{opacity:.35} }
+        @keyframes spin { to{transform:rotate(360deg)} }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)} }
+        @keyframes slideUp { from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1} }
+        @keyframes toastIn { from{opacity:0;transform:translateX(-50%) translateY(12px)}to{opacity:1;transform:translateX(-50%) translateY(0)} }
+        input::placeholder { color: #3a3a3a; }
+        div::-webkit-scrollbar { display: none; }
+        button { font-family: inherit; }
+        a { -webkit-tap-highlight-color: transparent; }
+        button { -webkit-tap-highlight-color: transparent; }
       `}</style>
     </div>
   );
