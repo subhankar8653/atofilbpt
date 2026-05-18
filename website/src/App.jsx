@@ -1,4 +1,27 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, Component } from "react";
+
+// ── Error Boundary ────────────────────────────────────────────────────
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { hasError: false, error: null }; }
+  static getDerivedStateFromError(error) { return { hasError: true, error }; }
+  componentDidCatch(error, info) { console.error("App crashed:", error, info); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ background: "#0a0a0a", minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#eee", fontFamily: "sans-serif", padding: 24, textAlign: "center" }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
+          <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>Kuch galat ho gaya</div>
+          <div style={{ fontSize: 13, color: "#555", marginBottom: 24 }}>{this.state.error?.message || "Unknown error"}</div>
+          <button onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload(); }}
+            style={{ padding: "12px 28px", borderRadius: 50, background: "linear-gradient(135deg,#f39c12,#e74c3c)", border: "none", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+            Reload App
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // ⚠️  APNA BOT USERNAME AUR BOT SERVER URL YAHAN DAALO
@@ -345,10 +368,8 @@ function TMDBCard({ item, onClick }) {
               </div>
             )}
             <img
-              src={item.poster} alt="" loading="lazy" decoding="async"
-              draggable="false"
-              onContextMenu={e => e.preventDefault()}
-              style={{ width: "100%", height: "100%", objectFit: "cover", opacity: imgLoaded ? 1 : 0, transition: "opacity 0.5s ease", display: "block", pointerEvents: "none", userSelect: "none", WebkitUserSelect: "none" }}
+              src={item.poster} alt={item.title} loading="lazy" decoding="async"
+              style={{ width: "100%", height: "100%", objectFit: "cover", opacity: imgLoaded ? 1 : 0, transition: "opacity 0.5s ease", display: "block" }}
               onLoad={() => setImgLoaded(true)}
               onError={() => { setImgFailed(true); setImgLoaded(false); }}
             />
@@ -412,14 +433,11 @@ function HeroBannerTMDB({ item, onClick }) {
     >
       {bgSrc && (
         <img
-          src={bgSrc} alt="" loading="lazy"
-          draggable="false"
-          onContextMenu={e => e.preventDefault()}
+          src={bgSrc} alt={item.title} loading="lazy"
           style={{
             position: "absolute", inset: 0, width: "100%", height: "100%",
             objectFit: "cover", objectPosition: "center top",
             opacity: bgLoaded ? 0.55 : 0, transition: "opacity 0.7s ease",
-            pointerEvents: "none", userSelect: "none", WebkitUserSelect: "none",
           }}
           onLoad={() => setBgLoaded(true)} onError={() => setBgLoaded(false)}
         />
@@ -497,10 +515,8 @@ function Poster({ file, seriesTitle = null, size = "card" }) {
           </div>
         )}
         <img
-          src={imgSrc} alt="" loading="lazy" decoding="async"
-          draggable="false"
-          onContextMenu={e => e.preventDefault()}
-          style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "inherit", opacity: imgLoaded ? 1 : 0, transition: "opacity 0.4s ease", display: "block", pointerEvents: "none", userSelect: "none", WebkitUserSelect: "none" }}
+          src={imgSrc} alt={title} loading="lazy" decoding="async"
+          style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "inherit", opacity: imgLoaded ? 1 : 0, transition: "opacity 0.4s ease", display: "block" }}
           onLoad={() => setImgLoaded(true)}
           onError={() => { setImgFailed(true); setImgLoaded(false); }}
         />
@@ -601,77 +617,63 @@ function QualityRow({ file, quality, lang, isLast, onClick }) {
 
 // ── groupFilesForDisplay ──────────────────────────────────────────────
 function groupFilesForDisplay(files, activeQuality) {
-  if (!files.length) return { type: "empty", items: [] };
+  if (!files.length) return { type: "movie", items: [] };
 
-  const seriesCount = files.filter(f => isSeries(f.file_name)).length;
-  const isSeriesSearch = seriesCount > files.length / 2;
-
-  if (isSeriesSearch) {
-    const seriesTitle = extractMovieTitle(files[0].file_name);
-    const seasonMap = {};
-
-    for (const f of files) {
-      const s = extractSeason(f.file_name) ?? 1;
-      const epInfo = extractEpisodeInfo(f.file_name);
-      const q = extractQuality(f.file_name) || "UNKNOWN";
-
-      if (!seasonMap[s]) seasonMap[s] = {};
-
-      let epKey;
-      let isCombined = false;
-      let epFrom = -1, epTo = -1;
-
-      if (epInfo?.type === "combined") {
-        isCombined = true;
-        epFrom = epInfo.from;
-        epTo = epInfo.to;
-        epKey = `c_${epFrom}_${epTo}`;
-      } else if (epInfo?.type === "single") {
-        epKey = String(epInfo.ep);
-        epFrom = epInfo.ep;
-      } else {
-        epKey = "unknown";
-        epFrom = 99999;
-      }
-
-      if (!seasonMap[s][epKey]) {
-        seasonMap[s][epKey] = { isCombined, epFrom, epTo, files: [] };
-      }
-
-      const existing = seasonMap[s][epKey].files.findIndex(
-        x => (extractQuality(x.file_name) || "UNKNOWN") === q
-      );
-      if (existing !== -1) {
-        if ((f.file_size || 0) > (seasonMap[s][epKey].files[existing].file_size || 0)) {
-          seasonMap[s][epKey].files[existing] = f;
-        }
-      } else {
-        seasonMap[s][epKey].files.push(f);
-      }
-    }
-
-    const seasons = Object.entries(seasonMap)
-      .map(([s, epMap]) => ({
-        season: parseInt(s),
-        epGroups: Object.entries(epMap)
-          .map(([key, data]) => ({ key, ...data }))
-          .sort((a, b) => {
-            if (a.isCombined && !b.isCombined) return -1;
-            if (!a.isCombined && b.isCombined) return 1;
-            return a.epFrom - b.epFrom;
-          }),
-      }))
-      .sort((a, b) => a.season - b.season);
-
-    return { type: "series", seriesTitle, seasons };
-  } else {
-    const sorted = [...files].sort((a, b) => {
+  const seriesFiles = files.filter(f => isSeries(f.file_name));
+  if (seriesFiles.length === 0) {
+    const filtered = activeQuality !== "All"
+      ? files.filter(f => extractQuality(f.file_name)?.toUpperCase() === activeQuality.toUpperCase())
+      : files;
+    const sorted = [...(filtered.length ? filtered : files)].sort((a, b) => {
       const qa = QUALITY_ORDER[extractQuality(a.file_name) || ""] ?? 99;
       const qb = QUALITY_ORDER[extractQuality(b.file_name) || ""] ?? 99;
       return qa - qb;
     });
     return { type: "movie", items: sorted };
   }
+
+  const seriesTitle = extractMovieTitle(seriesFiles[0].file_name);
+  const seasonMap = {};
+
+  for (const f of seriesFiles) {
+    const s = extractSeason(f.file_name) ?? 1;
+    if (!seasonMap[s]) seasonMap[s] = {};
+    const epInfo = extractEpisodeInfo(f.file_name);
+    let epFrom, epTo, isCombined;
+    if (!epInfo) { epFrom = 99999; epTo = 99999; isCombined = false; }
+    else if (epInfo.type === "combined") { epFrom = epInfo.from; epTo = epInfo.to; isCombined = true; }
+    else { epFrom = epInfo.ep; epTo = epInfo.ep; isCombined = false; }
+
+    const epKey = isCombined ? `c_${epFrom}_${epTo}` : `e_${epFrom}`;
+    if (!seasonMap[s][epKey]) {
+      seasonMap[s][epKey] = { epFrom, epTo, isCombined, files: [] };
+    }
+    const existing = seasonMap[s][epKey].files.findIndex(
+      x => (extractQuality(x.file_name) || "UNKNOWN") === (extractQuality(f.file_name) || "UNKNOWN")
+    );
+    if (existing !== -1) {
+      if ((f.file_size || 0) > (seasonMap[s][epKey].files[existing].file_size || 0)) {
+        seasonMap[s][epKey].files[existing] = f;
+      }
+    } else {
+      seasonMap[s][epKey].files.push(f);
+    }
+  }
+
+  const seasons = Object.entries(seasonMap)
+    .map(([s, epMap]) => ({
+      season: parseInt(s),
+      epGroups: Object.entries(epMap)
+        .map(([key, data]) => ({ key, ...data }))
+        .sort((a, b) => {
+          if (a.isCombined && !b.isCombined) return -1;
+          if (!a.isCombined && b.isCombined) return 1;
+          return a.epFrom - b.epFrom;
+        }),
+    }))
+    .sort((a, b) => a.season - b.season);
+
+  return { type: "series", seriesTitle, seasons };
 }
 
 // ── EpisodeQualityRow ─────────────────────────────────────────────────
@@ -733,148 +735,35 @@ function EpisodeQualityRow({ epFrom, epTo, isCombined, files, seriesTitle, seaso
   );
 }
 
-// ── Category icons map ────────────────────────────────────────────────
-const CATEGORY_ICONS = {
-  "NOW PLAYING": "🎬",
-  "GLOBAL TRENDING": "🌍",
-  "TRENDING SERIES": "📺",
-  "BOLLYWOOD": "🎭",
-  "TAMIL MOVIES": "🌟",
-  "MALAYALAM MOVIES": "🌴",
-  "TELUGU MOVIES": "🎪",
-  "KANNADA MOVIES": "🏔️",
-  "BENGALI MOVIES": "🌊",
-  "ENGLISH MOVIES": "🎥",
-  "TOP RATED ALL TIME": "🏆",
-};
-
-// Title → API category key map
-const TITLE_TO_CATEGORY = {
-  "NOW PLAYING": "all",
-  "GLOBAL TRENDING": "all",
-  "TRENDING SERIES": "series",
-  "BOLLYWOOD": "hindi",
-  "TAMIL MOVIES": "tamil",
-  "MALAYALAM MOVIES": "malayalam",
-  "TELUGU MOVIES": "telugu",
-  "KANNADA MOVIES": "kannada",
-  "BENGALI MOVIES": "bengali",
-  "ENGLISH MOVIES": "english",
-  "TOP RATED ALL TIME": "all",
-};
-
-// ── Category Full Page — infinite scroll ──────────────────────────────
-function CategoryPage({ title, initialItems, onItemClick, onBack }) {
-  const PAGE_SIZE = 20;
-  const [items, setItems] = useState(initialItems || []);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const loaderRef = useRef(null);
-  const category = TITLE_TO_CATEGORY[title] || "all";
-
-  // Intersection Observer — jab loader visible ho, aur load karo
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      entries => {
-        if (entries[0].isIntersecting && hasMore && !loadingMore) {
-          loadMore();
-        }
-      },
-      { threshold: 0.1 }
-    );
-    if (loaderRef.current) observer.observe(loaderRef.current);
-    return () => observer.disconnect();
-  }, [hasMore, loadingMore, page, items.length]);
-
-  const loadMore = async () => {
-    if (loadingMore || !hasMore) return;
-    setLoadingMore(true);
-    const limit = PAGE_SIZE * (page + 1);
-    const fresh = await fetchDBCategory(category, limit);
-
-    // Series filter for TRENDING SERIES
-    let filtered = fresh;
-    if (title === "TRENDING SERIES") filtered = fresh.filter(f => f.type === "series");
-    if (title === "GLOBAL TRENDING") filtered = fresh.slice(3);
-
-    if (filtered.length <= items.length) {
-      setHasMore(false);
-    } else {
-      setItems(filtered);
-      setPage(p => p + 1);
-    }
-    setLoadingMore(false);
-  };
-
-  return (
-    <div style={{ background: "#0a0a0a", minHeight: "100vh", fontFamily: "'DM Sans',sans-serif", color: "#eee" }}>
-      {/* Header */}
-      <div style={{
-        position: "sticky", top: 0, zIndex: 100,
-        background: "rgba(10,10,10,0.95)", borderBottom: "1px solid rgba(255,255,255,0.05)",
-        padding: "13px 16px", backdropFilter: "blur(20px)",
-        display: "flex", alignItems: "center", gap: 12,
-      }}>
-        <button onClick={onBack}
-          style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", padding: 0, color: "#888" }}>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2.5" strokeLinecap="round"><path d="M19 12H5M12 5l-7 7 7 7" /></svg>
-        </button>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 16 }}>{CATEGORY_ICONS[title] || "🎬"}</span>
-          <span style={{ fontSize: 15, fontWeight: 800, color: "#e8e8e8", letterSpacing: "0.3px" }}>{title}</span>
-        </div>
-        <span style={{ marginLeft: "auto", fontSize: 11, color: "#444" }}>{items.length} titles</span>
-      </div>
-
-      {/* Grid */}
-      <div style={{ padding: "16px 14px 32px" }}>
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: 10,
-        }}>
-          {items.map((item, i) => (
-            <div key={item.id || i} style={{ animation: `fadeIn .3s ease ${Math.min(i, 8) * 0.04}s both` }}>
-              <TMDBCard item={item} onClick={onItemClick} />
-            </div>
-          ))}
-        </div>
-
-        {/* Infinite scroll trigger */}
-        <div ref={loaderRef} style={{ height: 60, display: "flex", alignItems: "center", justifyContent: "center", marginTop: 10 }}>
-          {loadingMore && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#444", fontSize: 12 }}>
-              <div style={{ width: 18, height: 18, borderRadius: "50%", border: "2px solid #2a2a2a", borderTopColor: "#f39c12", animation: "spin 0.8s linear infinite" }} />
-              Loading more...
-            </div>
-          )}
-          {!hasMore && items.length > 0 && (
-            <span style={{ fontSize: 11, color: "#2a2a2a" }}>— Sab dekh liya —</span>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── TMDB Category Row ─────────────────────────────────────────────────
 function TMDBCategoryRow({ title, items, onItemClick, onSeeAll }) {
   if (!items || !items.length) return null;
+  
+  // Category icons
+  const icons = {
+    "NOW PLAYING": "🎬",
+    "GLOBAL TRENDING": "🌍",
+    "TRENDING SERIES": "📺",
+    "BOLLYWOOD": "🎭",
+    "TAMIL MOVIES": "🌟",
+    "MALAYALAM MOVIES": "🌴",
+    "TELUGU MOVIES": "🎪",
+    "KANNADA MOVIES": "🏔️",
+    "BENGALI MOVIES": "🌊",
+    "ENGLISH MOVIES": "🎥",
+    "TOP RATED ALL TIME": "🏆",
+  };
 
   return (
     <div style={{ marginBottom: 32 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 16px", marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 14 }}>{CATEGORY_ICONS[title] || "🎬"}</span>
+          <span style={{ fontSize: 14 }}>{icons[title] || "🎬"}</span>
           <span style={{ fontSize: 13, fontWeight: 800, color: "#e8e8e8", letterSpacing: "0.5px" }}>{title}</span>
         </div>
-        <button
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSeeAll(title, items); }}
-          onTouchEnd={(e) => { e.preventDefault(); onSeeAll(title, items); }}
-          style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#f39c12", fontWeight: 600, padding: "8px 4px", WebkitTapHighlightColor: "transparent" }}>
-          See all ›
-        </button>
+        {onSeeAll && (
+          <button onClick={onSeeAll} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "#f39c12", fontWeight: 600, padding: "4px 0" }}>See all ›</button>
+        )}
       </div>
       <div style={{ position: "relative" }}>
         <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingLeft: 16, paddingRight: 16, paddingBottom: 6, scrollbarWidth: "none" }}>
@@ -942,10 +831,8 @@ function DetailModal({ file, onClose }) {
         {/* Hero image */}
         <div style={{ position: "relative", height: 290, background: `linear-gradient(135deg,hsl(${hue},35%,10%),hsl(${(hue + 60) % 360},25%,7%))` }}>
           {posterData?.poster ? (
-            <img src={posterData.poster} alt=""
-              draggable="false"
-              onContextMenu={e => e.preventDefault()}
-              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top", opacity: bgLoaded ? 1 : 0, transition: "opacity 0.6s ease", pointerEvents: "none", userSelect: "none", WebkitUserSelect: "none" }}
+            <img src={posterData.poster} alt={title}
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top", opacity: bgLoaded ? 1 : 0, transition: "opacity 0.6s ease" }}
               onLoad={() => setBgLoaded(true)} onError={() => setBgLoaded(false)} />
           ) : (
             <div style={{ position: "absolute", inset: 0 }}><Poster file={file} size="banner" /></div>
@@ -1048,12 +935,12 @@ function FilterRow({ label, items, active, onSelect, accent }) {
 }
 
 // ── Skeleton Loaders ──────────────────────────────────────────────────
-function SkeletonBot() {
+function SkeletonCard() {
   return (
-    <div style={{ display: "flex", gap: 14, padding: "14px 16px", background: "rgba(255,255,255,0.02)", borderRadius: 18, border: "1px solid rgba(255,255,255,0.04)" }}>
-      <div style={{ width: 48, height: 48, borderRadius: "50%", background: "rgba(255,255,255,0.04)", flexShrink: 0, animation: "pulse 1.8s ease infinite" }} />
-      <div style={{ flex: 1 }}>
-        <div style={{ height: 13, background: "rgba(255,255,255,0.04)", borderRadius: 5, marginBottom: 6, animation: "pulse 1.8s ease infinite" }} />
+    <div style={{ width: 120, flexShrink: 0, borderRadius: 16, overflow: "hidden", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}>
+      <div style={{ height: 165, background: "rgba(255,255,255,0.03)", animation: "pulse 1.8s ease infinite" }} />
+      <div style={{ padding: "10px 10px 14px" }}>
+        <div style={{ height: 10, background: "rgba(255,255,255,0.04)", borderRadius: 5, marginBottom: 6, animation: "pulse 1.8s ease infinite" }} />
         <div style={{ height: 10, background: "rgba(255,255,255,0.04)", borderRadius: 5, width: "60%", animation: "pulse 1.8s ease infinite" }} />
       </div>
     </div>
@@ -1170,22 +1057,6 @@ export default function App() {
 
   const trendingChips = homeData.nowPlaying.slice(0, 6);
 
-  // ── Category Page View ──
-  if (categoryPage) {
-    return (
-      <div style={{ maxWidth: 480, margin: "0 auto" }}>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;0,9..40,900;1,9..40,400&family=Bebas+Neue&display=swap" />
-        <CategoryPage
-          title={categoryPage.title}
-          initialItems={categoryPage.items}
-          onItemClick={(item) => { handleTMDBCardClick(item); setCategoryPage(null); }}
-          onBack={() => setCategoryPage(null)}
-        />
-        <style>{`*{box-sizing:border-box}@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}div::-webkit-scrollbar{display:none}button{font-family:inherit}`}</style>
-      </div>
-    );
-  }
-
   return (
     <div style={{ background: "#0a0a0a", minHeight: "100vh", fontFamily: "'DM Sans',sans-serif", color: "#eee", maxWidth: 480, margin: "0 auto" }}>
       <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;0,9..40,900;1,9..40,400&family=Bebas+Neue&display=swap" />
@@ -1200,7 +1071,7 @@ export default function App() {
       }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           {tab === "search" ? (
-            <button onClick={() => { setTab("home"); setQuery(""); setFiles([]); }}
+            <button onClick={() => { setTab("home"); setQuery(""); setFiles([]); setCategoryPage(null); }}
               style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, color: "#888", padding: 0 }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2.5" strokeLinecap="round"><path d="M19 12H5M12 5l-7 7 7 7" /></svg>
               <span style={{ fontSize: 13, fontWeight: 600 }}>Home</span>
@@ -1230,7 +1101,7 @@ export default function App() {
       </div>
 
       {/* ── HOME TAB ── */}
-      {tab === "home" && (
+      {tab === "home" && !categoryPage && (
         <div style={{ paddingBottom: 36 }}>
           {homeLoading ? (
             <div style={{ padding: "20px 16px" }}>
@@ -1251,19 +1122,37 @@ export default function App() {
                   <HeroBannerTMDB item={homeData.heroBanner} onClick={handleTMDBCardClick} />
                 </div>
               )}
-              <TMDBCategoryRow title="NOW PLAYING" items={homeData.nowPlaying} onItemClick={handleTMDBCardClick} onSeeAll={(t,i) => setCategoryPage({title:t,items:i})} />
-              <TMDBCategoryRow title="GLOBAL TRENDING" items={homeData.globalTrend} onItemClick={handleTMDBCardClick} onSeeAll={(t,i) => setCategoryPage({title:t,items:i})} />
-              <TMDBCategoryRow title="TRENDING SERIES" items={homeData.seriesTrend} onItemClick={handleTMDBCardClick} onSeeAll={(t,i) => setCategoryPage({title:t,items:i})} />
-              <TMDBCategoryRow title="BOLLYWOOD" items={homeData.bollywood} onItemClick={handleTMDBCardClick} onSeeAll={(t,i) => setCategoryPage({title:t,items:i})} />
-              <TMDBCategoryRow title="TAMIL MOVIES" items={homeData.tamilFils} onItemClick={handleTMDBCardClick} onSeeAll={(t,i) => setCategoryPage({title:t,items:i})} />
-              <TMDBCategoryRow title="MALAYALAM MOVIES" items={homeData.malayalamFils} onItemClick={handleTMDBCardClick} onSeeAll={(t,i) => setCategoryPage({title:t,items:i})} />
-              <TMDBCategoryRow title="TELUGU MOVIES" items={homeData.teluguFils} onItemClick={handleTMDBCardClick} onSeeAll={(t,i) => setCategoryPage({title:t,items:i})} />
-              <TMDBCategoryRow title="KANNADA MOVIES" items={homeData.kannadaFils} onItemClick={handleTMDBCardClick} onSeeAll={(t,i) => setCategoryPage({title:t,items:i})} />
-              <TMDBCategoryRow title="BENGALI MOVIES" items={homeData.bengaliFils} onItemClick={handleTMDBCardClick} onSeeAll={(t,i) => setCategoryPage({title:t,items:i})} />
-              <TMDBCategoryRow title="ENGLISH MOVIES" items={homeData.englishFils} onItemClick={handleTMDBCardClick} onSeeAll={(t,i) => setCategoryPage({title:t,items:i})} />
-              <TMDBCategoryRow title="TOP RATED ALL TIME" items={homeData.topRated} onItemClick={handleTMDBCardClick} onSeeAll={(t,i) => setCategoryPage({title:t,items:i})} />
+              <TMDBCategoryRow title="NOW PLAYING" items={homeData.nowPlaying} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "NOW PLAYING", items: homeData.nowPlaying })} />
+              <TMDBCategoryRow title="GLOBAL TRENDING" items={homeData.globalTrend} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "GLOBAL TRENDING", items: homeData.globalTrend })} />
+              <TMDBCategoryRow title="TRENDING SERIES" items={homeData.seriesTrend} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "TRENDING SERIES", items: homeData.seriesTrend })} />
+              <TMDBCategoryRow title="BOLLYWOOD" items={homeData.bollywood} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "BOLLYWOOD", items: homeData.bollywood })} />
+              <TMDBCategoryRow title="TAMIL MOVIES" items={homeData.tamilFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "TAMIL MOVIES", items: homeData.tamilFils })} />
+              <TMDBCategoryRow title="MALAYALAM MOVIES" items={homeData.malayalamFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "MALAYALAM MOVIES", items: homeData.malayalamFils })} />
+              <TMDBCategoryRow title="TELUGU MOVIES" items={homeData.teluguFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "TELUGU MOVIES", items: homeData.teluguFils })} />
+              <TMDBCategoryRow title="KANNADA MOVIES" items={homeData.kannadaFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "KANNADA MOVIES", items: homeData.kannadaFils })} />
+              <TMDBCategoryRow title="BENGALI MOVIES" items={homeData.bengaliFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "BENGALI MOVIES", items: homeData.bengaliFils })} />
+              <TMDBCategoryRow title="ENGLISH MOVIES" items={homeData.englishFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "ENGLISH MOVIES", items: homeData.englishFils })} />
+              <TMDBCategoryRow title="TOP RATED ALL TIME" items={homeData.topRated} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "TOP RATED ALL TIME", items: homeData.topRated })} />
             </>
           )}
+        </div>
+      )}
+
+      {/* ── CATEGORY PAGE ── */}
+      {tab === "home" && categoryPage && (
+        <div style={{ paddingBottom: 36 }}>
+          <div style={{ padding: "16px 16px 8px", display: "flex", alignItems: "center", gap: 12 }}>
+            <button onClick={() => setCategoryPage(null)}
+              style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: "#888", padding: 0 }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2.5" strokeLinecap="round"><path d="M19 12H5M12 5l-7 7 7 7" /></svg>
+            </button>
+            <span style={{ fontSize: 15, fontWeight: 800, color: "#e8e8e8" }}>{categoryPage.title}</span>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, padding: "10px 16px" }}>
+            {categoryPage.items.map(item => (
+              <TMDBCard key={item.id} item={item} onClick={handleTMDBCardClick} />
+            ))}
+          </div>
         </div>
       )}
 
@@ -1418,7 +1307,6 @@ export default function App() {
 
       <style>{`
         * { box-sizing: border-box; }
-        img { -webkit-user-drag: none; user-drag: none; -webkit-user-select: none; user-select: none; }
         ::-webkit-scrollbar { height: 3px; width: 3px; }
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
         @keyframes pulse { 0%,100%{opacity:.15}50%{opacity:.35} }
@@ -1433,5 +1321,15 @@ export default function App() {
         button { -webkit-tap-highlight-color: transparent; }
       `}</style>
     </div>
+  );
+}
+
+// ── Safe Export with Error Boundary ──────────────────────────────────
+const OriginalApp = App;
+export default function AppWithBoundary() {
+  return (
+    <ErrorBoundary>
+      <OriginalApp />
+    </ErrorBoundary>
   );
 }
