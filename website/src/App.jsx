@@ -1048,7 +1048,12 @@ function FilterRow({ label, items, active, onSelect, accent }) {
 }
 
 // ── Skeleton Loaders ──────────────────────────────────────────────────
-Radius: 5, marginBottom: 6, animation: "pulse 1.8s ease infinite" }} />
+function SkeletonBot() {
+  return (
+    <div style={{ display: "flex", gap: 14, padding: "14px 16px", background: "rgba(255,255,255,0.02)", borderRadius: 18, border: "1px solid rgba(255,255,255,0.04)" }}>
+      <div style={{ width: 48, height: 48, borderRadius: "50%", background: "rgba(255,255,255,0.04)", flexShrink: 0, animation: "pulse 1.8s ease infinite" }} />
+      <div style={{ flex: 1 }}>
+        <div style={{ height: 13, background: "rgba(255,255,255,0.04)", borderRadius: 5, marginBottom: 6, animation: "pulse 1.8s ease infinite" }} />
         <div style={{ height: 10, background: "rgba(255,255,255,0.04)", borderRadius: 5, width: "60%", animation: "pulse 1.8s ease infinite" }} />
       </div>
     </div>
