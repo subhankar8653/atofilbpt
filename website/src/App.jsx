@@ -122,6 +122,20 @@ async function enrichWithTMDB(title, year) {
   } catch { return null; }
 }
 
+// ── fetchPosterFromTMDB — Poster & DetailModal ke liye ──────────────
+// enrichWithTMDB ka wrapper jo Poster/DetailModal ka expected format return karta hai
+async function fetchPosterFromTMDB(title, year) {
+  try {
+    const data = await enrichWithTMDB(title, year);
+    if (!data) return null;
+    return {
+      poster: data.poster || null,
+      imdb_rating: data.rating || null,
+      plot: data.overview || null,
+    };
+  } catch { return null; }
+}
+
 // Category ke liye language filter words
 const CATEGORY_LANG_FILTER = {
   hindi:     /hindi/i,
