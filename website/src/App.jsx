@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 // ⚠️  APNA BOT USERNAME AUR BOT SERVER URL YAHAN DAALO
 // ═══════════════════════════════════════════════════════════════════
 const BOT_USERNAME = "My_Suhani_bot";
-const API_BASE = "https://web-production-a6061.up.railway.app";
+const API_BASE = "https://grouphbot.onrender.com";
 
 // ⚠️  TMDB API KEY YAHAN DAALO — themoviedb.org pe free milti hai
 const TMDB_API_KEY = "a8c1b6b3487fbc94ca6bd229d9abed14";
