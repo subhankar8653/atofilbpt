@@ -65,6 +65,24 @@ function extractMovieTitle(name = "") {
   return words.slice(0, 4).join(" ") || cleanFileName(name).split(" ").slice(0, 3).join(" ");
 }
 
+// Episode number extract karo (S01E08 → 8)
+function extractEpisode(name = "") {
+  const m = name.match(/[Ss]\d{1,2}[Ee](\d{1,3})|[Ee][Pp]?(\d{1,3})|\bepisode[\s._-]*(\d{1,3})\b/i);
+  if (m) return parseInt(m[1] || m[2] || m[3], 10);
+  return null;
+}
+// Season number extract karo
+function extractSeason(name = "") {
+  const m = name.match(/[Ss](\d{1,2})/);
+  return m ? parseInt(m[1], 10) : null;
+}
+// Series hai ya movie?
+function isSeries(name = "") {
+  return /[Ss]\d{1,2}[Ee]\d{1,3}|\bepisode[\s._]?\d/i.test(name);
+}
+// Quality priority for sorting (lower = better quality)
+const QUALITY_ORDER = { "2160P": 0, "1080P": 1, "720P": 2, "480P": 3, "360P": 4, "240P": 5 };
+
 // ── Bot API ──────────────────────────────────────────────────────────
 async function fetchFiles(query, quality, language, limit = 20) {
   try {
@@ -334,12 +352,13 @@ function HeroBannerTMDB({ item, onClick }) {
 }
 
 // ── Poster Component (Search results file ke liye) ───────────────────
-function Poster({ file, size = "card" }) {
+function Poster({ file, seriesTitle = null, size = "card" }) {
   const [imgSrc, setImgSrc] = useState(null);
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
   const [rating, setRating] = useState(null);
-  const title = extractMovieTitle(file.file_name);
+  // Series ke liye seriesTitle pass hota hai — sab episodes same TMDB key se poster share karein
+  const title = seriesTitle || extractMovieTitle(file.file_name);
   const year = extractYear(file.file_name);
 
   useEffect(() => {
@@ -391,8 +410,8 @@ function Poster({ file, size = "card" }) {
   );
 }
 
-// ── File Card (Search results) ───────────────────────────────────────
-function FileCard({ file, onClick }) {
+// ── File Card (simple — movie ke liye) ─────────────────────────────
+function FileCard({ file, onClick, seriesTitle = null }) {
   const [hov, setHov] = useState(false);
   const q = extractQuality(file.file_name);
   const year = extractYear(file.file_name);
@@ -407,7 +426,7 @@ function FileCard({ file, onClick }) {
         transform: hov ? "translateX(3px)" : "translateX(0)",
       }}>
       <div style={{ width: 66, height: 88, flexShrink: 0, borderRadius: 10, overflow: "hidden", boxShadow: "0 4px 14px rgba(0,0,0,.45)" }}>
-        <Poster file={file} />
+        <Poster file={file} seriesTitle={seriesTitle} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13.5, fontWeight: 700, color: "#eee", lineHeight: 1.4, marginBottom: 8, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{name}</div>
@@ -420,6 +439,125 @@ function FileCard({ file, onClick }) {
       <div style={{ display: "flex", alignItems: "center", color: "#333", paddingRight: 2 }}>›</div>
     </div>
   );
+}
+
+// ── Episode Quality Row (ek episode ke multiple qualities) ───────────
+function EpisodeQualityRow({ epNum, files, seriesTitle, onFileClick }) {
+  const [hov, setHov] = useState(false);
+  // Quality order se sort karo: 1080p, 720p, 480p...
+  const sorted = [...files].sort((a, b) => {
+    const qa = QUALITY_ORDER[extractQuality(a.file_name) || ""] ?? 99;
+    const qb = QUALITY_ORDER[extractQuality(b.file_name) || ""] ?? 99;
+    return qa - qb;
+  });
+  // Best quality file poster ke liye use karo
+  const bestFile = sorted[0];
+
+  return (
+    <div style={{
+      background: "#161616", borderRadius: 16,
+      border: "1px solid #1e1e1e", overflow: "hidden", marginBottom: 0,
+    }}>
+      {/* Episode header row — poster + title */}
+      <div style={{ display: "flex", gap: 12, padding: "12px 14px 10px" }}>
+        <div style={{ width: 54, height: 72, flexShrink: 0, borderRadius: 8, overflow: "hidden", boxShadow: "0 4px 14px rgba(0,0,0,.45)" }}>
+          <Poster file={bestFile} seriesTitle={seriesTitle} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: "#f39c12", letterSpacing: 1, marginBottom: 4 }}>
+            EPISODE {String(epNum).padStart(2, "0")}
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#ddd", lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+            {seriesTitle}
+          </div>
+          <div style={{ fontSize: 10, color: "#444", marginTop: 4 }}>{sorted.length} quality{sorted.length > 1 ? " options" : ""}</div>
+        </div>
+      </div>
+      {/* Quality buttons — line by line */}
+      <div style={{ borderTop: "1px solid #1a1a1a" }}>
+        {sorted.map((f, idx) => {
+          const q = extractQuality(f.file_name);
+          return (
+            <QualityRow
+              key={f.file_id}
+              file={f}
+              quality={q}
+              isLast={idx === sorted.length - 1}
+              onClick={() => onFileClick(f)}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Quality Row (ek quality option) ─────────────────────────────────
+function QualityRow({ file, quality, isLast, onClick }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        display: "flex", alignItems: "center", padding: "11px 14px",
+        borderBottom: isLast ? "none" : "1px solid #1a1a1a",
+        background: hov ? "#1c1c1c" : "transparent",
+        cursor: "pointer", transition: "background .12s", gap: 10,
+      }}
+    >
+      {quality && (
+        <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 700, background: qualityColor(quality), color: "#fff", flexShrink: 0 }}>
+          {quality}
+        </span>
+      )}
+      {file.file_size > 0 && (
+        <span style={{ fontSize: 11, color: "#555" }}>💾 {formatSize(file.file_size)}</span>
+      )}
+      <span style={{ marginLeft: "auto", color: "#333", fontSize: 14 }}>›</span>
+    </div>
+  );
+}
+
+// ── groupFilesForDisplay — files ko episode+quality se group karo ────
+// Series: episode ke basis pe group, phir quality sort
+// Movie: sirf quality sort, ek hi item (best quality) show karo unless filter hai
+function groupFilesForDisplay(files, activeQuality) {
+  if (!files.length) return { type: "empty", items: [] };
+
+  // Check karo ki yeh series hai ya movies
+  const seriesCount = files.filter(f => isSeries(f.file_name)).length;
+  const isSeriesSearch = seriesCount > files.length / 2;
+
+  if (isSeriesSearch) {
+    // Series mode: episode ke basis pe group karo
+    const seriesTitle = extractMovieTitle(files[0].file_name);
+
+    // Episode ke basis pe map banao
+    const epMap = {};
+    for (const f of files) {
+      const ep = extractEpisode(f.file_name);
+      const key = ep !== null ? ep : -1; // episode unknown → -1
+      if (!epMap[key]) epMap[key] = [];
+      epMap[key].push(f);
+    }
+
+    // Episode number se sort karo
+    const epGroups = Object.entries(epMap)
+      .map(([ep, epFiles]) => ({ ep: parseInt(ep), files: epFiles }))
+      .sort((a, b) => a.ep - b.ep);
+
+    return { type: "series", seriesTitle, epGroups };
+  } else {
+    // Movie mode: quality sort, simple list
+    const sorted = [...files].sort((a, b) => {
+      const qa = QUALITY_ORDER[extractQuality(a.file_name) || ""] ?? 99;
+      const qb = QUALITY_ORDER[extractQuality(b.file_name) || ""] ?? 99;
+      return qa - qb;
+    });
+    return { type: "movie", items: sorted };
+  }
 }
 
 // ── TMDB Category Row ─────────────────────────────────────────────────
@@ -768,15 +906,35 @@ export default function App() {
               )}
             </div>
             {loading && <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{[1, 2, 3, 4].map(i => <SkeletonFile key={i} />)}</div>}
-            {!loading && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {files.map((f, i) => (
-                  <div key={f.file_id} style={{ animation: `fadeIn .3s ease ${i * 0.04}s both` }}>
-                    <FileCard file={f} onClick={setSelected} />
+            {!loading && (() => {
+              const grouped = groupFilesForDisplay(files, quality);
+              if (grouped.type === "series") {
+                return (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {grouped.epGroups.map((grp, i) => (
+                      <div key={grp.ep} style={{ animation: `fadeIn .3s ease ${i * 0.04}s both` }}>
+                        <EpisodeQualityRow
+                          epNum={grp.ep === -1 ? "??" : grp.ep}
+                          files={grp.files}
+                          seriesTitle={grouped.seriesTitle}
+                          onFileClick={setSelected}
+                        />
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            )}
+                );
+              }
+              // Movie mode
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {grouped.items.map((f, i) => (
+                    <div key={f.file_id} style={{ animation: `fadeIn .3s ease ${i * 0.04}s both` }}>
+                      <FileCard file={f} onClick={setSelected} />
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
             {!loading && files.length === 0 && (query || quality !== "All" || language !== "All") && (
               <div style={{ textAlign: "center", padding: "70px 20px" }}>
                 <div style={{ fontSize: 56, marginBottom: 16 }}>🎬</div>
