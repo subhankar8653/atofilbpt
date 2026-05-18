@@ -345,8 +345,10 @@ function TMDBCard({ item, onClick }) {
               </div>
             )}
             <img
-              src={item.poster} alt={item.title} loading="lazy" decoding="async"
-              style={{ width: "100%", height: "100%", objectFit: "cover", opacity: imgLoaded ? 1 : 0, transition: "opacity 0.5s ease", display: "block" }}
+              src={item.poster} alt="" loading="lazy" decoding="async"
+              draggable="false"
+              onContextMenu={e => e.preventDefault()}
+              style={{ width: "100%", height: "100%", objectFit: "cover", opacity: imgLoaded ? 1 : 0, transition: "opacity 0.5s ease", display: "block", pointerEvents: "none", userSelect: "none", WebkitUserSelect: "none" }}
               onLoad={() => setImgLoaded(true)}
               onError={() => { setImgFailed(true); setImgLoaded(false); }}
             />
@@ -410,11 +412,14 @@ function HeroBannerTMDB({ item, onClick }) {
     >
       {bgSrc && (
         <img
-          src={bgSrc} alt={item.title} loading="lazy"
+          src={bgSrc} alt="" loading="lazy"
+          draggable="false"
+          onContextMenu={e => e.preventDefault()}
           style={{
             position: "absolute", inset: 0, width: "100%", height: "100%",
             objectFit: "cover", objectPosition: "center top",
             opacity: bgLoaded ? 0.55 : 0, transition: "opacity 0.7s ease",
+            pointerEvents: "none", userSelect: "none", WebkitUserSelect: "none",
           }}
           onLoad={() => setBgLoaded(true)} onError={() => setBgLoaded(false)}
         />
@@ -492,8 +497,10 @@ function Poster({ file, seriesTitle = null, size = "card" }) {
           </div>
         )}
         <img
-          src={imgSrc} alt={title} loading="lazy" decoding="async"
-          style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "inherit", opacity: imgLoaded ? 1 : 0, transition: "opacity 0.4s ease", display: "block" }}
+          src={imgSrc} alt="" loading="lazy" decoding="async"
+          draggable="false"
+          onContextMenu={e => e.preventDefault()}
+          style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "inherit", opacity: imgLoaded ? 1 : 0, transition: "opacity 0.4s ease", display: "block", pointerEvents: "none", userSelect: "none", WebkitUserSelect: "none" }}
           onLoad={() => setImgLoaded(true)}
           onError={() => { setImgFailed(true); setImgLoaded(false); }}
         />
@@ -862,8 +869,10 @@ function TMDBCategoryRow({ title, items, onItemClick, onSeeAll }) {
           <span style={{ fontSize: 14 }}>{CATEGORY_ICONS[title] || "🎬"}</span>
           <span style={{ fontSize: 13, fontWeight: 800, color: "#e8e8e8", letterSpacing: "0.5px" }}>{title}</span>
         </div>
-        <button onClick={() => onSeeAll(title, items)}
-          style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#f39c12", fontWeight: 600, padding: "4px 0" }}>
+        <button
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSeeAll(title, items); }}
+          onTouchEnd={(e) => { e.preventDefault(); onSeeAll(title, items); }}
+          style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#f39c12", fontWeight: 600, padding: "8px 4px", WebkitTapHighlightColor: "transparent" }}>
           See all ›
         </button>
       </div>
@@ -933,8 +942,10 @@ function DetailModal({ file, onClose }) {
         {/* Hero image */}
         <div style={{ position: "relative", height: 290, background: `linear-gradient(135deg,hsl(${hue},35%,10%),hsl(${(hue + 60) % 360},25%,7%))` }}>
           {posterData?.poster ? (
-            <img src={posterData.poster} alt={title}
-              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top", opacity: bgLoaded ? 1 : 0, transition: "opacity 0.6s ease" }}
+            <img src={posterData.poster} alt=""
+              draggable="false"
+              onContextMenu={e => e.preventDefault()}
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top", opacity: bgLoaded ? 1 : 0, transition: "opacity 0.6s ease", pointerEvents: "none", userSelect: "none", WebkitUserSelect: "none" }}
               onLoad={() => setBgLoaded(true)} onError={() => setBgLoaded(false)} />
           ) : (
             <div style={{ position: "absolute", inset: 0 }}><Poster file={file} size="banner" /></div>
@@ -1402,6 +1413,7 @@ export default function App() {
 
       <style>{`
         * { box-sizing: border-box; }
+        img { -webkit-user-drag: none; user-drag: none; -webkit-user-select: none; user-select: none; }
         ::-webkit-scrollbar { height: 3px; width: 3px; }
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
         @keyframes pulse { 0%,100%{opacity:.15}50%{opacity:.35} }
