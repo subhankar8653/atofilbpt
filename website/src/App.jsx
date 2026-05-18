@@ -84,7 +84,7 @@ function isSeries(name = "") {
 const QUALITY_ORDER = { "2160P": 0, "1080P": 1, "720P": 2, "480P": 3, "360P": 4, "240P": 5 };
 
 // ── Bot API ──────────────────────────────────────────────────────────
-async function fetchFiles(query, quality, language, limit = 20) {
+async function fetchFiles(query, quality, language, limit = 50) {
   try {
     const params = new URLSearchParams({ q: query || ".", quality, language, limit });
     const res = await fetch(`${API_BASE}/api/search?${params}`);
@@ -160,7 +160,10 @@ const CATEGORY_LANG_FILTER = {
   tamil:     /tamil/i,
   malayalam: /malayalam/i,
   telugu:    /telugu/i,
-  series:    /S\d{2}/i,
+  kannada:   /kannada/i,
+  bengali:   /bengali/i,
+  english:   /english/i,
+  series:    /[Ss]\d{2}[Ee]\d{2}/,
 };
 
 // Database se files lo, deduplicate karo by title, TMDB se enrich karo
@@ -540,7 +543,18 @@ function groupFilesForDisplay(files, activeQuality) {
       const ep = extractEpisode(f.file_name);
       const key = ep !== null ? ep : -1; // episode unknown → -1
       if (!epMap[key]) epMap[key] = [];
-      epMap[key].push(f);
+
+      // Same quality duplicate check — same ep same quality hai to bada size wala rakho
+      const q = extractQuality(f.file_name) || "UNKNOWN";
+      const existingIdx = epMap[key].findIndex(x => (extractQuality(x.file_name) || "UNKNOWN") === q);
+      if (existingIdx !== -1) {
+        // Duplicate quality — bada size wala rakho
+        if ((f.file_size || 0) > (epMap[key][existingIdx].file_size || 0)) {
+          epMap[key][existingIdx] = f;
+        }
+      } else {
+        epMap[key].push(f);
+      }
     }
 
     // Episode number se sort karo
@@ -724,6 +738,10 @@ export default function App() {
   const [bollywood, setBollywood] = useState([]);          // Hindi movies
   const [tamilFils, setTamilFils] = useState([]);          // Tamil movies
   const [malayalamFils, setMalayalamFils] = useState([]);  // Malayalam movies
+  const [teluguFils, setTeluguFils] = useState([]);        // Telugu movies
+  const [kannadaFils, setKannadaFils] = useState([]);      // Kannada movies
+  const [bengaliFils, setBengaliFils] = useState([]);      // Bengali movies
+  const [englishFils, setEnglishFils] = useState([]);      // English movies
   const [topRated, setTopRated] = useState([]);            // Top rated all-time
   const [heroBanner, setHeroBanner] = useState(null);     // Featured banner
   const [homeLoading, setHomeLoading] = useState(true);
@@ -735,31 +753,26 @@ export default function App() {
     if (tab !== "home") return;
     setHomeLoading(true);
     Promise.all([
-      fetchDBCategory("all", 10),       // Now Playing
-      fetchDBCategory("series", 10),    // Series
-      fetchDBCategory("hindi", 10),     // Bollywood
-      fetchDBCategory("tamil", 10),     // Tamil
-      fetchDBCategory("malayalam", 10), // Malayalam
-    ]).then(([latest, series, bolly, tamil, mal]) => {
+      fetchDBCategory("all", 12),       // Now Playing
+      fetchDBCategory("series", 12),    // Series
+      fetchDBCategory("hindi", 12),     // Bollywood
+      fetchDBCategory("tamil", 12),     // Tamil
+      fetchDBCategory("malayalam", 12), // Malayalam
+      fetchDBCategory("telugu", 12),    // Telugu
+      fetchDBCategory("kannada", 12),   // Kannada
+      fetchDBCategory("bengali", 12),   // Bengali
+      fetchDBCategory("english", 12),   // English
+    ]).then(([latest, series, bolly, tamil, mal, telugu, kannada, bengali, english]) => {
       setNowPlaying(latest);
 
-      // Saari categories ke IDs collect karo — duplicates avoid karne ke liye
-      const usedTitles = new Set([
-        ...latest.map(i => i.title?.toLowerCase().replace(/\s+/g, "")),
-        ...series.map(i => i.title?.toLowerCase().replace(/\s+/g, "")),
-        ...bolly.map(i => i.title?.toLowerCase().replace(/\s+/g, "")),
-        ...tamil.map(i => i.title?.toLowerCase().replace(/\s+/g, "")),
-        ...mal.map(i => i.title?.toLowerCase().replace(/\s+/g, "")),
-      ]);
-
-      // Global trending = latest se alag items jo kisi category mein nahi hain
+      // Global trending = latest + bolly mix, unique
       const globalItems = latest
-        .filter((_, idx) => idx >= 3) // latest ke first 3 hata do
-        .concat(bolly.slice(0, 3))    // bolly se kuch mix karo
+        .filter((_, idx) => idx >= 3)
+        .concat(bolly.slice(0, 3))
         .filter((item, idx, arr) => {
           const key = item.title?.toLowerCase().replace(/\s+/g, "");
           const firstIdx = arr.findIndex(x => x.title?.toLowerCase().replace(/\s+/g, "") === key);
-          return firstIdx === idx; // unique rakho
+          return firstIdx === idx;
         })
         .slice(0, 8);
 
@@ -768,6 +781,10 @@ export default function App() {
       setBollywood(bolly);
       setTamilFils(tamil);
       setMalayalamFils(mal);
+      setTeluguFils(telugu);
+      setKannadaFils(kannada);
+      setBengaliFils(bengali);
+      setEnglishFils(english);
       setTopRated([]);
       // Hero banner — backdrop wala pehla item
       const heroItem = latest.find(m => m.backdrop) || latest[0];
@@ -855,6 +872,10 @@ export default function App() {
               <TMDBCategoryRow title="BOLLYWOOD" items={bollywood} onItemClick={handleTMDBCardClick} />
               <TMDBCategoryRow title="TAMIL MOVIES" items={tamilFils} onItemClick={handleTMDBCardClick} />
               <TMDBCategoryRow title="MALAYALAM MOVIES" items={malayalamFils} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="TELUGU MOVIES" items={teluguFils} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="KANNADA MOVIES" items={kannadaFils} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="BENGALI MOVIES" items={bengaliFils} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="ENGLISH MOVIES" items={englishFils} onItemClick={handleTMDBCardClick} />
               <TMDBCategoryRow title="TOP RATED ALL TIME" items={topRated} onItemClick={handleTMDBCardClick} />
             </>
           )}
