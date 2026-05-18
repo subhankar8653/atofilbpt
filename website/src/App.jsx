@@ -7,13 +7,16 @@ const BOT_USERNAME = "My_Suhani_bot";
 const API_BASE = "https://web-production-a6061.up.railway.app";
 
 // ⚠️  TMDB API KEY YAHAN DAALO — themoviedb.org pe free milti hai
-// Railway env se bhi kaam karta hai, lekin frontend ke liye yahan daalo
-const TMDB_API_KEY = "a8c1b6b3487fbc94ca6bd229d9abed14"; // <-- SIRF YEH BADLO
+const TMDB_API_KEY = "a8c1b6b3487fbc94ca6bd229d9abed14";
+const TMDB_BASE = "https://api.themoviedb.org/3";
+const TMDB_IMG = "https://image.tmdb.org/t/p/w500";
+const TMDB_IMG_ORIG = "https://image.tmdb.org/t/p/original";
 // ═══════════════════════════════════════════════════════════════════
 
 const QUALITIES = ["All", "2160p", "1080p", "720p", "480p", "360p", "240p"];
 const LANGUAGES = ["All", "Hindi", "English", "Tamil", "Telugu", "Malayalam", "Kannada", "Bengali", "Punjabi"];
 
+// ── Helpers ──────────────────────────────────────────────────────────
 function formatSize(bytes) {
   if (!bytes) return "";
   if (bytes >= 1e9) return (bytes / 1e9).toFixed(2) + " GB";
@@ -53,7 +56,7 @@ function extractMovieTitle(name = "") {
   return words.slice(0, 4).join(" ") || cleanFileName(name).split(" ").slice(0, 3).join(" ");
 }
 
-// ── API: Files ───────────────────────────────────────────────────────
+// ── Bot API ──────────────────────────────────────────────────────────
 async function fetchFiles(query, quality, language, limit = 20) {
   try {
     const params = new URLSearchParams({ q: query || ".", quality, language, limit });
@@ -74,11 +77,128 @@ async function fetchTrending(category = "all", limit = 12) {
   } catch { return []; }
 }
 
-// ── TMDB Direct Poster Fetch (frontend se seedha TMDB call) ──────────
-const posterCache = {};
+// ── TMDB Direct API Calls (Proper Categories) ────────────────────────
+async function tmdbGet(endpoint, params = {}) {
+  try {
+    const p = new URLSearchParams({ api_key: TMDB_API_KEY, language: "en-US", ...params });
+    const res = await fetch(`${TMDB_BASE}${endpoint}?${p}`);
+    if (!res.ok) throw new Error("TMDB error");
+    return await res.json();
+  } catch { return null; }
+}
 
+// TMDB se proper category data fetch karo
+async function fetchTMDBNowPlaying() {
+  const data = await tmdbGet("/movie/now_playing", { page: 1 });
+  return (data?.results || []).slice(0, 10).map(m => ({
+    id: m.id,
+    title: m.title,
+    poster: m.poster_path ? `${TMDB_IMG}${m.poster_path}` : null,
+    backdrop: m.backdrop_path ? `${TMDB_IMG_ORIG}${m.backdrop_path}` : null,
+    rating: m.vote_average ? m.vote_average.toFixed(1) : null,
+    year: m.release_date ? m.release_date.slice(0, 4) : null,
+    overview: m.overview || null,
+    type: "movie",
+  }));
+}
+
+async function fetchTMDBTrendingMovies() {
+  const data = await tmdbGet("/trending/movie/week");
+  return (data?.results || []).slice(0, 12).map(m => ({
+    id: m.id,
+    title: m.title,
+    poster: m.poster_path ? `${TMDB_IMG}${m.poster_path}` : null,
+    backdrop: m.backdrop_path ? `${TMDB_IMG_ORIG}${m.backdrop_path}` : null,
+    rating: m.vote_average ? m.vote_average.toFixed(1) : null,
+    year: m.release_date ? m.release_date.slice(0, 4) : null,
+    overview: m.overview || null,
+    type: "movie",
+  }));
+}
+
+async function fetchTMDBTrendingSeries() {
+  const data = await tmdbGet("/trending/tv/week");
+  return (data?.results || []).slice(0, 10).map(m => ({
+    id: m.id,
+    title: m.name,
+    poster: m.poster_path ? `${TMDB_IMG}${m.poster_path}` : null,
+    backdrop: m.backdrop_path ? `${TMDB_IMG_ORIG}${m.backdrop_path}` : null,
+    rating: m.vote_average ? m.vote_average.toFixed(1) : null,
+    year: m.first_air_date ? m.first_air_date.slice(0, 4) : null,
+    overview: m.overview || null,
+    type: "series",
+  }));
+}
+
+async function fetchTMDBBollywood() {
+  // Hindi movies — TMDB original_language=hi
+  const data = await tmdbGet("/discover/movie", {
+    with_original_language: "hi",
+    sort_by: "popularity.desc",
+    page: 1,
+  });
+  return (data?.results || []).slice(0, 10).map(m => ({
+    id: m.id,
+    title: m.title,
+    poster: m.poster_path ? `${TMDB_IMG}${m.poster_path}` : null,
+    rating: m.vote_average ? m.vote_average.toFixed(1) : null,
+    year: m.release_date ? m.release_date.slice(0, 4) : null,
+    overview: m.overview || null,
+    type: "movie",
+  }));
+}
+
+async function fetchTMDBTamil() {
+  const data = await tmdbGet("/discover/movie", {
+    with_original_language: "ta",
+    sort_by: "popularity.desc",
+    page: 1,
+  });
+  return (data?.results || []).slice(0, 10).map(m => ({
+    id: m.id,
+    title: m.title,
+    poster: m.poster_path ? `${TMDB_IMG}${m.poster_path}` : null,
+    rating: m.vote_average ? m.vote_average.toFixed(1) : null,
+    year: m.release_date ? m.release_date.slice(0, 4) : null,
+    overview: m.overview || null,
+    type: "movie",
+  }));
+}
+
+async function fetchTMDBMalayalam() {
+  const data = await tmdbGet("/discover/movie", {
+    with_original_language: "ml",
+    sort_by: "popularity.desc",
+    page: 1,
+  });
+  return (data?.results || []).slice(0, 10).map(m => ({
+    id: m.id,
+    title: m.title,
+    poster: m.poster_path ? `${TMDB_IMG}${m.poster_path}` : null,
+    rating: m.vote_average ? m.vote_average.toFixed(1) : null,
+    year: m.release_date ? m.release_date.slice(0, 4) : null,
+    overview: m.overview || null,
+    type: "movie",
+  }));
+}
+
+async function fetchTMDBTopRated() {
+  const data = await tmdbGet("/movie/top_rated", { page: 1 });
+  return (data?.results || []).slice(0, 10).map(m => ({
+    id: m.id,
+    title: m.title,
+    poster: m.poster_path ? `${TMDB_IMG}${m.poster_path}` : null,
+    rating: m.vote_average ? m.vote_average.toFixed(1) : null,
+    year: m.release_date ? m.release_date.slice(0, 4) : null,
+    overview: m.overview || null,
+    type: "movie",
+  }));
+}
+
+// Poster TMDB se search by name (search results ke liye)
+const posterCache = {};
 async function fetchPosterFromTMDB(title, year) {
-  const key = `tmdb_${title}__${year}`;
+  const key = `p_${title}_${year}`;
   if (posterCache[key] !== undefined) return posterCache[key];
   posterCache[key] = null;
 
@@ -86,7 +206,7 @@ async function fetchPosterFromTMDB(title, year) {
   try {
     const params = new URLSearchParams({ title, ...(year ? { year } : {}) });
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
+    const timer = setTimeout(() => controller.abort(), 4000);
     const res = await fetch(`${API_BASE}/api/poster?${params}`, { signal: controller.signal });
     clearTimeout(timer);
     if (res.ok) {
@@ -96,30 +216,25 @@ async function fetchPosterFromTMDB(title, year) {
         return data;
       }
     }
-  } catch { /* backend fail — TMDB direct try karenge */ }
+  } catch { /* backend fail */ }
 
-  // Backend fail ho to TMDB seedha call karo
-  if (!TMDB_API_KEY || TMDB_API_KEY === "apna_tmdb_api_key_yahan_daalo") {
-    return null; // API key nahi hai
-  }
-
+  // TMDB direct search
+  if (!TMDB_API_KEY) return null;
   try {
-    const searchUrl = `https://api.themoviedb.org/3/search/multi?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(title)}${year ? `&year=${year}` : ""}&language=en-US&page=1`;
+    const searchUrl = `${TMDB_BASE}/search/multi?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(title)}${year ? `&year=${year}` : ""}&language=en-US&page=1`;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
+    const timer = setTimeout(() => controller.abort(), 7000);
     const res = await fetch(searchUrl, { signal: controller.signal });
     clearTimeout(timer);
-    if (!res.ok) throw new Error("TMDB search fail");
+    if (!res.ok) throw new Error("TMDB fail");
     const data = await res.json();
     const result = (data.results || []).find(r => r.poster_path);
-    if (!result) return null;
-
-    const posterUrl = `https://image.tmdb.org/t/p/w500${result.poster_path}`;
-    const rating = result.vote_average ? result.vote_average.toFixed(1) : null;
-    const plot = result.overview || null;
-    const genre = null; // genre ke liye alag call chahiye, skip
-
-    const out = { poster: posterUrl, imdb_rating: rating, plot, genre };
+    if (!result) { posterCache[key] = null; return null; }
+    const out = {
+      poster: `${TMDB_IMG}${result.poster_path}`,
+      imdb_rating: result.vote_average ? result.vote_average.toFixed(1) : null,
+      plot: result.overview || null,
+    };
     posterCache[key] = out;
     return out;
   } catch {
@@ -128,7 +243,143 @@ async function fetchPosterFromTMDB(title, year) {
   }
 }
 
-// ── Poster Component ────────────────────────────────────────────────
+// ── TMDB Card (Home Page ke liye — seedha TMDB data) ─────────────────
+function TMDBCard({ item, onClick }) {
+  const [hov, setHov] = useState(false);
+  const [imgLoaded, setImgLoaded] = useState(false);
+  const [imgFailed, setImgFailed] = useState(false);
+  const hue = [...(item.title || "")].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
+  const initials = (item.title || "").split(" ").slice(0, 2).map(w => w[0] || "").join("").toUpperCase();
+
+  return (
+    <div
+      onClick={() => onClick(item.title)}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        width: 115, flexShrink: 0, cursor: "pointer", borderRadius: 14, overflow: "hidden",
+        background: "#161616", border: `1px solid ${hov ? "#363636" : "#1e1e1e"}`,
+        transform: hov ? "scale(1.04) translateY(-2px)" : "scale(1)",
+        transition: "transform .2s, border-color .2s, box-shadow .2s",
+        boxShadow: hov ? "0 10px 28px rgba(0,0,0,.55)" : "none",
+      }}
+    >
+      <div style={{ height: 158, background: "#1a1a1a", overflow: "hidden", position: "relative" }}>
+        {item.poster && !imgFailed ? (
+          <>
+            {!imgLoaded && (
+              <div style={{
+                position: "absolute", inset: 0,
+                background: `linear-gradient(135deg,hsl(${hue},40%,10%),hsl(${(hue + 60) % 360},30%,7%))`,
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <div style={{ width: 22, height: 22, borderRadius: "50%", border: "2px solid #2a2a2a", borderTopColor: `hsl(${hue},60%,40%)`, animation: "spin 0.9s linear infinite" }} />
+              </div>
+            )}
+            <img
+              src={item.poster} alt={item.title} loading="lazy" decoding="async"
+              style={{ width: "100%", height: "100%", objectFit: "cover", opacity: imgLoaded ? 1 : 0, transition: "opacity 0.4s ease", display: "block" }}
+              onLoad={() => setImgLoaded(true)}
+              onError={() => { setImgFailed(true); setImgLoaded(false); }}
+            />
+          </>
+        ) : (
+          <div style={{
+            width: "100%", height: "100%", display: "flex", flexDirection: "column",
+            alignItems: "center", justifyContent: "center",
+            background: `linear-gradient(145deg,hsl(${hue},55%,16%),hsl(${(hue + 50) % 360},45%,10%))`,
+            fontSize: "22px", fontWeight: "900", color: `hsl(${hue},70%,60%)`, letterSpacing: "2px",
+          }}>{initials || "🎬"}</div>
+        )}
+        {item.rating && item.rating !== "0.0" && imgLoaded && !imgFailed && (
+          <div style={{
+            position: "absolute", bottom: 5, left: 5,
+            background: "rgba(0,0,0,.85)", borderRadius: 6, padding: "2px 6px",
+            display: "flex", alignItems: "center", gap: 3, backdropFilter: "blur(4px)",
+          }}>
+            <span style={{ fontSize: 9, color: "#f1c40f" }}>⭐</span>
+            <span style={{ fontSize: 10, fontWeight: 700, color: "#f1c40f" }}>{item.rating}</span>
+          </div>
+        )}
+        {item.type === "series" && (
+          <div style={{ position: "absolute", top: 5, right: 5, background: "rgba(52,152,219,.85)", borderRadius: 4, padding: "1px 5px", fontSize: 8, fontWeight: 700, color: "#fff" }}>SERIES</div>
+        )}
+      </div>
+      <div style={{ padding: "8px 8px 10px" }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#ccc", lineHeight: 1.4, marginBottom: 4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+          {item.title}
+        </div>
+        {item.year && <span style={{ fontSize: 9, color: "#555" }}>{item.year}</span>}
+      </div>
+    </div>
+  );
+}
+
+// ── Hero Banner (TMDB item se) ────────────────────────────────────────
+function HeroBannerTMDB({ item, onClick }) {
+  const [bgLoaded, setBgLoaded] = useState(false);
+  const hue = [...(item.title || "")].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
+
+  const bgSrc = item.backdrop || item.poster;
+
+  return (
+    <div
+      onClick={() => onClick(item.title)}
+      style={{
+        margin: "0 16px 26px", borderRadius: 22, overflow: "hidden", position: "relative",
+        height: 215, cursor: "pointer",
+        background: `linear-gradient(135deg,hsl(${hue},35%,10%),hsl(${(hue + 60) % 360},25%,6%))`,
+        boxShadow: "0 16px 44px rgba(0,0,0,.65)",
+      }}
+    >
+      {bgSrc && (
+        <img
+          src={bgSrc} alt={item.title} loading="lazy"
+          style={{
+            position: "absolute", inset: 0, width: "100%", height: "100%",
+            objectFit: "cover", objectPosition: "center top",
+            opacity: bgLoaded ? 0.5 : 0, transition: "opacity 0.6s ease",
+          }}
+          onLoad={() => setBgLoaded(true)} onError={() => setBgLoaded(false)}
+        />
+      )}
+      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to right,rgba(0,0,0,.94) 35%,rgba(0,0,0,.25))" }} />
+      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top,rgba(0,0,0,.9) 0%,transparent 55%)" }} />
+      <div style={{ position: "absolute", bottom: 0, left: 0, right: "25%", padding: "18px 20px" }}>
+        <div style={{ fontSize: 9, fontWeight: 800, color: "#f39c12", letterSpacing: "2.5px", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ width: 18, height: 2, background: "#f39c12", display: "inline-block", borderRadius: 2 }} />
+          FEATURED TODAY
+        </div>
+        <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", lineHeight: 1.2, marginBottom: 8, textShadow: "0 2px 8px rgba(0,0,0,.6)" }}>
+          {item.title}
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {item.rating && item.rating !== "0.0" && (
+            <span style={{ display: "flex", alignItems: "center", gap: 3, background: "rgba(241,196,15,.12)", borderRadius: 6, padding: "3px 8px", border: "1px solid rgba(241,196,15,.25)" }}>
+              <span style={{ fontSize: 10, color: "#f1c40f" }}>⭐</span>
+              <span style={{ fontSize: 11, color: "#f1c40f", fontWeight: 700 }}>{item.rating}</span>
+            </span>
+          )}
+          {item.year && <span style={{ fontSize: 11, color: "#777" }}>{item.year}</span>}
+        </div>
+        {item.overview && (
+          <p style={{ fontSize: 11, color: "#555", lineHeight: 1.55, marginTop: 8, marginBottom: 0, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+            {item.overview}
+          </p>
+        )}
+      </div>
+      <div style={{
+        position: "absolute", right: 18, bottom: 18, width: 46, height: 46, borderRadius: "50%",
+        background: "linear-gradient(135deg,#f39c12,#e74c3c)", display: "flex", alignItems: "center", justifyContent: "center",
+        boxShadow: "0 4px 18px rgba(243,156,18,.45)",
+      }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z" /></svg>
+      </div>
+    </div>
+  );
+}
+
+// ── Poster Component (Search results file ke liye) ───────────────────
 function Poster({ file, size = "card" }) {
   const [imgSrc, setImgSrc] = useState(null);
   const [imgLoaded, setImgLoaded] = useState(false);
@@ -139,14 +390,9 @@ function Poster({ file, size = "card" }) {
 
   useEffect(() => {
     let cancelled = false;
-    setImgSrc(null);
-    setImgLoaded(false);
-    setImgFailed(false);
+    setImgSrc(null); setImgLoaded(false); setImgFailed(false);
     fetchPosterFromTMDB(title, year).then(data => {
-      if (!cancelled && data?.poster) {
-        setImgSrc(data.poster);
-        setRating(data.imdb_rating);
-      }
+      if (!cancelled && data?.poster) { setImgSrc(data.poster); setRating(data.imdb_rating); }
     });
     return () => { cancelled = true; };
   }, [title, year]);
@@ -158,35 +404,18 @@ function Poster({ file, size = "card" }) {
     return (
       <div style={{ width: "100%", height: "100%", position: "relative", borderRadius: "inherit" }}>
         {!imgLoaded && (
-          <div style={{
-            position: "absolute", inset: 0, borderRadius: "inherit",
-            background: `linear-gradient(135deg,hsl(${hue},40%,10%),hsl(${(hue+60)%360},30%,7%))`,
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
-            <div style={{
-              width: 24, height: 24, borderRadius: "50%",
-              border: "2px solid #2a2a2a",
-              borderTopColor: `hsl(${hue},60%,40%)`,
-              animation: "spin 0.9s linear infinite",
-            }} />
+          <div style={{ position: "absolute", inset: 0, borderRadius: "inherit", background: `linear-gradient(135deg,hsl(${hue},40%,10%),hsl(${(hue + 60) % 360},30%,7%))`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ width: 24, height: 24, borderRadius: "50%", border: "2px solid #2a2a2a", borderTopColor: `hsl(${hue},60%,40%)`, animation: "spin 0.9s linear infinite" }} />
           </div>
         )}
         <img
-          src={imgSrc} alt={title} crossOrigin="anonymous" loading="lazy" decoding="async"
-          style={{
-            width: "100%", height: "100%", objectFit: "cover", borderRadius: "inherit",
-            opacity: imgLoaded ? 1 : 0, transition: "opacity 0.4s ease", display: "block",
-          }}
+          src={imgSrc} alt={title} loading="lazy" decoding="async"
+          style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "inherit", opacity: imgLoaded ? 1 : 0, transition: "opacity 0.4s ease", display: "block" }}
           onLoad={() => setImgLoaded(true)}
           onError={() => { setImgFailed(true); setImgLoaded(false); }}
         />
-        {rating && rating !== "N/A" && imgLoaded && (
-          <div style={{
-            position: "absolute", bottom: 5, left: 5,
-            background: "rgba(0,0,0,.85)", borderRadius: 6,
-            padding: "2px 6px", display: "flex", alignItems: "center", gap: 3,
-            backdropFilter: "blur(4px)",
-          }}>
+        {rating && rating !== "N/A" && rating !== "0.0" && imgLoaded && (
+          <div style={{ position: "absolute", bottom: 5, left: 5, background: "rgba(0,0,0,.85)", borderRadius: 6, padding: "2px 6px", display: "flex", alignItems: "center", gap: 3, backdropFilter: "blur(4px)" }}>
             <span style={{ fontSize: 9, color: "#f1c40f" }}>⭐</span>
             <span style={{ fontSize: 10, fontWeight: 700, color: "#f1c40f" }}>{rating}</span>
           </div>
@@ -195,54 +424,20 @@ function Poster({ file, size = "card" }) {
     );
   }
 
-  // Fallback — colorful gradient with initials
   return (
     <div style={{
       width: "100%", height: "100%", display: "flex", flexDirection: "column",
       alignItems: "center", justifyContent: "center", borderRadius: "inherit",
-      background: `linear-gradient(145deg,hsl(${hue},55%,16%),hsl(${(hue+50)%360},45%,10%))`,
+      background: `linear-gradient(145deg,hsl(${hue},55%,16%),hsl(${(hue + 50) % 360},45%,10%))`,
       fontSize: size === "banner" ? "38px" : "22px",
       fontWeight: "900", color: `hsl(${hue},70%,60%)`, letterSpacing: "2px", gap: 4,
     }}>
       {initials || "🎬"}
-      {size === "banner" && (
-        <span style={{ fontSize: 11, fontWeight: 500, color: `hsl(${hue},40%,40%)`, letterSpacing: 1 }}>
-          {title.split(" ").slice(0, 2).join(" ")}
-        </span>
-      )}
     </div>
   );
 }
 
-// ── Movie Card — NO quality badge ────────────────────────────────────
-function MovieCard({ file, onClick }) {
-  const [hov, setHov] = useState(false);
-  const year = extractYear(file.file_name);
-  const name = extractMovieTitle(file.file_name);
-  return (
-    <div onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{
-        width: 115, flexShrink: 0, cursor: "pointer", borderRadius: 14, overflow: "hidden",
-        background: "#161616", border: `1px solid ${hov ? "#363636" : "#1e1e1e"}`,
-        transform: hov ? "scale(1.04) translateY(-2px)" : "scale(1)",
-        transition: "transform .2s, border-color .2s, box-shadow .2s",
-        boxShadow: hov ? "0 10px 28px rgba(0,0,0,.55)" : "none",
-      }}>
-      <div style={{ height: 158, background: "#1a1a1a", overflow: "hidden", position: "relative" }}>
-        <Poster file={file} />
-      </div>
-      <div style={{ padding: "8px 8px 10px" }}>
-        <div style={{
-          fontSize: 11, fontWeight: 600, color: "#ccc", lineHeight: 1.4, marginBottom: 4,
-          display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
-        }}>{name}</div>
-        {year && <span style={{ fontSize: 9, color: "#555" }}>{year}</span>}
-      </div>
-    </div>
-  );
-}
-
-// ── File Card (search results) ───────────────────────────────────────
+// ── File Card (Search results) ───────────────────────────────────────
 function FileCard({ file, onClick }) {
   const [hov, setHov] = useState(false);
   const q = extractQuality(file.file_name);
@@ -261,10 +456,7 @@ function FileCard({ file, onClick }) {
         <Poster file={file} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{
-          fontSize: 13.5, fontWeight: 700, color: "#eee", lineHeight: 1.4, marginBottom: 8,
-          display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
-        }}>{name}</div>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: "#eee", lineHeight: 1.4, marginBottom: 8, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{name}</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
           {q && <span style={{ padding: "2px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700, background: qualityColor(q), color: "#fff" }}>{q}</span>}
           {year && <span style={{ padding: "2px 8px", borderRadius: 6, fontSize: 10, background: "#222", color: "#777" }}>{year}</span>}
@@ -276,73 +468,9 @@ function FileCard({ file, onClick }) {
   );
 }
 
-// ── Hero Banner ──────────────────────────────────────────────────────
-function HeroBanner({ file, onClick }) {
-  const [posterData, setPosterData] = useState(null);
-  const [bgLoaded, setBgLoaded] = useState(false);
-  const title = extractMovieTitle(file.file_name);
-  const year = extractYear(file.file_name);
-  const hue = [...title].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
-
-  useEffect(() => {
-    setPosterData(null); setBgLoaded(false);
-    fetchPosterFromTMDB(title, year).then(data => { if (data?.poster) setPosterData(data); });
-  }, [title, year]);
-
-  return (
-    <div onClick={() => onClick(file)}
-      style={{
-        margin: "0 16px 26px", borderRadius: 22, overflow: "hidden", position: "relative",
-        height: 215, cursor: "pointer",
-        background: `linear-gradient(135deg,hsl(${hue},35%,10%),hsl(${(hue+60)%360},25%,6%))`,
-        boxShadow: "0 16px 44px rgba(0,0,0,.65)",
-      }}>
-      {posterData?.poster && (
-        <img src={posterData.poster} alt={title} crossOrigin="anonymous" loading="lazy"
-          style={{
-            position: "absolute", inset: 0, width: "100%", height: "100%",
-            objectFit: "cover", objectPosition: "center top",
-            opacity: bgLoaded ? 0.5 : 0, transition: "opacity 0.6s ease",
-          }}
-          onLoad={() => setBgLoaded(true)} onError={() => setBgLoaded(false)} />
-      )}
-      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to right,rgba(0,0,0,.94) 35%,rgba(0,0,0,.25))" }} />
-      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top,rgba(0,0,0,.9) 0%,transparent 55%)" }} />
-      <div style={{ position: "absolute", bottom: 0, left: 0, right: "25%", padding: "18px 20px" }}>
-        <div style={{ fontSize: 9, fontWeight: 800, color: "#f39c12", letterSpacing: "2.5px", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ width: 18, height: 2, background: "#f39c12", display: "inline-block", borderRadius: 2 }} />
-          FEATURED TODAY
-        </div>
-        <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", lineHeight: 1.2, marginBottom: 8, textShadow: "0 2px 8px rgba(0,0,0,.6)" }}>{title}</div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          {posterData?.imdb_rating && posterData.imdb_rating !== "N/A" && (
-            <span style={{ display: "flex", alignItems: "center", gap: 3, background: "rgba(241,196,15,.12)", borderRadius: 6, padding: "3px 8px", border: "1px solid rgba(241,196,15,.25)" }}>
-              <span style={{ fontSize: 10, color: "#f1c40f" }}>⭐</span>
-              <span style={{ fontSize: 11, color: "#f1c40f", fontWeight: 700 }}>{posterData.imdb_rating}</span>
-            </span>
-          )}
-          {year && <span style={{ fontSize: 11, color: "#777" }}>{year}</span>}
-        </div>
-        {posterData?.plot && (
-          <p style={{ fontSize: 11, color: "#555", lineHeight: 1.55, marginTop: 8, marginBottom: 0, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-            {posterData.plot}
-          </p>
-        )}
-      </div>
-      <div style={{
-        position: "absolute", right: 18, bottom: 18, width: 46, height: 46, borderRadius: "50%",
-        background: "linear-gradient(135deg,#f39c12,#e74c3c)", display: "flex", alignItems: "center", justifyContent: "center",
-        boxShadow: "0 4px 18px rgba(243,156,18,.45)",
-      }}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z" /></svg>
-      </div>
-    </div>
-  );
-}
-
-// ── Category Row ─────────────────────────────────────────────────────
-function CategoryRow({ title, files, onFileClick }) {
-  if (!files.length) return null;
+// ── TMDB Category Row ─────────────────────────────────────────────────
+function TMDBCategoryRow({ title, items, onItemClick }) {
+  if (!items || !items.length) return null;
   return (
     <div style={{ marginBottom: 30 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 16px", marginBottom: 14 }}>
@@ -353,15 +481,15 @@ function CategoryRow({ title, files, onFileClick }) {
         <span style={{ fontSize: 10, color: "#3a3a3a" }}>scroll →</span>
       </div>
       <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingLeft: 16, paddingRight: 16, paddingBottom: 6, scrollbarWidth: "none" }}>
-        {files.map(f => (
-          <MovieCard key={f.file_id} file={f} onClick={() => onFileClick(extractMovieTitle(f.file_name))} />
+        {items.map(item => (
+          <TMDBCard key={item.id} item={item} onClick={onItemClick} />
         ))}
       </div>
     </div>
   );
 }
 
-// ── Detail Modal ─────────────────────────────────────────────────────
+// ── Detail Modal (search file ke liye) ──────────────────────────────
 function DetailModal({ file, onClose }) {
   const [posterData, setPosterData] = useState(null);
   const [bgLoaded, setBgLoaded] = useState(false);
@@ -389,9 +517,9 @@ function DetailModal({ file, onClose }) {
         <div style={{ display: "flex", justifyContent: "center", padding: "10px 0 0" }}>
           <div style={{ width: 36, height: 4, borderRadius: 2, background: "#2a2a2a" }} />
         </div>
-        <div style={{ position: "relative", height: 280, background: `linear-gradient(135deg,hsl(${hue},35%,10%),hsl(${(hue+60)%360},25%,7%))` }}>
+        <div style={{ position: "relative", height: 280, background: `linear-gradient(135deg,hsl(${hue},35%,10%),hsl(${(hue + 60) % 360},25%,7%))` }}>
           {posterData?.poster ? (
-            <img src={posterData.poster} alt={title} crossOrigin="anonymous"
+            <img src={posterData.poster} alt={title}
               style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top", opacity: bgLoaded ? 1 : 0, transition: "opacity 0.5s ease" }}
               onLoad={() => setBgLoaded(true)} onError={() => setBgLoaded(false)} />
           ) : (
@@ -406,7 +534,7 @@ function DetailModal({ file, onClose }) {
             {q && <span style={{ padding: "4px 12px", borderRadius: 8, fontSize: 11, fontWeight: 700, background: qualityColor(q), color: "#fff" }}>{q}</span>}
             {year && <span style={{ padding: "4px 12px", borderRadius: 8, fontSize: 11, background: "#222", color: "#888" }}>{year}</span>}
             {file.file_size > 0 && <span style={{ padding: "4px 12px", borderRadius: 8, fontSize: 11, background: "#222", color: "#888" }}>💾 {formatSize(file.file_size)}</span>}
-            {posterData?.imdb_rating && posterData.imdb_rating !== "N/A" && (
+            {posterData?.imdb_rating && posterData.imdb_rating !== "N/A" && posterData.imdb_rating !== "0.0" && (
               <span style={{ padding: "4px 12px", borderRadius: 8, fontSize: 11, fontWeight: 700, background: "rgba(241,196,15,.08)", color: "#f1c40f", border: "1px solid rgba(241,196,15,.18)" }}>
                 ⭐ {posterData.imdb_rating}
               </span>
@@ -497,34 +625,42 @@ export default function App() {
   const [selected, setSelected] = useState(null);
   const [focused, setFocused] = useState(false);
 
-  const [nowPlaying, setNowPlaying] = useState([]);
-  const [globalTrend, setGlobalTrend] = useState([]);
-  const [seriesTrend, setSeriesTrend] = useState([]);
-  const [hindiFils, setHindiFils] = useState([]);
-  const [malayalamFils, setMalayalamFils] = useState([]);
-  const [tamilFils, setTamilFils] = useState([]);
-  const [upcomingInd, setUpcomingInd] = useState([]);
+  // TMDB categories — sab alag alag
+  const [nowPlaying, setNowPlaying] = useState([]);       // Cinema mein chal rahi movies
+  const [globalTrend, setGlobalTrend] = useState([]);     // Global trending movies (week)
+  const [seriesTrend, setSeriesTrend] = useState([]);     // Trending web series / TV
+  const [bollywood, setBollywood] = useState([]);          // Hindi movies
+  const [tamilFils, setTamilFils] = useState([]);          // Tamil movies
+  const [malayalamFils, setMalayalamFils] = useState([]);  // Malayalam movies
+  const [topRated, setTopRated] = useState([]);            // Top rated all-time
+  const [heroBanner, setHeroBanner] = useState(null);     // Featured banner
   const [homeLoading, setHomeLoading] = useState(true);
-  const [heroBanner, setHeroBanner] = useState(null);
 
   const inputRef = useRef(null);
 
+  // Home data — TMDB se proper categories
   useEffect(() => {
     if (tab !== "home") return;
     setHomeLoading(true);
     Promise.all([
-      fetchTrending("all", 12), fetchTrending("all", 20), fetchTrending("series", 10),
-      fetchTrending("hindi", 10), fetchTrending("malayalam", 10),
-      fetchTrending("tamil", 10), fetchTrending("movies", 10),
-    ]).then(([all, global, series, hindi, mal, tamil, movies]) => {
-      setNowPlaying(all.slice(0, 8));
-      setGlobalTrend(global.slice(0, 10));
-      setSeriesTrend(series.slice(0, 8));
-      setHindiFils(hindi.slice(0, 8));
-      setMalayalamFils(mal.slice(0, 8));
-      setTamilFils(tamil.slice(0, 8));
-      setUpcomingInd(movies.slice(0, 8));
-      if (all.length > 0) setHeroBanner(all[0]);
+      fetchTMDBNowPlaying(),
+      fetchTMDBTrendingMovies(),
+      fetchTMDBTrendingSeries(),
+      fetchTMDBBollywood(),
+      fetchTMDBTamil(),
+      fetchTMDBMalayalam(),
+      fetchTMDBTopRated(),
+    ]).then(([np, trendMov, trendSer, bolly, tamil, mal, topR]) => {
+      setNowPlaying(np);
+      setGlobalTrend(trendMov);
+      setSeriesTrend(trendSer);
+      setBollywood(bolly);
+      setTamilFils(tamil);
+      setMalayalamFils(mal);
+      setTopRated(topR);
+      // Hero banner — now playing ka pehla item (with backdrop)
+      const heroItem = np.find(m => m.backdrop) || np[0] || trendMov[0];
+      if (heroItem) setHeroBanner(heroItem);
       setHomeLoading(false);
     });
   }, [tab]);
@@ -545,7 +681,7 @@ export default function App() {
 
   const clearAll = () => { setQuery(""); setQuality("All"); setLanguage("All"); };
 
-  const handleHomeCardClick = (movieTitle) => {
+  const handleTMDBCardClick = (movieTitle) => {
     setQuery(movieTitle);
     setQuality("All");
     setLanguage("All");
@@ -556,6 +692,9 @@ export default function App() {
       setLoading(false);
     });
   };
+
+  // Trending chips (search page ke liye — now playing titles)
+  const trendingChips = nowPlaying.slice(0, 6);
 
   return (
     <div style={{ background: "#0d0d0d", minHeight: "100vh", fontFamily: "'DM Sans',sans-serif", color: "#eee", maxWidth: 480, margin: "0 auto" }}>
@@ -592,14 +731,19 @@ export default function App() {
             </div>
           ) : (
             <>
-              {heroBanner && <div style={{ paddingTop: 18 }}><HeroBanner file={heroBanner} onClick={setSelected} /></div>}
-              <CategoryRow title="NOW PLAYING" files={nowPlaying} onFileClick={handleHomeCardClick} />
-              <CategoryRow title="GLOBAL TRENDING" files={globalTrend} onFileClick={handleHomeCardClick} />
-              <CategoryRow title="TRENDING SERIES" files={seriesTrend} onFileClick={handleHomeCardClick} />
-              <CategoryRow title="HINDI MOVIES" files={hindiFils} onFileClick={handleHomeCardClick} />
-              <CategoryRow title="MALAYALAM" files={malayalamFils} onFileClick={handleHomeCardClick} />
-              <CategoryRow title="TAMIL" files={tamilFils} onFileClick={handleHomeCardClick} />
-              <CategoryRow title="UPCOMING INDIAN" files={upcomingInd} onFileClick={handleHomeCardClick} />
+              {heroBanner && (
+                <div style={{ paddingTop: 18 }}>
+                  <HeroBannerTMDB item={heroBanner} onClick={handleTMDBCardClick} />
+                </div>
+              )}
+              {/* Har category alag alag — koi duplicate nahi */}
+              <TMDBCategoryRow title="NOW PLAYING" items={nowPlaying} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="GLOBAL TRENDING" items={globalTrend} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="TRENDING SERIES" items={seriesTrend} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="BOLLYWOOD" items={bollywood} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="TAMIL MOVIES" items={tamilFils} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="MALAYALAM MOVIES" items={malayalamFils} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="TOP RATED ALL TIME" items={topRated} onItemClick={handleTMDBCardClick} />
             </>
           )}
         </div>
@@ -609,19 +753,16 @@ export default function App() {
       {tab === "search" && (
         <div>
           <div style={{ padding: "18px 16px 0" }}>
-            {nowPlaying.length > 0 && !query && (
+            {trendingChips.length > 0 && !query && (
               <>
                 <div style={{ fontSize: 10, fontWeight: 700, color: "#3a3a3a", letterSpacing: "1.5px", marginBottom: 10 }}>TRENDING NOW</div>
                 <div style={{ display: "flex", gap: 8, overflowX: "auto", marginBottom: 20, scrollbarWidth: "none" }}>
-                  {nowPlaying.slice(0, 6).map(f => {
-                    const t = extractMovieTitle(f.file_name);
-                    return (
-                      <button key={f.file_id} onClick={() => handleHomeCardClick(t)}
-                        style={{ padding: "7px 14px", borderRadius: 20, background: "#181818", border: "1px solid #252525", color: "#888", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
-                        <span style={{ fontSize: 10 }}>🔥</span>{t}
-                      </button>
-                    );
-                  })}
+                  {trendingChips.map(item => (
+                    <button key={item.id} onClick={() => handleTMDBCardClick(item.title)}
+                      style={{ padding: "7px 14px", borderRadius: 20, background: "#181818", border: "1px solid #252525", color: "#888", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+                      <span style={{ fontSize: 10 }}>🔥</span>{item.title}
+                    </button>
+                  ))}
                 </div>
               </>
             )}
