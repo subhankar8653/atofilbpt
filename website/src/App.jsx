@@ -80,6 +80,29 @@ function extractSeason(name = "") {
 function isSeries(name = "") {
   return /[Ss]\d{1,2}[Ee]\d{1,3}|\bepisode[\s._]?\d/i.test(name);
 }
+// Language extract karo file name se
+function extractLanguage(name = "") {
+  const langs = ["Hindi","English","Tamil","Telugu","Malayalam","Kannada","Bengali","Punjabi","Multi","Dual"];
+  for (const l of langs) {
+    if (new RegExp("\\b" + l + "\\b", "i").test(name)) return l;
+  }
+  return null;
+}
+// Formatted caption banao: Name | S01E02 | Hindi | 1080p
+function buildCaption(fileName = "") {
+  const title = extractMovieTitle(fileName);
+  const season = extractSeason(fileName);
+  const ep = extractEpisode(fileName);
+  const lang = extractLanguage(fileName);
+  const quality = extractQuality(fileName);
+  const parts = [title];
+  if (season !== null && ep !== null) parts.push(`S${String(season).padStart(2,"0")}E${String(ep).padStart(2,"0")}`);
+  else if (season !== null) parts.push(`S${String(season).padStart(2,"0")}`);
+  else if (ep !== null) parts.push(`E${String(ep).padStart(2,"0")}`);
+  if (lang) parts.push(lang);
+  if (quality) parts.push(quality);
+  return parts.join(" | ");
+}
 // Quality priority for sorting (lower = better quality)
 const QUALITY_ORDER = { "2160P": 0, "1080P": 1, "720P": 2, "480P": 3, "360P": 4, "240P": 5 };
 
@@ -445,7 +468,7 @@ function FileCard({ file, onClick, seriesTitle = null }) {
 }
 
 // ── Episode Quality Row (ek episode ke multiple qualities) ───────────
-function EpisodeQualityRow({ epNum, files, seriesTitle, onFileClick }) {
+function EpisodeQualityRow({ epNum, files, seriesTitle, season, onFileClick }) {
   const [hov, setHov] = useState(false);
   // Quality order se sort karo: 1080p, 720p, 480p...
   const sorted = [...files].sort((a, b) => {
@@ -467,8 +490,15 @@ function EpisodeQualityRow({ epNum, files, seriesTitle, onFileClick }) {
           <Poster file={bestFile} seriesTitle={seriesTitle} />
         </div>
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: "#f39c12", letterSpacing: 1, marginBottom: 4 }}>
-            EPISODE {String(epNum).padStart(2, "0")}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
+            {season && (
+              <span style={{ fontSize: 9, fontWeight: 800, color: "#fff", background: "linear-gradient(135deg,#3498db,#2980b9)", borderRadius: 5, padding: "2px 7px", letterSpacing: 0.5 }}>
+                S{String(season).padStart(2, "0")}
+              </span>
+            )}
+            <span style={{ fontSize: 12, fontWeight: 800, color: "#f39c12", letterSpacing: 1 }}>
+              EPISODE {String(epNum).padStart(2, "0")}
+            </span>
           </div>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#ddd", lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
             {seriesTitle}
@@ -534,35 +564,40 @@ function groupFilesForDisplay(files, activeQuality) {
   const isSeriesSearch = seriesCount > files.length / 2;
 
   if (isSeriesSearch) {
-    // Series mode: episode ke basis pe group karo
+    // Series mode: Season → Episode → Quality grouping
     const seriesTitle = extractMovieTitle(files[0].file_name);
 
-    // Episode ke basis pe map banao
-    const epMap = {};
+    // Season → Episode → Quality map
+    const seasonMap = {}; // { s1: { ep1: [files], ep2: [files] }, s2: {...} }
     for (const f of files) {
-      const ep = extractEpisode(f.file_name);
-      const key = ep !== null ? ep : -1; // episode unknown → -1
-      if (!epMap[key]) epMap[key] = [];
+      const s = extractSeason(f.file_name) ?? 1; // season unknown → assume 1
+      const ep = extractEpisode(f.file_name) ?? -1;
+      if (!seasonMap[s]) seasonMap[s] = {};
+      if (!seasonMap[s][ep]) seasonMap[s][ep] = [];
 
-      // Same quality duplicate check — same ep same quality hai to bada size wala rakho
+      // Same quality duplicate check — bada size wala rakho
       const q = extractQuality(f.file_name) || "UNKNOWN";
-      const existingIdx = epMap[key].findIndex(x => (extractQuality(x.file_name) || "UNKNOWN") === q);
+      const existingIdx = seasonMap[s][ep].findIndex(x => (extractQuality(x.file_name) || "UNKNOWN") === q);
       if (existingIdx !== -1) {
-        // Duplicate quality — bada size wala rakho
-        if ((f.file_size || 0) > (epMap[key][existingIdx].file_size || 0)) {
-          epMap[key][existingIdx] = f;
+        if ((f.file_size || 0) > (seasonMap[s][ep][existingIdx].file_size || 0)) {
+          seasonMap[s][ep][existingIdx] = f;
         }
       } else {
-        epMap[key].push(f);
+        seasonMap[s][ep].push(f);
       }
     }
 
-    // Episode number se sort karo
-    const epGroups = Object.entries(epMap)
-      .map(([ep, epFiles]) => ({ ep: parseInt(ep), files: epFiles }))
-      .sort((a, b) => a.ep - b.ep);
+    // Season number se sort, phir episode number se sort
+    const seasons = Object.entries(seasonMap)
+      .map(([s, epMap]) => ({
+        season: parseInt(s),
+        epGroups: Object.entries(epMap)
+          .map(([ep, epFiles]) => ({ ep: parseInt(ep), files: epFiles }))
+          .sort((a, b) => a.ep - b.ep),
+      }))
+      .sort((a, b) => a.season - b.season);
 
-    return { type: "series", seriesTitle, epGroups };
+    return { type: "series", seriesTitle, seasons };
   } else {
     // Movie mode: quality sort, simple list
     const sorted = [...files].sort((a, b) => {
@@ -635,7 +670,10 @@ function DetailModal({ file, onClose }) {
           <button onClick={onClose} style={{ position: "absolute", top: 14, right: 14, width: 36, height: 36, borderRadius: "50%", background: "rgba(0,0,0,.75)", border: "1px solid #2a2a2a", color: "#aaa", fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
         </div>
         <div style={{ padding: "0 18px 34px" }}>
-          <div style={{ fontSize: 20, fontWeight: 900, color: "#fff", lineHeight: 1.3, marginBottom: 12 }}>{name}</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#f39c12", letterSpacing: 1.5, marginBottom: 6, textTransform: "uppercase" }}>
+            {buildCaption(file.file_name)}
+          </div>
+          <div style={{ fontSize: 18, fontWeight: 900, color: "#fff", lineHeight: 1.3, marginBottom: 12 }}>{extractMovieTitle(file.file_name)}</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 14 }}>
             {q && <span style={{ padding: "4px 12px", borderRadius: 8, fontSize: 11, fontWeight: 700, background: qualityColor(q), color: "#fff" }}>{q}</span>}
             {year && <span style={{ padding: "4px 12px", borderRadius: 8, fontSize: 11, background: "#222", color: "#888" }}>{year}</span>}
@@ -931,15 +969,32 @@ export default function App() {
               const grouped = groupFilesForDisplay(files, quality);
               if (grouped.type === "series") {
                 return (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    {grouped.epGroups.map((grp, i) => (
-                      <div key={grp.ep} style={{ animation: `fadeIn .3s ease ${i * 0.04}s both` }}>
-                        <EpisodeQualityRow
-                          epNum={grp.ep === -1 ? "??" : grp.ep}
-                          files={grp.files}
-                          seriesTitle={grouped.seriesTitle}
-                          onFileClick={setSelected}
-                        />
+                  <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                    {grouped.seasons.map((seasonData, si) => (
+                      <div key={seasonData.season}>
+                        {/* Season header — sirf multiple seasons hone pe dikhao */}
+                        {grouped.seasons.length > 1 && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                            <div style={{ flex: 1, height: 1, background: "#1e1e1e" }} />
+                            <span style={{ fontSize: 10, fontWeight: 800, color: "#3498db", letterSpacing: 2, padding: "4px 12px", borderRadius: 10, border: "1px solid #1e3a5f", background: "#0a1929" }}>
+                              SEASON {String(seasonData.season).padStart(2, "0")}
+                            </span>
+                            <div style={{ flex: 1, height: 1, background: "#1e1e1e" }} />
+                          </div>
+                        )}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          {seasonData.epGroups.map((grp, i) => (
+                            <div key={grp.ep} style={{ animation: `fadeIn .3s ease ${i * 0.04}s both` }}>
+                              <EpisodeQualityRow
+                                epNum={grp.ep === -1 ? "??" : grp.ep}
+                                files={grp.files}
+                                seriesTitle={grouped.seriesTitle}
+                                season={seasonData.season}
+                                onFileClick={setSelected}
+                              />
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     ))}
                   </div>
