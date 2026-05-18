@@ -6,8 +6,9 @@ import { useState, useEffect, useRef, useCallback } from "react";
 const BOT_USERNAME = "My_Suhani_bot";
 const API_BASE = "https://grouphbot.onrender.com";
 
-// ⚠️  TMDB API KEY YAHAN DAALO — themoviedb.org pe free milti hai
-const TMDB_API_KEY = "a8c1b6b3487fbc94ca6bd229d9abed14";
+// ⚠️  TMDB API KEY — .env file mein VITE_TMDB_KEY=your_key_here likhna
+// themoviedb.org pe free milti hai. Kabhi bhi seedha code mein mat likho!
+const TMDB_API_KEY = import.meta.env.VITE_TMDB_KEY || "";
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMG = "https://image.tmdb.org/t/p/w500";
 const TMDB_IMG_ORIG = "https://image.tmdb.org/t/p/original";
@@ -58,11 +59,19 @@ function extractMovieTitle(name = "") {
   n = n.replace(/\d{1,2}:\d{2}/g, " ");
   n = n.replace(/\b(19|20)\d{2}\b.*/i, "").trim();
   n = n.replace(/\bS\d{2}E?\d*\b/gi, " ");
-  n = n.replace(/\b(480p|720p|1080p|2160p|4k|hdrip|webrip|web\s?dl|bluray|hdcam|dvdrip|tataplay|hotstar|zee5|sonyliv|amazon|netflix|hbomax|predvd|hdts|camrip|x264|x265|h264|h265|hevc|aac|dd5|dts|multi|dual|hindi|english|tamil|telugu|malayalam|kannada|bengali|punjabi|org|hq|esub|sub|dubbed|proper|repack)\b/gi, " ");
-  n = n.replace(/\b\d{1,2}\b/g, " ");
-  n = n.replace(/\s+/g, " ").trim();
-  const words = n.split(" ").filter(w => w.length > 1);
-  return words.slice(0, 4).join(" ") || cleanFileName(name).split(" ").slice(0, 3).join(" ");
+  // FIXED: sirf technical tags remove karo — language/platform words title mein reh sakte hain
+  // Pehle year+season tak ka text lo, phir usmein se sirf quality/codec tags hatao
+  n = n.replace(/\b(480p|720p|1080p|2160p|4k|hdrip|webrip|web\s?dl|bluray|hdcam|dvdrip|tataplay|hotstar|zee5|sonyliv|hbomax|predvd|hdts|camrip|x264|x265|h264|h265|hevc|aac|dd5|dts|org|hq|esub|sub|proper|repack)\b/gi, " ");
+  // Language/platform words sirf tab hatao jab woh title ke 2nd word ke baad aayein
+  // (pehle 2 words title mein ho sakte hain jaise "The English", "Amazon Prime" etc.)
+  const words = n.split(" ").filter(w => w.length > 0);
+  const filtered = words.filter((w, idx) => {
+    if (idx < 2) return true; // pehle 2 words hamesha rakho
+    return !/^(multi|dual|dubbed|hindi|english|tamil|telugu|malayalam|kannada|bengali|punjabi|amazon|netflix)$/i.test(w);
+  });
+  n = filtered.join(" ").replace(/\s+/g, " ").trim();
+  const finalWords = n.split(" ").filter(w => w.length > 1);
+  return finalWords.slice(0, 4).join(" ") || cleanFileName(name).split(" ").slice(0, 3).join(" ");
 }
 
 // Episode info extract karo — single (E01) or combined (E01-E04)
@@ -196,30 +205,51 @@ async function tmdbGet(endpoint, params = {}) {
   } catch { return null; }
 }
 
-const tmdbCache = {};
+// LRU-style cache — max 200 entries, phir sabse purani entries hata do
+const TMDB_CACHE_MAX = 200;
+const tmdbCache = new Map();
+const tmdbInFlight = new Map(); // duplicate concurrent requests rokne ke liye
+
 async function enrichWithTMDB(title, year) {
   const key = `e_${title}_${year}`;
-  if (tmdbCache[key] !== undefined) return tmdbCache[key];
-  tmdbCache[key] = null;
-  try {
-    const data = await tmdbGet("/search/multi", {
-      query: title, ...(year ? { year } : {}), page: 1,
-    });
-    const result = (data?.results || []).find(r => r.poster_path);
-    if (!result) return null;
-    const out = {
-      id: result.id,
-      title: result.title || result.name || title,
-      poster: result.poster_path ? `${TMDB_IMG}${result.poster_path}` : null,
-      backdrop: result.backdrop_path ? `${TMDB_IMG_ORIG}${result.backdrop_path}` : null,
-      rating: result.vote_average ? result.vote_average.toFixed(1) : null,
-      year: (result.release_date || result.first_air_date || "").slice(0, 4) || year,
-      overview: result.overview || null,
-      type: result.media_type === "tv" ? "series" : "movie",
-    };
-    tmdbCache[key] = out;
-    return out;
-  } catch { return null; }
+  if (tmdbCache.has(key)) return tmdbCache.get(key);
+  // In-flight deduplication: same key ke liye ek hi fetch hoga
+  if (tmdbInFlight.has(key)) return tmdbInFlight.get(key);
+
+  const promise = (async () => {
+    try {
+      const data = await tmdbGet("/search/multi", {
+        query: title, ...(year ? { year } : {}), page: 1,
+      });
+      const result = (data?.results || []).find(r => r.poster_path);
+      if (!result) {
+        if (tmdbCache.size >= TMDB_CACHE_MAX) tmdbCache.delete(tmdbCache.keys().next().value);
+        tmdbCache.set(key, null);
+        tmdbInFlight.delete(key);
+        return null;
+      }
+      const out = {
+        id: result.id,
+        title: result.title || result.name || title,
+        poster: result.poster_path ? `${TMDB_IMG}${result.poster_path}` : null,
+        backdrop: result.backdrop_path ? `${TMDB_IMG_ORIG}${result.backdrop_path}` : null,
+        rating: result.vote_average ? result.vote_average.toFixed(1) : null,
+        year: (result.release_date || result.first_air_date || "").slice(0, 4) || year,
+        overview: result.overview || null,
+        type: result.media_type === "tv" ? "series" : "movie",
+      };
+      if (tmdbCache.size >= TMDB_CACHE_MAX) tmdbCache.delete(tmdbCache.keys().next().value);
+      tmdbCache.set(key, out);
+      tmdbInFlight.delete(key);
+      return out;
+    } catch {
+      tmdbInFlight.delete(key);
+      return null;
+    }
+  })();
+
+  tmdbInFlight.set(key, promise);
+  return promise;
 }
 
 // ── fetchPosterFromTMDB — Poster & DetailModal ke liye ──────────────
@@ -245,7 +275,8 @@ const CATEGORY_LANG_FILTER = {
   kannada:   /kannada/i,
   bengali:   /bengali/i,
   english:   /english/i,
-  series:    /[Ss]\d{2}[Ee]\d{2}/,
+  // FIXED: series ke liye isSeries() function use karo — more reliable than raw regex
+  series:    null,
 };
 
 // Database se files lo, deduplicate karo by title, TMDB se enrich karo
@@ -259,11 +290,11 @@ async function fetchDBCategory(category, limit = 12) {
 
     // Language-specific categories ke liye extra filter
     const langFilter = CATEGORY_LANG_FILTER[category];
-    if (langFilter) {
+    if (category === "series") {
+      files = files.filter(f => isSeries(f.file_name));
+    } else if (langFilter) {
       files = files.filter(f => langFilter.test(f.file_name));
     }
-
-    // Title ke basis pe deduplicate karo
     const seen = new Set();
     const unique = [];
     for (const f of files) {
@@ -715,12 +746,19 @@ function TMDBCategoryRow({ title, items, onItemClick }) {
           <span style={{ width: 3, height: 14, background: "linear-gradient(#f39c12,#e74c3c)", borderRadius: 2, display: "inline-block" }} />
           <span style={{ fontSize: 12, fontWeight: 800, color: "#ddd", letterSpacing: "1.5px" }}>{title}</span>
         </div>
-        <span style={{ fontSize: 10, color: "#3a3a3a" }}>scroll →</span>
       </div>
-      <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingLeft: 16, paddingRight: 16, paddingBottom: 6, scrollbarWidth: "none" }}>
-        {items.map(item => (
-          <TMDBCard key={item.id} item={item} onClick={onItemClick} />
-        ))}
+      {/* FIXED: Right fade edge added — user ko pata chale scroll karna hai */}
+      <div style={{ position: "relative" }}>
+        <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingLeft: 16, paddingRight: 16, paddingBottom: 6, scrollbarWidth: "none" }}>
+          {items.map(item => (
+            <TMDBCard key={item.id} item={item} onClick={onItemClick} />
+          ))}
+        </div>
+        <div style={{
+          position: "absolute", top: 0, right: 0, bottom: 6, width: 40,
+          background: "linear-gradient(to right, transparent, #0d0d0d)",
+          pointerEvents: "none",
+        }} />
       </div>
     </div>
   );
@@ -743,9 +781,21 @@ function DetailModal({ file, onClose }) {
     return () => { document.body.style.overflow = ""; };
   }, [title, year]);
 
+  const [toast, setToast] = useState(null);
+
+  const showToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2200);
+  };
+
   const handleShare = () => {
-    if (navigator.share) navigator.share({ title: name, url: link });
-    else navigator.clipboard?.writeText(link).then(() => alert("Link copied! ✅"));
+    if (navigator.share) {
+      navigator.share({ title: name, url: link }).catch(() => {});
+    } else {
+      navigator.clipboard?.writeText(link)
+        .then(() => showToast("✅ Link copied to clipboard!"))
+        .catch(() => showToast("❌ Copy failed, please copy manually"));
+    }
   };
 
   return (
@@ -807,7 +857,17 @@ function DetailModal({ file, onClose }) {
           </div>
         </div>
       </div>
-      <style>{`@keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}`}</style>
+      <style>{`@keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}`}</style>
+      {/* FIXED: Toast notification — alert() ki jagah */}
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 90, left: "50%", transform: "translateX(-50%)",
+          background: "#1e1e1e", border: "1px solid #333", borderRadius: 12,
+          padding: "10px 18px", fontSize: 13, fontWeight: 600, color: "#eee",
+          zIndex: 2000, whiteSpace: "nowrap", animation: "toastIn 0.25s ease",
+          boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
+        }}>{toast}</div>
+      )}
     </div>
   );
 }
@@ -872,65 +932,63 @@ export default function App() {
   const [selected, setSelected] = useState(null);
   const [focused, setFocused] = useState(false);
 
-  // TMDB categories — sab alag alag
-  const [nowPlaying, setNowPlaying] = useState([]);       // Cinema mein chal rahi movies
-  const [globalTrend, setGlobalTrend] = useState([]);     // Global trending movies (week)
-  const [seriesTrend, setSeriesTrend] = useState([]);     // Trending web series / TV
-  const [bollywood, setBollywood] = useState([]);          // Hindi movies
-  const [tamilFils, setTamilFils] = useState([]);          // Tamil movies
-  const [malayalamFils, setMalayalamFils] = useState([]);  // Malayalam movies
-  const [teluguFils, setTeluguFils] = useState([]);        // Telugu movies
-  const [kannadaFils, setKannadaFils] = useState([]);      // Kannada movies
-  const [bengaliFils, setBengaliFils] = useState([]);      // Bengali movies
-  const [englishFils, setEnglishFils] = useState([]);      // English movies
-  const [topRated, setTopRated] = useState([]);            // Top rated all-time
-  const [heroBanner, setHeroBanner] = useState(null);     // Featured banner
+  // FIXED: Sab home categories ek object mein — 14 useState se 2 pe aa gaye
+  const [homeData, setHomeData] = useState({
+    nowPlaying: [], globalTrend: [], seriesTrend: [],
+    bollywood: [], tamilFils: [], malayalamFils: [],
+    teluguFils: [], kannadaFils: [], bengaliFils: [],
+    englishFils: [], topRated: [], heroBanner: null,
+  });
   const [homeLoading, setHomeLoading] = useState(true);
 
   const inputRef = useRef(null);
 
-  // Home data — DB se files, TMDB se enrich
+  // FIXED: Lazy loading — pehle 3 categories load karo, baaki 1 second baad
+  // Isse home page fast feel karta hai aur server pe load kam hota hai
   useEffect(() => {
     if (tab !== "home") return;
     setHomeLoading(true);
-    Promise.all([
-      fetchDBCategory("all", 12),       // Now Playing
-      fetchDBCategory("series", 12),    // Series
-      fetchDBCategory("hindi", 12),     // Bollywood
-      fetchDBCategory("tamil", 12),     // Tamil
-      fetchDBCategory("malayalam", 12), // Malayalam
-      fetchDBCategory("telugu", 12),    // Telugu
-      fetchDBCategory("kannada", 12),   // Kannada
-      fetchDBCategory("bengali", 12),   // Bengali
-      fetchDBCategory("english", 12),   // English
-    ]).then(([latest, series, bolly, tamil, mal, telugu, kannada, bengali, english]) => {
-      setNowPlaying(latest);
 
-      // Global trending = latest + bolly mix, unique
+    // Phase 1: Critical categories — turant load karo
+    Promise.all([
+      fetchDBCategory("all", 12),
+      fetchDBCategory("series", 12),
+      fetchDBCategory("hindi", 12),
+    ]).then(([latest, series, bolly]) => {
       const globalItems = latest
         .filter((_, idx) => idx >= 3)
         .concat(bolly.slice(0, 3))
         .filter((item, idx, arr) => {
           const key = item.title?.toLowerCase().replace(/\s+/g, "");
-          const firstIdx = arr.findIndex(x => x.title?.toLowerCase().replace(/\s+/g, "") === key);
-          return firstIdx === idx;
+          return arr.findIndex(x => x.title?.toLowerCase().replace(/\s+/g, "") === key) === idx;
         })
         .slice(0, 8);
-
-      setGlobalTrend(globalItems);
-      setSeriesTrend(series);
-      setBollywood(bolly);
-      setTamilFils(tamil);
-      setMalayalamFils(mal);
-      setTeluguFils(telugu);
-      setKannadaFils(kannada);
-      setBengaliFils(bengali);
-      setEnglishFils(english);
-      setTopRated([]);
-      // Hero banner — backdrop wala pehla item
       const heroItem = latest.find(m => m.backdrop) || latest[0];
-      if (heroItem) setHeroBanner(heroItem);
+      setHomeData(prev => ({
+        ...prev,
+        nowPlaying: latest, globalTrend: globalItems,
+        seriesTrend: series, bollywood: bolly,
+        heroBanner: heroItem || null,
+      }));
       setHomeLoading(false);
+
+      // Phase 2: Baaki categories thodi der baad load karo
+      setTimeout(() => {
+        Promise.all([
+          fetchDBCategory("tamil", 12),
+          fetchDBCategory("malayalam", 12),
+          fetchDBCategory("telugu", 12),
+          fetchDBCategory("kannada", 12),
+          fetchDBCategory("bengali", 12),
+          fetchDBCategory("english", 12),
+        ]).then(([tamil, mal, telugu, kannada, bengali, english]) => {
+          setHomeData(prev => ({
+            ...prev,
+            tamilFils: tamil, malayalamFils: mal, teluguFils: telugu,
+            kannadaFils: kannada, bengaliFils: bengali, englishFils: english,
+          }));
+        });
+      }, 1000);
     });
   }, [tab]);
 
@@ -948,15 +1006,19 @@ export default function App() {
     return () => clearTimeout(t);
   }, [doSearch, tab]);
 
-  const clearAll = () => { setQuery(""); setQuality("All"); setLanguage("All"); };
+  const clearAll = () => { setQuery(""); setQuality("All"); setLanguage("All"); setFiles([]); };
+  // FIXED: Sirf filters reset karo — query mat hatao
+  const clearFilters = () => { setQuality("All"); setLanguage("All"); };
 
+  // FIXED: Atomic search — useEffect debounce bypass karta hai, double fetch nahi hoga
   const handleTMDBCardClick = (itemOrTitle) => {
     const movieTitle = typeof itemOrTitle === "string" ? itemOrTitle : itemOrTitle.title;
-    setQuery(movieTitle);
     setQuality("All");
     setLanguage("All");
     setTab("search");
     setLoading(true);
+    setQuery(movieTitle);
+    // Direct fetch — useEffect ka debounce skip karo
     fetchFiles(movieTitle, "All", "All").then(results => {
       setFiles(results);
       setLoading(false);
@@ -964,7 +1026,7 @@ export default function App() {
   };
 
   // Trending chips (search page ke liye — now playing titles)
-  const trendingChips = nowPlaying.slice(0, 6);
+  const trendingChips = homeData.nowPlaying.slice(0, 6);
 
   return (
     <div style={{ background: "#0d0d0d", minHeight: "100vh", fontFamily: "'DM Sans',sans-serif", color: "#eee", maxWidth: 480, margin: "0 auto" }}>
@@ -973,14 +1035,28 @@ export default function App() {
       {/* Header */}
       <div style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(13,13,13,.97)", borderBottom: "1px solid #181818", padding: "14px 16px 14px", backdropFilter: "blur(12px)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span onClick={() => setTab("home")} style={{ fontSize: 28, fontWeight: 900, fontFamily: "'Bebas Neue',sans-serif", letterSpacing: 3, lineHeight: 1, cursor: "pointer" }}>
-            <span style={{ color: "#f39c12" }}>SUHANI</span><span style={{ color: "#e74c3c" }}> SEARCH</span>
-          </span>
-          <button onClick={() => { setTab("search"); setTimeout(() => inputRef.current?.focus(), 150); }}
-            style={{ background: "#181818", border: "1px solid #252525", borderRadius: 22, padding: "7px 14px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", color: "#555", fontSize: 12 }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2.5"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
-            Search...
-          </button>
+          {/* FIXED: Search tab pe back button dikhao — user confuse nahi hoga */}
+          {tab === "search" ? (
+            <button onClick={() => { setTab("home"); setQuery(""); setFiles([]); }}
+              style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, color: "#888", padding: 0 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2.5" strokeLinecap="round"><path d="M19 12H5M12 5l-7 7 7 7" /></svg>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>Home</span>
+            </button>
+          ) : (
+            <span style={{ fontSize: 28, fontWeight: 900, fontFamily: "'Bebas Neue',sans-serif", letterSpacing: 3, lineHeight: 1 }}>
+              <span style={{ color: "#f39c12" }}>SUHANI</span><span style={{ color: "#e74c3c" }}> SEARCH</span>
+            </span>
+          )}
+          {tab === "home" && (
+            <button onClick={() => { setTab("search"); setTimeout(() => inputRef.current?.focus(), 150); }}
+              style={{ background: "#181818", border: "1px solid #252525", borderRadius: 22, padding: "7px 14px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", color: "#555", fontSize: 12 }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2.5"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+              Search...
+            </button>
+          )}
+          {tab === "search" && (
+            <span style={{ fontSize: 18, fontWeight: 900, fontFamily: "'Bebas Neue',sans-serif", letterSpacing: 2, color: "#f39c12" }}>SEARCH</span>
+          )}
         </div>
       </div>
 
@@ -1001,23 +1077,23 @@ export default function App() {
             </div>
           ) : (
             <>
-              {heroBanner && (
+              {homeData.heroBanner && (
                 <div style={{ paddingTop: 18 }}>
-                  <HeroBannerTMDB item={heroBanner} onClick={handleTMDBCardClick} />
+                  <HeroBannerTMDB item={homeData.heroBanner} onClick={handleTMDBCardClick} />
                 </div>
               )}
               {/* Har category alag alag — koi duplicate nahi */}
-              <TMDBCategoryRow title="NOW PLAYING" items={nowPlaying} onItemClick={handleTMDBCardClick} />
-              <TMDBCategoryRow title="GLOBAL TRENDING" items={globalTrend} onItemClick={handleTMDBCardClick} />
-              <TMDBCategoryRow title="TRENDING SERIES" items={seriesTrend} onItemClick={handleTMDBCardClick} />
-              <TMDBCategoryRow title="BOLLYWOOD" items={bollywood} onItemClick={handleTMDBCardClick} />
-              <TMDBCategoryRow title="TAMIL MOVIES" items={tamilFils} onItemClick={handleTMDBCardClick} />
-              <TMDBCategoryRow title="MALAYALAM MOVIES" items={malayalamFils} onItemClick={handleTMDBCardClick} />
-              <TMDBCategoryRow title="TELUGU MOVIES" items={teluguFils} onItemClick={handleTMDBCardClick} />
-              <TMDBCategoryRow title="KANNADA MOVIES" items={kannadaFils} onItemClick={handleTMDBCardClick} />
-              <TMDBCategoryRow title="BENGALI MOVIES" items={bengaliFils} onItemClick={handleTMDBCardClick} />
-              <TMDBCategoryRow title="ENGLISH MOVIES" items={englishFils} onItemClick={handleTMDBCardClick} />
-              <TMDBCategoryRow title="TOP RATED ALL TIME" items={topRated} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="NOW PLAYING" items={homeData.nowPlaying} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="GLOBAL TRENDING" items={homeData.globalTrend} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="TRENDING SERIES" items={homeData.seriesTrend} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="BOLLYWOOD" items={homeData.bollywood} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="TAMIL MOVIES" items={homeData.tamilFils} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="MALAYALAM MOVIES" items={homeData.malayalamFils} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="TELUGU MOVIES" items={homeData.teluguFils} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="KANNADA MOVIES" items={homeData.kannadaFils} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="BENGALI MOVIES" items={homeData.bengaliFils} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="ENGLISH MOVIES" items={homeData.englishFils} onItemClick={handleTMDBCardClick} />
+              <TMDBCategoryRow title="TOP RATED ALL TIME" items={homeData.topRated} onItemClick={handleTMDBCardClick} />
             </>
           )}
         </div>
@@ -1065,7 +1141,7 @@ export default function App() {
                 const g = groupFilesForDisplay(files, quality);
                 if (g.type === "series") {
                   const totalEp = g.seasons.reduce((sum, s) => sum + s.epGroups.length, 0);
-                  return `${totalEp} episode${totalEp !== 1 ? "s" : ""} found`;
+                  return `${files.length} files · ${totalEp} episode group${totalEp !== 1 ? "s" : ""} found`;
                 }
                 return `${files.length} result${files.length !== 1 ? "s" : ""} found`;
               })() : ""}
@@ -1128,7 +1204,7 @@ export default function App() {
                 <div style={{ fontSize: 56, marginBottom: 16 }}>🎬</div>
                 <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 8, color: "#ccc" }}>No results found</div>
                 <div style={{ fontSize: 13, color: "#444", lineHeight: 1.6 }}>Try different keywords or change filters</div>
-                <button onClick={clearAll} style={{ marginTop: 20, padding: "10px 24px", borderRadius: 20, background: "linear-gradient(135deg,#f39c12,#e74c3c)", border: "none", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Reset Filters</button>
+                <button onClick={clearFilters} style={{ marginTop: 20, padding: "10px 24px", borderRadius: 20, background: "linear-gradient(135deg,#f39c12,#e74c3c)", border: "none", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Reset Filters</button>
               </div>
             )}
             {!loading && files.length === 0 && !query && quality === "All" && language === "All" && (
@@ -1146,7 +1222,7 @@ export default function App() {
       <div style={{ textAlign: "center", padding: "12px 16px 28px", borderTop: "1px solid #181818", fontSize: 11, color: "#2e2e2e" }}>
         <p style={{ margin: "0 0 6px", lineHeight: 1.7 }}>All contents are publicly available on Telegram.<br />We do not host any files.</p>
         <div style={{ display: "flex", justifyContent: "center", gap: 16, alignItems: "center" }}>
-          <span>© 2026 Suhani Search</span>
+          <span>© {new Date().getFullYear()} Suhani Search</span>
           <span style={{ color: "#1e1e1e" }}>•</span>
           <a href={`https://t.me/${BOT_USERNAME}`} style={{ color: "#333", textDecoration: "none" }}>Report issue</a>
         </div>
