@@ -284,23 +284,69 @@ const CATEGORY_LANG_FILTER = {
   series:    null,
 };
 
+// API se ek baar mein kitna maango
+const API_FETCH_BATCH = 200;
+
+// Language categories ke liye search query mapping
+const CATEGORY_SEARCH_QUERY = {
+  hindi:     "hindi",
+  tamil:     "tamil",
+  malayalam: "malayalam",
+  telugu:    "telugu",
+  kannada:   "kannada",
+  bengali:   "bengali",
+  english:   "english",
+  series:    null, // trending se
+  all:       null, // trending se
+};
+
 async function fetchDBCategory(category, limit = 12, offset = 0) {
   try {
-    const params = new URLSearchParams({ category, limit: (limit + offset) * 4 });
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 18000);
-    const res = await fetch(`${API_BASE}/api/trending?${params}`, { signal: controller.signal });
+    const timer = setTimeout(() => controller.abort(), 20000);
+
+    const searchQuery = CATEGORY_SEARCH_QUERY[category];
+    let res;
+
+    if (searchQuery) {
+      // Language categories: search API use karo — poore database se milega
+      const params = new URLSearchParams({
+        q: searchQuery,
+        quality: "All",
+        language: "All",
+        limit: API_FETCH_BATCH,
+        ...(offset > 0 ? { offset } : {}),
+      });
+      res = await fetch(`${API_BASE}/api/search?${params}`, { signal: controller.signal });
+    } else {
+      // All / series: trending API use karo
+      const params = new URLSearchParams({
+        category,
+        limit: API_FETCH_BATCH,
+        ...(offset > 0 ? { page: Math.floor(offset / API_FETCH_BATCH) } : {}),
+      });
+      res = await fetch(`${API_BASE}/api/trending?${params}`, { signal: controller.signal });
+    }
+
     clearTimeout(timer);
     if (!res.ok) throw new Error();
     const data = await res.json();
     let files = data.files || [];
 
-    const langFilter = CATEGORY_LANG_FILTER[category];
+    // Series filter
     if (category === "series") {
       files = files.filter(f => isSeries(f.file_name));
-    } else if (langFilter) {
-      files = files.filter(f => langFilter.test(f.file_name));
     }
+
+    // Language double-check filter (search pe bhi apply karo for accuracy)
+    const langFilter = CATEGORY_LANG_FILTER[category];
+    if (langFilter) {
+      const filtered = files.filter(f => langFilter.test(f.file_name));
+      // Agar filtered kam hai toh original rakho (search already language-specific hai)
+      if (filtered.length > files.length * 0.3) files = filtered;
+    }
+
+    // Duplicate titles hata do
     const seen = new Set();
     const unique = [];
     for (const f of files) {
@@ -310,11 +356,10 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
         seen.add(key);
         unique.push({ ...f, _title: title, _year: extractYear(f.file_name) });
       }
-      if (unique.length >= limit + offset) break;
     }
 
-    // offset skip karke sirf naye items lo
-    const sliced = unique.slice(offset, offset + limit);
+    // Sirf limit tak lo
+    const sliced = unique.slice(0, limit);
 
     const enriched = await Promise.all(
       sliced.map(async f => {
@@ -999,15 +1044,14 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
     if (loadingMore || !hasMore || !category) return;
     setLoadingMore(true);
     const newItems = await fetchDBCategory(category, PAGE_SIZE, offsetRef.current);
-    if (newItems.length === 0) {
+    if (!newItems || newItems.length === 0) {
       setHasMore(false);
     } else {
       setItems(prev => {
-        // Duplicate IDs remove karo
-        const existingIds = new Set(prev.map(x => x.id));
-        const fresh = newItems.filter(x => !existingIds.has(x.id));
-        offsetRef.current += fresh.length;
-        if (fresh.length < PAGE_SIZE) setHasMore(false);
+        const existingIds = new Set(prev.map(x => String(x.id)));
+        const fresh = newItems.filter(x => !existingIds.has(String(x.id)));
+        if (fresh.length > 0) offsetRef.current += PAGE_SIZE;
+        if (newItems.length < PAGE_SIZE) setHasMore(false);
         return [...prev, ...fresh];
       });
     }
