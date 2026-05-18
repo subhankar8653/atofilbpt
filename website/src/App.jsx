@@ -284,11 +284,11 @@ const CATEGORY_LANG_FILTER = {
   series:    null,
 };
 
-async function fetchDBCategory(category, limit = 12) {
+async function fetchDBCategory(category, limit = 12, offset = 0) {
   try {
-    const params = new URLSearchParams({ category, limit: limit * 4 });
+    const params = new URLSearchParams({ category, limit: (limit + offset) * 4 });
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 18000); // 18s timeout
+    const timer = setTimeout(() => controller.abort(), 18000);
     const res = await fetch(`${API_BASE}/api/trending?${params}`, { signal: controller.signal });
     clearTimeout(timer);
     if (!res.ok) throw new Error();
@@ -310,25 +310,20 @@ async function fetchDBCategory(category, limit = 12) {
         seen.add(key);
         unique.push({ ...f, _title: title, _year: extractYear(f.file_name) });
       }
-      if (unique.length >= limit) break;
+      if (unique.length >= limit + offset) break;
     }
 
+    // offset skip karke sirf naye items lo
+    const sliced = unique.slice(offset, offset + limit);
+
     const enriched = await Promise.all(
-      unique.map(async f => {
+      sliced.map(async f => {
         const tmdb = await enrichWithTMDB(f._title, f._year);
-        if (tmdb) {
-          return { ...tmdb, _file: f };
-        }
+        if (tmdb) return { ...tmdb, _file: f };
         return {
-          id: f.file_id,
-          title: f._title,
-          poster: null,
-          backdrop: null,
-          rating: null,
-          year: f._year,
-          overview: null,
-          type: "movie",
-          _file: f,
+          id: f.file_id, title: f._title, poster: null,
+          backdrop: null, rating: null, year: f._year,
+          overview: null, type: "movie", _file: f,
         };
       })
     );
@@ -964,42 +959,126 @@ function SkeletonFile() {
 }
 
 // ── Category Full Page ────────────────────────────────────────────────
+const PAGE_SIZE = 24;
+
 function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
   const [items, setItems] = useState(initialItems || []);
-  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(false);
+  const sentinelRef = useRef(null);
+  const offsetRef = useRef(0);
 
+  // Pehli baar fresh fetch (zyada limit ke saath)
   useEffect(() => {
     if (!category) return;
-    setLoading(true);
-    fetchDBCategory(category, 50).then(data => {
-      if (data && data.length > 0) setItems(data);
-      setLoading(false);
+    setInitialLoading(true);
+    offsetRef.current = 0;
+    fetchDBCategory(category, PAGE_SIZE, 0).then(data => {
+      const fresh = data || [];
+      setItems(fresh);
+      offsetRef.current = fresh.length;
+      setHasMore(fresh.length >= PAGE_SIZE);
+      setInitialLoading(false);
     });
   }, [category]);
 
+  // IntersectionObserver — jab sentinel screen pe aaye toh load more
+  useEffect(() => {
+    if (!sentinelRef.current) return;
+    const obs = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && !loadingMore && hasMore && !initialLoading) {
+        loadMore();
+      }
+    }, { rootMargin: "200px" });
+    obs.observe(sentinelRef.current);
+    return () => obs.disconnect();
+  }, [loadingMore, hasMore, initialLoading]);
+
+  const loadMore = async () => {
+    if (loadingMore || !hasMore || !category) return;
+    setLoadingMore(true);
+    const newItems = await fetchDBCategory(category, PAGE_SIZE, offsetRef.current);
+    if (newItems.length === 0) {
+      setHasMore(false);
+    } else {
+      setItems(prev => {
+        // Duplicate IDs remove karo
+        const existingIds = new Set(prev.map(x => x.id));
+        const fresh = newItems.filter(x => !existingIds.has(x.id));
+        offsetRef.current += fresh.length;
+        if (fresh.length < PAGE_SIZE) setHasMore(false);
+        return [...prev, ...fresh];
+      });
+    }
+    setLoadingMore(false);
+  };
+
   return (
-    <div style={{ paddingBottom: 36 }}>
-      {/* Header */}
-      <div style={{ padding: "16px 16px 12px", display: "flex", alignItems: "center", gap: 12, position: "sticky", top: 64, zIndex: 50, background: "rgba(10,10,10,0.95)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-        <button onClick={onBack}
-          style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "50%", width: 34, height: 34, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+    <div style={{ paddingBottom: 60 }}>
+      {/* Sticky Header */}
+      <div style={{
+        padding: "12px 16px", display: "flex", alignItems: "center", gap: 12,
+        position: "sticky", top: 56, zIndex: 50,
+        background: "rgba(10,10,10,0.96)", backdropFilter: "blur(14px)",
+        borderBottom: "1px solid rgba(255,255,255,0.05)",
+      }}>
+        <button onClick={onBack} style={{
+          background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
+          borderRadius: "50%", width: 34, height: 34, cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+        }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2.5" strokeLinecap="round"><path d="M19 12H5M12 5l-7 7 7 7" /></svg>
         </button>
         <span style={{ fontSize: 15, fontWeight: 900, color: "#e8e8e8", letterSpacing: 0.5 }}>{title}</span>
-        {loading && <div style={{ marginLeft: "auto", width: 16, height: 16, borderRadius: "50%", border: "2px solid rgba(243,156,18,0.3)", borderTopColor: "#f39c12", animation: "spin 0.8s linear infinite" }} />}
-        {!loading && <span style={{ marginLeft: "auto", fontSize: 11, color: "#444" }}>{items.length} titles</span>}
+        {initialLoading
+          ? <div style={{ marginLeft: "auto", width: 16, height: 16, borderRadius: "50%", border: "2px solid rgba(243,156,18,0.3)", borderTopColor: "#f39c12", animation: "spin 0.8s linear infinite" }} />
+          : <span style={{ marginLeft: "auto", fontSize: 11, color: "#444" }}>{items.length} titles</span>
+        }
       </div>
 
       {/* 3-column grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, padding: "14px 12px" }}>
-        {items.map((item, i) => (
-          <div key={item.id || i} style={{ animation: `fadeIn .2s ease ${Math.min(i, 12) * 0.03}s both` }}>
-            <TMDBCard item={item} onClick={onItemClick} gridMode />
-          </div>
-        ))}
-      </div>
+      {initialLoading ? (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, padding: "14px 12px" }}>
+          {[...Array(12)].map((_, i) => (
+            <div key={i} style={{ borderRadius: 16, overflow: "hidden", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}>
+              <div style={{ height: 155, background: "rgba(255,255,255,0.03)", animation: "pulse 1.8s ease infinite" }} />
+              <div style={{ padding: "8px 10px 12px" }}>
+                <div style={{ height: 9, background: "rgba(255,255,255,0.04)", borderRadius: 4, marginBottom: 5, animation: "pulse 1.8s ease infinite" }} />
+                <div style={{ height: 9, background: "rgba(255,255,255,0.04)", borderRadius: 4, width: "55%", animation: "pulse 1.8s ease infinite" }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, padding: "14px 12px" }}>
+          {items.map((item, i) => (
+            <div key={`${item.id}-${i}`} style={{ animation: `fadeIn .2s ease ${Math.min(i % PAGE_SIZE, 8) * 0.04}s both` }}>
+              <TMDBCard item={item} onClick={onItemClick} gridMode />
+            </div>
+          ))}
+        </div>
+      )}
 
-      {!loading && items.length === 0 && (
+      {/* Infinite scroll sentinel */}
+      <div ref={sentinelRef} style={{ height: 1 }} />
+
+      {/* Load more spinner */}
+      {loadingMore && (
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 10, padding: "20px 0" }}>
+          <div style={{ width: 20, height: 20, borderRadius: "50%", border: "2px solid rgba(243,156,18,0.2)", borderTopColor: "#f39c12", animation: "spin 0.8s linear infinite" }} />
+          <span style={{ fontSize: 12, color: "#555", fontWeight: 600 }}>Aur load ho raha hai...</span>
+        </div>
+      )}
+
+      {/* End of list */}
+      {!hasMore && !loadingMore && items.length > 0 && (
+        <div style={{ textAlign: "center", padding: "20px 0 10px", fontSize: 11, color: "#2a2a2a", fontWeight: 600 }}>
+          ── Yahi tak hai ──
+        </div>
+      )}
+
+      {!initialLoading && items.length === 0 && (
         <div style={{ textAlign: "center", padding: "60px 20px" }}>
           <div style={{ fontSize: 44, marginBottom: 12 }}>🎬</div>
           <div style={{ fontSize: 14, color: "#555" }}>Koi content nahi mila</div>
