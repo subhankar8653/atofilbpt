@@ -41,16 +41,55 @@ async def api_search_handler(request: web.Request):
         language = request.rel_url.query.get("language", "All")
         limit    = min(int(request.rel_url.query.get("limit", "20")), 50)
 
-        files, _, total = await get_search_results(None, q or ".", max_results=limit)
+        # Multi-word search ke liye smart approach:
+        # Pehle exact query try karo, agar 0 results aaye to
+        # har word alag alag search karo aur intersection lo
+        search_q = q or "."
+        files, _, total = await get_search_results(None, search_q, max_results=limit * 3)
+
+        # Agar results nahi mile aur query multi-word hai,
+        # to words ko individually match karo (fuzzy approach)
+        if total == 0 and q and " " in q:
+            words = [w for w in q.split() if len(w) > 2]
+            if words:
+                # Sabse unique/rare word se search karo
+                best_word = max(words, key=len)
+                files, _, total = await get_search_results(None, best_word, max_results=limit * 5)
+                # Ab filter karo — sirf woh results rakho jisme baaki words bhi hain
+                remaining_words = [w for w in words if w != best_word]
+                filtered = []
+                for f in files:
+                    fname = (f.file_name or "").lower()
+                    cap = (f.caption or "").lower()
+                    combined = fname + " " + cap
+                    if all(w.lower() in combined for w in remaining_words):
+                        filtered.append(f)
+                files = filtered
+
+        def clean_file_name(name):
+            """@ username aur channel promotion remove karo"""
+            # @username patterns remove karo
+            name = re.sub(r'@\S+', '', name)
+            # [channel] ya (channel) patterns remove karo
+            name = re.sub(r'\[.*?@.*?\]|\(.*?@.*?\)', '', name)
+            # www.domain.com patterns remove karo
+            name = re.sub(r'www\.\S+', '', name, flags=re.IGNORECASE)
+            # t.me links remove karo
+            name = re.sub(r't\.me/\S+', '', name, flags=re.IGNORECASE)
+            # Extra spaces clean karo
+            name = re.sub(r'\s+', ' ', name).strip()
+            return name
 
         result = []
+        seen_names = set()  # Duplicate results avoid karne ke liye
         for f in files:
-            name = f.file_name or ""
+            raw_name = f.file_name or ""
+            name = clean_file_name(raw_name)
             if quality != "All":
-                if not re.search(quality, name, re.IGNORECASE):
+                if not re.search(quality, raw_name, re.IGNORECASE):
                     continue
             if language != "All":
-                if not re.search(language, name, re.IGNORECASE):
+                if not re.search(language, raw_name, re.IGNORECASE):
                     continue
             result.append({
                 "file_id":   f.file_id,
