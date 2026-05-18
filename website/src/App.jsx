@@ -273,16 +273,22 @@ async function fetchPosterFromTMDB(title, year) {
   } catch { return null; }
 }
 
+// Strict language filter: sirf woh files jo PRIMARILY us language ki hain
+// "Hindi Dubbed" wali files ko Bollywood mein nahi dikhana
 const CATEGORY_LANG_FILTER = {
-  hindi:     /hindi/i,
-  tamil:     /tamil/i,
-  malayalam: /malayalam/i,
-  telugu:    /telugu/i,
-  kannada:   /kannada/i,
-  bengali:   /bengali/i,
-  english:   /english/i,
+  hindi:     /\bhindi\b/i,
+  tamil:     /\btamil\b/i,
+  malayalam: /\bmalayalam\b/i,
+  telugu:    /\btelugu\b/i,
+  kannada:   /\bkannada\b/i,
+  bengali:   /\bbengali\b/i,
+  english:   /\benglish\b/i,
   series:    null,
 };
+
+// Hindi category ke liye extra check: "Hindi Dubbed" anime/Hollywood reject karo
+// Jab ek file mein koi aur language bhi ho toh wo Bollywood nahi hai
+const NON_BOLLYWOOD_PATTERNS = /\b(dubbed|dub|anime|doraemon|dragon\s?ball|naruto|one\s?piece|bleach|detective\s?conan|shin\s?chan|pokemon|hollywood|english|korean|chinese|japanese|kannada|telugu|tamil|malayalam|bengali)\b/i;
 
 // API se ek baar mein kitna maango
 const API_FETCH_BATCH = 200;
@@ -310,20 +316,22 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
 
     if (searchQuery) {
       // Language categories: search API use karo — poore database se milega
+      const pageNum = offset > 0 ? Math.floor(offset / API_FETCH_BATCH) + 1 : 1;
       const params = new URLSearchParams({
         q: searchQuery,
         quality: "All",
         language: "All",
         limit: API_FETCH_BATCH,
-        ...(offset > 0 ? { offset } : {}),
+        page: pageNum,
       });
       res = await fetch(`${API_BASE}/api/search?${params}`, { signal: controller.signal });
     } else {
       // All / series: trending API use karo
+      const pageNum = offset > 0 ? Math.floor(offset / API_FETCH_BATCH) + 1 : 1;
       const params = new URLSearchParams({
         category,
         limit: API_FETCH_BATCH,
-        ...(offset > 0 ? { page: Math.floor(offset / API_FETCH_BATCH) } : {}),
+        page: pageNum,
       });
       res = await fetch(`${API_BASE}/api/trending?${params}`, { signal: controller.signal });
     }
@@ -338,12 +346,28 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
       files = files.filter(f => isSeries(f.file_name));
     }
 
-    // Language double-check filter (search pe bhi apply karo for accuracy)
+    // Language STRICT filter — sirf woh files jo actually us language ki hain
     const langFilter = CATEGORY_LANG_FILTER[category];
     if (langFilter) {
-      const filtered = files.filter(f => langFilter.test(f.file_name));
-      // Agar filtered kam hai toh original rakho (search already language-specific hai)
-      if (filtered.length > files.length * 0.3) files = filtered;
+      let filtered = files.filter(f => langFilter.test(f.file_name));
+
+      // Bollywood ke liye extra: "Hindi Dubbed" anime/foreign reject karo
+      if (category === "hindi") {
+        filtered = filtered.filter(f => !NON_BOLLYWOOD_PATTERNS.test(
+          f.file_name.replace(/\bhindi\b/gi, "") // hindi word hata ke baaki check karo
+        ));
+        // Agar filtered bahut kam ho (< 20%) toh original rakh lo (edge case)
+        if (filtered.length < files.length * 0.05 && files.length > 0) {
+          // Just use original language filter without extra check
+          filtered = files.filter(f => langFilter.test(f.file_name));
+        }
+      } else {
+        // Dusri languages ke liye: filtered > 10% ho toh use karo
+        if (filtered.length < files.length * 0.1 && files.length > 0) {
+          filtered = files.filter(f => langFilter.test(f.file_name));
+        }
+      }
+      files = filtered;
     }
 
     // Duplicate titles hata do
@@ -1012,17 +1036,20 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
   const [hasMore, setHasMore] = useState(true);
   const [initialLoading, setInitialLoading] = useState(false);
   const sentinelRef = useRef(null);
-  const offsetRef = useRef(0);
+  const pageRef = useRef(1); // Page-based pagination
+  const seenIdsRef = useRef(new Set()); // Global dedup
 
   // Pehli baar fresh fetch (zyada limit ke saath)
   useEffect(() => {
     if (!category) return;
     setInitialLoading(true);
-    offsetRef.current = 0;
+    pageRef.current = 1;
+    seenIdsRef.current = new Set();
     fetchDBCategory(category, PAGE_SIZE, 0).then(data => {
       const fresh = data || [];
+      // Seed seen IDs
+      fresh.forEach(x => seenIdsRef.current.add(String(x.id)));
       setItems(fresh);
-      offsetRef.current = fresh.length;
       setHasMore(fresh.length >= PAGE_SIZE);
       setInitialLoading(false);
     });
@@ -1043,17 +1070,20 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
   const loadMore = async () => {
     if (loadingMore || !hasMore || !category) return;
     setLoadingMore(true);
-    const newItems = await fetchDBCategory(category, PAGE_SIZE, offsetRef.current);
+    pageRef.current += 1;
+    const nextOffset = (pageRef.current - 1) * API_FETCH_BATCH;
+    const newItems = await fetchDBCategory(category, PAGE_SIZE, nextOffset);
     if (!newItems || newItems.length === 0) {
       setHasMore(false);
     } else {
-      setItems(prev => {
-        const existingIds = new Set(prev.map(x => String(x.id)));
-        const fresh = newItems.filter(x => !existingIds.has(String(x.id)));
-        if (fresh.length > 0) offsetRef.current += PAGE_SIZE;
-        if (newItems.length < PAGE_SIZE) setHasMore(false);
-        return [...prev, ...fresh];
-      });
+      const fresh = newItems.filter(x => !seenIdsRef.current.has(String(x.id)));
+      fresh.forEach(x => seenIdsRef.current.add(String(x.id)));
+      if (fresh.length > 0) {
+        setItems(prev => [...prev, ...fresh]);
+      }
+      if (newItems.length < PAGE_SIZE || fresh.length === 0) {
+        setHasMore(false);
+      }
     }
     setLoadingMore(false);
   };
