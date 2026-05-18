@@ -122,14 +122,29 @@ async function enrichWithTMDB(title, year) {
   } catch { return null; }
 }
 
+// Category ke liye language filter words
+const CATEGORY_LANG_FILTER = {
+  hindi:     /hindi/i,
+  tamil:     /tamil/i,
+  malayalam: /malayalam/i,
+  telugu:    /telugu/i,
+  series:    /S\d{2}/i,
+};
+
 // Database se files lo, deduplicate karo by title, TMDB se enrich karo
 async function fetchDBCategory(category, limit = 12) {
   try {
-    const params = new URLSearchParams({ category, limit: limit * 3 });
+    const params = new URLSearchParams({ category, limit: limit * 4 });
     const res = await fetch(`${API_BASE}/api/trending?${params}`);
     if (!res.ok) throw new Error();
     const data = await res.json();
-    const files = data.files || [];
+    let files = data.files || [];
+
+    // Language-specific categories ke liye extra filter
+    const langFilter = CATEGORY_LANG_FILTER[category];
+    if (langFilter) {
+      files = files.filter(f => langFilter.test(f.file_name));
+    }
 
     // Title ke basis pe deduplicate karo
     const seen = new Set();
@@ -149,9 +164,8 @@ async function fetchDBCategory(category, limit = 12) {
       unique.map(async f => {
         const tmdb = await enrichWithTMDB(f._title, f._year);
         if (tmdb) {
-          return { ...tmdb, _file: f }; // TMDB data + original file reference
+          return { ...tmdb, _file: f };
         }
-        // TMDB nahi mila — sirf DB data se fallback card banao
         return {
           id: f.file_id,
           title: f._title,
@@ -179,7 +193,7 @@ function TMDBCard({ item, onClick }) {
 
   return (
     <div
-      onClick={() => onClick(item.title)}
+      onClick={() => onClick(item)}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{
@@ -250,7 +264,7 @@ function HeroBannerTMDB({ item, onClick }) {
 
   return (
     <div
-      onClick={() => onClick(item.title)}
+      onClick={() => onClick(item)}
       style={{
         margin: "0 16px 26px", borderRadius: 22, overflow: "hidden", position: "relative",
         height: 215, cursor: "pointer",
@@ -569,24 +583,42 @@ export default function App() {
     if (tab !== "home") return;
     setHomeLoading(true);
     Promise.all([
-      fetchDBCategory("all", 10),       // Latest all
-      fetchDBCategory("all", 20),       // Global trending (more items)
+      fetchDBCategory("all", 10),       // Now Playing
       fetchDBCategory("series", 10),    // Series
       fetchDBCategory("hindi", 10),     // Bollywood
       fetchDBCategory("tamil", 10),     // Tamil
       fetchDBCategory("malayalam", 10), // Malayalam
-    ]).then(([latest, global, series, bolly, tamil, mal]) => {
+    ]).then(([latest, series, bolly, tamil, mal]) => {
       setNowPlaying(latest);
-      // Global trending mein latest wale duplicate na aayein
-      const latestIds = new Set(latest.map(i => i.id));
-      setGlobalTrend(global.filter(i => !latestIds.has(i.id)).slice(0, 10));
+
+      // Saari categories ke IDs collect karo — duplicates avoid karne ke liye
+      const usedTitles = new Set([
+        ...latest.map(i => i.title?.toLowerCase().replace(/\s+/g, "")),
+        ...series.map(i => i.title?.toLowerCase().replace(/\s+/g, "")),
+        ...bolly.map(i => i.title?.toLowerCase().replace(/\s+/g, "")),
+        ...tamil.map(i => i.title?.toLowerCase().replace(/\s+/g, "")),
+        ...mal.map(i => i.title?.toLowerCase().replace(/\s+/g, "")),
+      ]);
+
+      // Global trending = latest se alag items jo kisi category mein nahi hain
+      const globalItems = latest
+        .filter((_, idx) => idx >= 3) // latest ke first 3 hata do
+        .concat(bolly.slice(0, 3))    // bolly se kuch mix karo
+        .filter((item, idx, arr) => {
+          const key = item.title?.toLowerCase().replace(/\s+/g, "");
+          const firstIdx = arr.findIndex(x => x.title?.toLowerCase().replace(/\s+/g, "") === key);
+          return firstIdx === idx; // unique rakho
+        })
+        .slice(0, 8);
+
+      setGlobalTrend(globalItems);
       setSeriesTrend(series);
       setBollywood(bolly);
       setTamilFils(tamil);
       setMalayalamFils(mal);
       setTopRated([]);
       // Hero banner — backdrop wala pehla item
-      const heroItem = [...latest, ...global].find(m => m.backdrop) || latest[0];
+      const heroItem = latest.find(m => m.backdrop) || latest[0];
       if (heroItem) setHeroBanner(heroItem);
       setHomeLoading(false);
     });
@@ -608,7 +640,8 @@ export default function App() {
 
   const clearAll = () => { setQuery(""); setQuality("All"); setLanguage("All"); };
 
-  const handleTMDBCardClick = (movieTitle) => {
+  const handleTMDBCardClick = (itemOrTitle) => {
+    const movieTitle = typeof itemOrTitle === "string" ? itemOrTitle : itemOrTitle.title;
     setQuery(movieTitle);
     setQuality("All");
     setLanguage("All");
@@ -685,7 +718,7 @@ export default function App() {
                 <div style={{ fontSize: 10, fontWeight: 700, color: "#3a3a3a", letterSpacing: "1.5px", marginBottom: 10 }}>TRENDING NOW</div>
                 <div style={{ display: "flex", gap: 8, overflowX: "auto", marginBottom: 20, scrollbarWidth: "none" }}>
                   {trendingChips.map(item => (
-                    <button key={item.id} onClick={() => handleTMDBCardClick(item.title)}
+                    <button key={item.id} onClick={() => handleTMDBCardClick(item)}
                       style={{ padding: "7px 14px", borderRadius: 20, background: "#181818", border: "1px solid #252525", color: "#888", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
                       <span style={{ fontSize: 10 }}>🔥</span>{item.title}
                     </button>
