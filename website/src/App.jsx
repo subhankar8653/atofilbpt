@@ -32,7 +32,7 @@ const API_BASE = "https://grouphbot.onrender.com";
 // ⚠️  TMDB API KEY — .env file mein VITE_TMDB_KEY=your_key_here likhna
 const TMDB_API_KEY = import.meta.env.VITE_TMDB_KEY || "";
 const TMDB_BASE = "https://api.themoviedb.org/3";
-const TMDB_IMG = "https://image.tmdb.org/t/p/w342";
+const TMDB_IMG = "https://image.tmdb.org/t/p/w185";
 const TMDB_IMG_ORIG = "https://image.tmdb.org/t/p/original";
 const TMDB_IMG_FALLBACK = "https://image.tmdb.org/t/p/w185";
 // ═══════════════════════════════════════════════════════════════════
@@ -253,16 +253,10 @@ async function enrichWithTMDB(title, year) {
 
   const promise = (async () => {
     try {
-      // Strategy: try multiple search variations to maximize poster hit rate
+      // Strategy: try title+year first, then title only — no delays
       const searches = [
-        // 1. Exact title + year
         year ? { query: title, year } : null,
-        // 2. Title without year (year mismatch common with regional films)
         { query: title },
-        // 3. First 3 words only (long titles often fail)
-        title.split(" ").length > 3 ? { query: title.split(" ").slice(0, 3).join(" ") } : null,
-        // 4. First 2 words (last resort)
-        title.split(" ").length > 2 ? { query: title.split(" ").slice(0, 2).join(" ") } : null,
       ].filter(Boolean);
 
       let result = null;
@@ -270,8 +264,6 @@ async function enrichWithTMDB(title, year) {
         const data = await tmdbGet("/search/multi", { ...params, page: 1 });
         const found = (data?.results || []).find(r => r.poster_path);
         if (found) { result = found; break; }
-        // Small delay between retries to avoid rate limit
-        await new Promise(r => setTimeout(r, 80));
       }
 
       if (!result) {
@@ -418,8 +410,11 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
 
     const sliced = unique.slice(0, limit);
 
-    const enriched = await Promise.all(
-      sliced.map(async f => {
+    // Batch mein 4 cards process karo - rate limit avoid karne ke liye
+    const enriched = [];
+    for (let i = 0; i < sliced.length; i += 4) {
+      const batch = sliced.slice(i, i + 4);
+      const results = await Promise.all(batch.map(async f => {
         const tmdb = await enrichWithTMDB(f._title, f._year);
         if (tmdb) return { ...tmdb, _file: f };
         return {
@@ -427,8 +422,9 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
           backdrop: null, rating: null, year: f._year,
           overview: null, type: "movie", _file: f, genreIds: [],
         };
-      })
-    );
+      }));
+      enriched.push(...results);
+    }
     // Return both items AND rawApiCount so callers can decide hasMore correctly
     const result = enriched.filter(Boolean);
     result._rawApiCount = rawApiCount; // attach metadata
@@ -540,8 +536,8 @@ function TMDBCard({ item, onClick, gridMode = false }) {
 
   const handleImgError = () => {
     // Retry with smaller fallback URL before giving up
-    if (imgSrc && imgSrc.includes("/w342/")) {
-      setImgSrc(imgSrc.replace("/w342/", "/w185/"));
+    if (imgSrc && imgSrc.includes("/w185/")) {
+      setImgSrc(imgSrc.replace("/w185/", "/w92/"));
       return;
     }
     // If fallback also fails, show initials placeholder
