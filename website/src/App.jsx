@@ -103,19 +103,39 @@ function cleanFileName(name = "") {
 function extractMovieTitle(name = "") {
   let n = stripPromotion(name);
   n = n.replace(/\.(mkv|mp4|avi|mov|webm)$/i, "");
-  // FIX: strip leading bracket tags like [ASK], [HC], [ABC123] that pollute title
-  n = n.replace(/^\s*(\[[^\]]{1,10}\]\s*)+/, "");
-  // FIX: strip trailing/inline bracket tags too
-  n = n.replace(/\[[^\]]{1,10}\]/g, " ");
+
+  // Step 1: Unicode circled/squared letters hatao (e.g. 🅰🅂🄺 type logos)
+  // Basic circled letters + enclosed alphanumerics
+  n = n.replace(/[\u24B6-\u24E9\u2460-\u24FF]/g, "");
+  // Emoji-range unicode blocks (surrogate pairs in JS — use u flag)
+  n = n.replace(/[\u{1F100}-\u{1F1FF}\u{1F170}-\u{1F171}\u{1F17E}-\u{1F17F}\u{1F191}-\u{1F19A}\u{1F200}-\u{1F2FF}]/gu, "");
+  // Koi bhi remaining non-ASCII non-latin at the start of string
+  n = n.replace(/^[^\x00-\x7F\u00C0-\u024F\s]+\s*/g, "");
+
+  // Step 2: Leading bracket tags hatao — [ASK], [PFM], [TG M], [HC] etc
+  n = n.replace(/^(\s*\[[^\]]{1,30}\])+\s*/g, "");
+
+  // Step 3: Known channel name prefixes hatao
+  const knownPrefixes = [
+    /^Toonworld4all\s*/i,
+    /^MoviezWap\s*/i, /^MoviesMod\s*/i, /^MoviesCounter\s*/i,
+    /^TGMovies\s*/i, /^TGM\s*/i,
+    /^HEVC\s+(?=\w)/i,
+  ];
+  for (const rx of knownPrefixes) n = n.replace(rx, "");
+
+  // Step 4: Inline bracket tags hatao
+  n = n.replace(/\[[^\]]{1,30}\]/g, " ");
+
   n = n.replace(/[_+]/g, " ").replace(/\.(?!\d)/g, " ").trim();
   n = n.replace(/\d{1,2}:\d{2}/g, " ");
   n = n.replace(/\b(19|20)\d{2}\b.*/i, "").trim();
   n = n.replace(/\bS\d{2}E?\d*\b/gi, " ");
-  n = n.replace(/\b(480p|720p|1080p|2160p|4k|hdrip|webrip|web\s?dl|bluray|hdcam|dvdrip|tataplay|hotstar|zee5|sonyliv|hbomax|predvd|hdts|camrip|x264|x265|h264|h265|hevc|aac|dd5|dts|org|hq|esub|sub|proper|repack)\b/gi, " ");
+  n = n.replace(/\b(480p|720p|1080p|2160p|4k|hdrip|webrip|web\s?dl|bluray|hdcam|dvdrip|tataplay|hotstar|zee5|sonyliv|hbomax|predvd|hdts|camrip|x264|x265|h264|h265|hevc|aac|dd5|dts|org|hq|esub|sub|proper|repack|imax|truehd|atmos|dolby|10bit|hdr|hdr10|ds4k|hmax|wmax)\b/gi, " ");
   const words = n.split(" ").filter(w => w.length > 0);
   const filtered = words.filter((w, idx) => {
     if (idx < 2) return true;
-    return !/^(multi|dual|dubbed|hindi|english|tamil|telugu|malayalam|kannada|bengali|punjabi|amazon|netflix)$/i.test(w);
+    return !/^(multi|dual|dubbed|hindi|english|tamil|telugu|malayalam|kannada|bengali|punjabi|amazon|netflix|true)$/i.test(w);
   });
   n = filtered.join(" ").replace(/\s+/g, " ").trim();
   const finalWords = n.split(" ").filter(w => w.length > 1);
