@@ -242,6 +242,27 @@ async function tmdbGet(endpoint, params = {}) {
   } catch { return null; }
 }
 
+// ── SessionStorage Cache (poster data browser session tak rahega) ──────
+const SESSION_CACHE_KEY = 'suhani_home_v1';
+function saveHomeCache(data) {
+  try {
+    sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({
+      ts: Date.now(),
+      data,
+    }));
+  } catch {}
+}
+function loadHomeCache() {
+  try {
+    const raw = sessionStorage.getItem(SESSION_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // 30 min tak valid
+    if (Date.now() - parsed.ts > 30 * 60 * 1000) return null;
+    return parsed.data;
+  } catch { return null; }
+}
+
 const TMDB_CACHE_MAX = 300;
 const tmdbCache = new Map();
 const tmdbInFlight = new Map();
@@ -376,6 +397,10 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
     let files = data.files || [];
     // Save raw API count BEFORE any filtering — used for hasMore detection
     const rawApiCount = files.length;
+    // Splash progress update
+    const _pMap = {"all":26,"series":32,"hindi":38,"tamil":44,"malayalam":50,"telugu":56,"kannada":62,"bengali":68,"english":74};
+    const _mMap = {"all":"Loading trending...","series":"Loading series...","hindi":"Loading Bollywood...","tamil":"Loading Tamil...","malayalam":"Loading Malayalam...","telugu":"Loading Telugu...","kannada":"Loading Kannada...","bengali":"Loading Bengali...","english":"Loading English..."};
+    if (_pMap[category]) window.__splashProgress?.(_pMap[category], _mMap[category]);
 
     if (category === "series") {
       files = files.filter(f => isSeries(f.file_name));
@@ -1648,9 +1673,17 @@ function App() {
   const inputRef = useRef(null);
   const searchAbortRef = useRef(null); // BUG FIX: abort in-flight search on new search
 
-  // BUG FIX: retryKey added to deps so retry actually re-fetches
+  // Home data loader — splash tab tak rahega jab tak SABA load na ho
   useEffect(() => {
-    if (tab !== "home") return;
+    // Cache check — session mein pehle se data hai toh seedha show karo
+    const cached = loadHomeCache();
+    if (cached && retryKey === 0) {
+      setHomeData(cached);
+      setHomeLoading(false);
+      window.__hideSplash?.();
+      return;
+    }
+
     setHomeLoading(true);
     setServerWaking(false);
     setLoadError(false);
@@ -1660,18 +1693,29 @@ function App() {
       setHomeLoading(false);
       setLoadError(true);
       setServerWaking(false);
-    }, 25000);
+      window.__hideSplash?.();
+    }, 35000);
 
+    window.__splashProgress?.(20, 'Connecting to server...');
+
+    // Saari categories ek saath fetch karo — koi 2-wave nahi
     Promise.all([
-      fetchDBCategory("all", 50),
-      fetchDBCategory("series", 50),
-      fetchDBCategory("hindi", 50),
-    ]).then(([latest, series, bolly]) => {
-      window.__splashProgress?.(60, 'Loading movies...');
+      fetchDBCategory("all", 50),        // 20% → 35%
+      fetchDBCategory("series", 50),     // 35% → 50%
+      fetchDBCategory("hindi", 50),      // 50% → 60%
+      fetchDBCategory("tamil", 50),
+      fetchDBCategory("malayalam", 50),
+      fetchDBCategory("telugu", 50),
+      fetchDBCategory("kannada", 50),
+      fetchDBCategory("bengali", 50),
+      fetchDBCategory("english", 50),
+      fetchDBCategory("all", 50, API_FETCH_BATCH),
+    ]).then(([latest, series, bolly, tamil, mal, telugu, kannada, bengali, english, topRatedRaw]) => {
       clearTimeout(wakingTimer);
       clearTimeout(errorTimer);
-      setServerWaking(false);
-      setLoadError(false);
+
+      window.__splashProgress?.(80, 'Loading posters...');
+
       const globalItems = latest
         .filter((_, idx) => idx >= 3)
         .concat(bolly.slice(0, 3))
@@ -1679,44 +1723,39 @@ function App() {
           const key = item.title?.toLowerCase().replace(/\s+/g, "");
           return arr.findIndex(x => x.title?.toLowerCase().replace(/\s+/g, "") === key) === idx;
         })
-        .slice(0, 8);
+        .slice(0, 50);
 
-      // Hero banner: pick 5 items with backdrop
       const bannerItems = latest.filter(m => m.backdrop).slice(0, 5);
       if (bannerItems.length < 3) bannerItems.push(...latest.slice(0, 5 - bannerItems.length));
 
-      setHomeData(prev => ({
-        ...prev,
-        nowPlaying: latest, globalTrend: globalItems,
-        seriesTrend: series, bollywood: bolly,
-        heroBannerItems: bannerItems,
-      }));
-      setHomeLoading(false);
-      window.__splashProgress?.(65, 'Loading posters...');
+      const topRated = topRatedRaw.filter(x => parseFloat(x.rating) >= 7.0).slice(0, 50);
 
-      // Second wave — regional + top rated
-      window.__splashProgress?.(70, 'Loading regional content...');
-      setTimeout(() => {
-        Promise.all([
-          fetchDBCategory("tamil", 50),
-          fetchDBCategory("malayalam", 50),
-          fetchDBCategory("telugu", 50),
-          fetchDBCategory("kannada", 50),
-          fetchDBCategory("bengali", 50),
-          fetchDBCategory("english", 50),
-          fetchDBCategory("all", 50, API_FETCH_BATCH),
-        ]).then(([tamil, mal, telugu, kannada, bengali, english, topRated]) => {
-          setHomeData(prev => ({
-            ...prev,
-            tamilFils: tamil, malayalamFils: mal, teluguFils: telugu,
-            kannadaFils: kannada, bengaliFils: bengali, englishFils: english,
-            topRated: topRated.filter(x => parseFloat(x.rating) >= 7.0).slice(0, 50),
-          }));
-          window.__splashProgress?.(90, 'Almost ready...');
-          // Saare posters load hone ke baad splash hatao
-          setTimeout(() => { window.__hideSplash?.(); }, 800);
-        });
-      }, 600);
+      const newHomeData = {
+        nowPlaying: latest,
+        globalTrend: globalItems,
+        seriesTrend: series,
+        bollywood: bolly,
+        tamilFils: tamil,
+        malayalamFils: mal,
+        teluguFils: telugu,
+        kannadaFils: kannada,
+        bengaliFils: bengali,
+        englishFils: english,
+        topRated,
+        heroBannerItems: bannerItems,
+      };
+
+      // Cache mein save karo — dobara open karne pe instant load
+      saveHomeCache(newHomeData);
+      setHomeData(newHomeData);
+      setHomeLoading(false);
+      setServerWaking(false);
+      setLoadError(false);
+
+      window.__splashProgress?.(95, 'Almost ready!');
+      // Thoda wait karo taaki React render ho jaaye, phir splash hatao
+      setTimeout(() => { window.__hideSplash?.(); }, 400);
+
     }).catch(() => {
       clearTimeout(wakingTimer);
       clearTimeout(errorTimer);
@@ -1727,7 +1766,7 @@ function App() {
     });
 
     return () => { clearTimeout(wakingTimer); clearTimeout(errorTimer); };
-  }, [tab, retryKey]); // BUG FIX: retryKey in deps
+  }, [retryKey]);
 
   const doSearch = useCallback(async (q = query) => {
     if (!q.trim() && quality === "All" && language === "All") { setFiles([]); return; }
