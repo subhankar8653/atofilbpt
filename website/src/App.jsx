@@ -24,21 +24,38 @@ class ErrorBoundary extends Component {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// ⚠️  APNA BOT USERNAME AUR BOT SERVER URL YAHAN DAALO
+// CONFIG — .env mein VITE_API_BASE aur VITE_TMDB_KEY daalo
 // ═══════════════════════════════════════════════════════════════════
-const BOT_USERNAME = "My_Suhani_bot";
-const API_BASE = "https://grouphbot.onrender.com";
+const BOT_USERNAME = import.meta.env.VITE_BOT_USERNAME || "My_Suhani_bot";
+const API_BASE = import.meta.env.VITE_API_BASE || "https://grouphbot.onrender.com";
 
-// ⚠️  TMDB API KEY — .env file mein VITE_TMDB_KEY=your_key_here likhna
 const TMDB_API_KEY = import.meta.env.VITE_TMDB_KEY || "";
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMG = "https://image.tmdb.org/t/p/w185";
-const TMDB_IMG_MD = "https://image.tmdb.org/t/p/w342";   // FIX: modal hero ke liye
+const TMDB_IMG_MD = "https://image.tmdb.org/t/p/w342";
 const TMDB_IMG_ORIG = "https://image.tmdb.org/t/p/original";
+
+// ── Timing Constants (magic numbers hata diye) ──────────────────────
+const SERVER_WAKING_DELAY_MS = 4000;
+const SERVER_TIMEOUT_MS = 35000;
+const SEARCH_DEBOUNCE_MS = 350;
+const HOME_CACHE_TTL_MS = 30 * 60 * 1000;
+const TMDB_CACHE_MAX = 300;
+const API_FETCH_BATCH = 200;
+const HERO_AUTOPLAY_MS = 5000;
+const INTERSECT_ROOT_MARGIN = "300px";
+const PAGE_SIZE = 50;
 // ═══════════════════════════════════════════════════════════════════
 
 const QUALITIES = ["All", "2160p", "1080p", "720p", "480p", "360p", "240p"];
 const LANGUAGES = ["All", "Hindi", "English", "Tamil", "Telugu", "Malayalam", "Kannada", "Bengali", "Punjabi"];
+
+// Voice recognition language map — FIX: no longer hardcoded "hi-IN"
+const LANG_TO_SPEECH_LOCALE = {
+  Hindi: "hi-IN", Tamil: "ta-IN", Telugu: "te-IN",
+  Malayalam: "ml-IN", Kannada: "kn-IN", Bengali: "bn-IN",
+  Punjabi: "pa-IN", English: "en-US", All: "hi-IN",
+};
 
 // ── LocalStorage Helpers (Watchlist) ─────────────────────────────────
 function getWatchlist() {
@@ -101,7 +118,8 @@ function cleanFileName(name = "") {
   return name.replace(/\.(mkv|mp4|avi|mov|webm)$/i, "").replace(/[-_.+]/g, " ").trim();
 }
 
-// FIX #1: extractMovieTitle — module-level cache (no re-computation same string pe)
+// ── extractMovieTitle with simple LRU cache ──────────────────────────
+// FIX: Instead of clearing entire cache at 2000, drop oldest 200 entries (LRU-lite)
 const _titleCache = new Map();
 function extractMovieTitle(name = "") {
   if (_titleCache.has(name)) return _titleCache.get(name);
@@ -112,10 +130,8 @@ function extractMovieTitle(name = "") {
   n = n.replace(/^[^\x00-\x7F\u00C0-\u024F\s]+\s*/g, "");
   n = n.replace(/^(\s*\[[^\]]{1,30}\])+\s*/g, "");
   const knownPrefixes = [
-    /^Toonworld4all\s*/i,
-    /^MoviezWap\s*/i, /^MoviesMod\s*/i, /^MoviesCounter\s*/i,
-    /^TGMovies\s*/i, /^TGM\s*/i,
-    /^HEVC\s+(?=\w)/i,
+    /^Toonworld4all\s*/i, /^MoviezWap\s*/i, /^MoviesMod\s*/i, /^MoviesCounter\s*/i,
+    /^TGMovies\s*/i, /^TGM\s*/i, /^HEVC\s+(?=\w)/i,
   ];
   for (const rx of knownPrefixes) n = n.replace(rx, "");
   n = n.replace(/\[[^\]]{1,30}\]/g, " ");
@@ -132,7 +148,11 @@ function extractMovieTitle(name = "") {
   n = filtered.join(" ").replace(/\s+/g, " ").trim();
   const finalWords = n.split(" ").filter(w => w.length > 1);
   const result = finalWords.slice(0, 6).join(" ") || cleanFileName(name).split(" ").slice(0, 4).join(" ");
-  if (_titleCache.size > 2000) _titleCache.clear(); // prevent unbounded growth
+  // LRU-lite: drop oldest 200 when cache hits 2000
+  if (_titleCache.size >= 2000) {
+    const keys = _titleCache.keys();
+    for (let i = 0; i < 200; i++) { _titleCache.delete(keys.next().value); }
+  }
   _titleCache.set(name, result);
   return result;
 }
@@ -140,9 +160,7 @@ function extractMovieTitle(name = "") {
 function extractEpisodeInfo(name = "") {
   const combined = name.match(/[Ss]?\d{0,2}[Ee](\d{1,3})[-–][Ee]?(\d{1,3})/i)
     || name.match(/[Ee]pisodes?\s*(\d{1,3})[-–](\d{1,3})/i);
-  if (combined) {
-    return { type: "combined", from: parseInt(combined[1]), to: parseInt(combined[2]) };
-  }
+  if (combined) return { type: "combined", from: parseInt(combined[1]), to: parseInt(combined[2]) };
   const single = name.match(/[Ss]\d{1,2}[Ee](\d{1,3})/i)
     || name.match(/\b[Ee][Pp]?(\d{1,3})\b/)
     || name.match(/\b[Ee]pisode[\s._-]*(\d{1,3})\b/i);
@@ -164,20 +182,13 @@ function isSeries(name = "") {
 function extractLanguage(name = "") {
   name = stripPromotion(name);
   const langs = [
-    ["Malayalam", /\bmalayalam\b/i],
-    ["Kannada",   /\bkannada\b/i],
-    ["Bengali",   /\bbengali\b/i],
-    ["Punjabi",   /\bpunjabi\b/i],
-    ["Telugu",    /\btelugu\b/i],
-    ["Tamil",     /\btamil\b/i],
-    ["English",   /\benglish\b/i],
-    ["Hindi",     /\bhindi\b/i],
-    ["Multi",     /\b(multi|multilingual)\b/i],
-    ["Dual",      /\b(dual|dubbed)\b/i],
+    ["Malayalam", /\bmalayalam\b/i], ["Kannada", /\bkannada\b/i],
+    ["Bengali", /\bbengali\b/i], ["Punjabi", /\bpunjabi\b/i],
+    ["Telugu", /\btelugu\b/i], ["Tamil", /\btamil\b/i],
+    ["English", /\benglish\b/i], ["Hindi", /\bhindi\b/i],
+    ["Multi", /\b(multi|multilingual)\b/i], ["Dual", /\b(dual|dubbed)\b/i],
   ];
-  for (const [label, rx] of langs) {
-    if (rx.test(name)) return label;
-  }
+  for (const [label, rx] of langs) if (rx.test(name)) return label;
   return null;
 }
 function buildCaption(fileName = "") {
@@ -186,25 +197,16 @@ function buildCaption(fileName = "") {
   const epInfo = extractEpisodeInfo(fileName);
   const lang = extractLanguage(fileName);
   const quality = extractQuality(fileName);
-
-  const lines = [];
-  lines.push(title);
-
+  const lines = [title];
   if (epInfo) {
-    const seasonStr = season ? `Season ${String(season).padStart(2,"0")}` : null;
-    let epStr = "";
-    if (epInfo.type === "combined") {
-      epStr = `Episodes ${String(epInfo.from).padStart(2,"0")}–${String(epInfo.to).padStart(2,"0")}`;
-    } else {
-      epStr = `Episode ${String(epInfo.ep).padStart(2,"0")}`;
-    }
-    const infoLine = [seasonStr, epStr].filter(Boolean).join(" · ");
-    lines.push(infoLine);
+    const seasonStr = season ? `Season ${String(season).padStart(2, "0")}` : null;
+    const epStr = epInfo.type === "combined"
+      ? `Episodes ${String(epInfo.from).padStart(2, "0")}–${String(epInfo.to).padStart(2, "0")}`
+      : `Episode ${String(epInfo.ep).padStart(2, "0")}`;
+    lines.push([seasonStr, epStr].filter(Boolean).join(" · "));
   }
-
   const metaLine = [lang, quality].filter(Boolean).join(" · ");
   if (metaLine) lines.push(metaLine);
-
   return lines.join("\n");
 }
 
@@ -257,24 +259,20 @@ async function tmdbGet(endpoint, params = {}) {
 }
 
 // ── SessionStorage Cache ──────────────────────────────────────────────
-const SESSION_CACHE_KEY = 'suhani_home_v2'; // bumped version to avoid stale cache
+const SESSION_CACHE_KEY = "suhani_home_v2";
 function saveHomeCache(data) {
-  try {
-    // FIX #2: split storage into keys per category to avoid one massive JSON blob
-    sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ ts: Date.now(), data }));
-  } catch {}
+  try { sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ ts: Date.now(), data })); } catch {}
 }
 function loadHomeCache() {
   try {
     const raw = sessionStorage.getItem(SESSION_CACHE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (Date.now() - parsed.ts > 30 * 60 * 1000) return null;
+    if (Date.now() - parsed.ts > HOME_CACHE_TTL_MS) return null;
     return parsed.data;
   } catch { return null; }
 }
 
-const TMDB_CACHE_MAX = 300;
 const tmdbCache = new Map();
 const tmdbInFlight = new Map();
 
@@ -285,18 +283,13 @@ async function enrichWithTMDB(title, year) {
 
   const promise = (async () => {
     try {
-      const searches = [
-        year ? { query: title, year } : null,
-        { query: title },
-      ].filter(Boolean);
-
+      const searches = [year ? { query: title, year } : null, { query: title }].filter(Boolean);
       let result = null;
       for (const params of searches) {
         const data = await tmdbGet("/search/multi", { ...params, page: 1 });
         const found = (data?.results || []).find(r => r.poster_path);
         if (found) { result = found; break; }
       }
-
       if (!result) {
         if (tmdbCache.size >= TMDB_CACHE_MAX) tmdbCache.delete(tmdbCache.keys().next().value);
         tmdbCache.set(key, null);
@@ -304,11 +297,9 @@ async function enrichWithTMDB(title, year) {
         return null;
       }
       const out = {
-        id: result.id,
-        tmdbId: result.id,
+        id: result.id, tmdbId: result.id,
         title: result.title || result.name || title,
         poster: result.poster_path ? `${TMDB_IMG}${result.poster_path}` : null,
-        // FIX #3: store w342 for modal hero separately
         posterMd: result.poster_path ? `${TMDB_IMG_MD}${result.poster_path}` : null,
         backdrop: result.backdrop_path ? `${TMDB_IMG_ORIG}${result.backdrop_path}` : null,
         rating: result.vote_average ? result.vote_average.toFixed(1) : null,
@@ -335,12 +326,7 @@ async function fetchPosterFromTMDB(title, year) {
   try {
     const data = await enrichWithTMDB(title, year);
     if (!data) return null;
-    return {
-      poster: data.poster || null,
-      posterMd: data.posterMd || data.poster || null,
-      imdb_rating: data.rating || null,
-      plot: data.overview || null,
-    };
+    return { poster: data.poster || null, posterMd: data.posterMd || data.poster || null, imdb_rating: data.rating || null, plot: data.overview || null };
   } catch { return null; }
 }
 
@@ -349,87 +335,57 @@ async function fetchTrailerKey(tmdbId, type = "movie") {
     const endpoint = type === "series" ? `/tv/${tmdbId}/videos` : `/movie/${tmdbId}/videos`;
     const data = await tmdbGet(endpoint, { language: "en-US" });
     const videos = data?.results || [];
-    const trailer = videos.find(v => v.type === "Trailer" && v.site === "YouTube")
-      || videos.find(v => v.site === "YouTube");
+    const trailer = videos.find(v => v.type === "Trailer" && v.site === "YouTube") || videos.find(v => v.site === "YouTube");
     return trailer?.key || null;
   } catch { return null; }
 }
 
 const CATEGORY_LANG_FILTER = {
-  hindi:     /\bhindi\b/i,
-  tamil:     /\btamil\b/i,
-  malayalam: /\bmalayalam\b/i,
-  telugu:    /\btelugu\b/i,
-  kannada:   /\bkannada\b/i,
-  bengali:   /\bbengali\b/i,
-  english:   /\benglish\b/i,
-  series:    null,
+  hindi: /\bhindi\b/i, tamil: /\btamil\b/i, malayalam: /\bmalayalam\b/i,
+  telugu: /\btelugu\b/i, kannada: /\bkannada\b/i, bengali: /\bbengali\b/i,
+  english: /\benglish\b/i, series: null,
 };
-
 const NON_BOLLYWOOD_PATTERNS = /\b(dubbed|dub|anime|doraemon|dragon\s?ball|naruto|one\s?piece|bleach|detective\s?conan|shin\s?chan|pokemon|hollywood|english|korean|chinese|japanese|kannada|telugu|tamil|malayalam|bengali)\b/i;
-
-const API_FETCH_BATCH = 200;
-
 const CATEGORY_SEARCH_QUERY = {
-  hindi:     "hindi",
-  tamil:     "tamil",
-  malayalam: "malayalam",
-  telugu:    "telugu",
-  kannada:   "kannada",
-  bengali:   "bengali",
-  english:   "english",
-  series:    null,
-  all:       null,
+  hindi: "hindi", tamil: "tamil", malayalam: "malayalam", telugu: "telugu",
+  kannada: "kannada", bengali: "bengali", english: "english", series: null, all: null,
 };
 
-// FIX #4: fetchDBCategory returns plain object instead of array with custom prop
 async function fetchDBCategory(category, limit = 12, offset = 0) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20000);
-
     const searchQuery = CATEGORY_SEARCH_QUERY[category];
     let res;
-
     if (searchQuery) {
       const pageNum = offset > 0 ? Math.floor(offset / API_FETCH_BATCH) + 1 : 1;
-      const params = new URLSearchParams({
-        q: searchQuery, quality: "All", language: "All",
-        limit: API_FETCH_BATCH, page: pageNum,
-      });
+      const params = new URLSearchParams({ q: searchQuery, quality: "All", language: "All", limit: API_FETCH_BATCH, page: pageNum });
       res = await fetch(`${API_BASE}/api/search?${params}`, { signal: controller.signal });
     } else {
       const pageNum = offset > 0 ? Math.floor(offset / API_FETCH_BATCH) + 1 : 1;
       const params = new URLSearchParams({ category, limit: API_FETCH_BATCH, page: pageNum });
       res = await fetch(`${API_BASE}/api/trending?${params}`, { signal: controller.signal });
     }
-
     clearTimeout(timer);
     if (!res.ok) throw new Error();
     const data = await res.json();
     let files = data.files || [];
-    const rawApiCount = files.length; // FIX: store separately, not on array
+    const rawApiCount = files.length;
 
-    const _pMap = {"all":26,"series":32,"hindi":38,"tamil":44,"malayalam":50,"telugu":56,"kannada":62,"bengali":68,"english":74};
-    const _mMap = {"all":"Loading trending...","series":"Loading series...","hindi":"Loading Bollywood...","tamil":"Loading Tamil...","malayalam":"Loading Malayalam...","telugu":"Loading Telugu...","kannada":"Loading Kannada...","bengali":"Loading Bengali...","english":"Loading English..."};
+    const _pMap = { "all": 26, "series": 32, "hindi": 38, "tamil": 44, "malayalam": 50, "telugu": 56, "kannada": 62, "bengali": 68, "english": 74 };
+    const _mMap = { "all": "Loading trending...", "series": "Loading series...", "hindi": "Loading Bollywood...", "tamil": "Loading Tamil...", "malayalam": "Loading Malayalam...", "telugu": "Loading Telugu...", "kannada": "Loading Kannada...", "bengali": "Loading Bengali...", "english": "Loading English..." };
     if (_pMap[category]) window.__splashProgress?.(_pMap[category], _mMap[category]);
 
-    if (category === "series") {
-      files = files.filter(f => isSeries(f.file_name));
-    }
+    if (category === "series") files = files.filter(f => isSeries(f.file_name));
 
     const langFilter = CATEGORY_LANG_FILTER[category];
     if (langFilter) {
       let filtered = files.filter(f => langFilter.test(f.file_name));
       if (category === "hindi") {
         filtered = filtered.filter(f => !NON_BOLLYWOOD_PATTERNS.test(f.file_name.replace(/\bhindi\b/gi, "")));
-        if (filtered.length < files.length * 0.05 && files.length > 0) {
-          filtered = files.filter(f => langFilter.test(f.file_name));
-        }
+        if (filtered.length < files.length * 0.05 && files.length > 0) filtered = files.filter(f => langFilter.test(f.file_name));
       } else {
-        if (filtered.length < files.length * 0.1 && files.length > 0) {
-          filtered = files.filter(f => langFilter.test(f.file_name));
-        }
+        if (filtered.length < files.length * 0.1 && files.length > 0) filtered = files.filter(f => langFilter.test(f.file_name));
       }
       files = filtered;
     }
@@ -439,30 +395,21 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
     for (const f of files) {
       const title = extractMovieTitle(f.file_name);
       const key = title.toLowerCase().replace(/\s+/g, "");
-      if (key.length > 2 && !seen.has(key)) {
-        seen.add(key);
-        unique.push({ ...f, _title: title, _year: extractYear(f.file_name) });
-      }
+      if (key.length > 2 && !seen.has(key)) { seen.add(key); unique.push({ ...f, _title: title, _year: extractYear(f.file_name) }); }
     }
 
     const sliced = unique.slice(0, limit);
-
     const enriched = [];
+    // FIX: batches of 4 with sequential batching to not overwhelm free server
     for (let i = 0; i < sliced.length; i += 4) {
       const batch = sliced.slice(i, i + 4);
       const results = await Promise.all(batch.map(async f => {
         const tmdb = await enrichWithTMDB(f._title, f._year);
         if (tmdb) return { ...tmdb, _file: f };
-        return {
-          id: f.file_id, title: f._title, poster: null, posterMd: null,
-          backdrop: null, rating: null, year: f._year,
-          overview: null, type: "movie", _file: f, genreIds: [],
-        };
+        return { id: f.file_id, title: f._title, poster: null, posterMd: null, backdrop: null, rating: null, year: f._year, overview: null, type: "movie", _file: f, genreIds: [] };
       }));
       enriched.push(...results);
     }
-
-    // FIX #4: return plain object with items + metadata
     return { items: enriched.filter(Boolean), rawApiCount };
   } catch { return { items: [], rawApiCount: 0 }; }
 }
@@ -470,10 +417,8 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
 // ── TMDB Discover ─────────────────────────────────────────────────────
 const CATEGORY_TMDB_LANG = {
   hindi: "hi", tamil: "ta", malayalam: "ml", telugu: "te",
-  kannada: "kn", bengali: "bn", english: "en",
-  series: null, all: null,
+  kannada: "kn", bengali: "bn", english: "en", series: null, all: null,
 };
-
 const TMDB_DISCOVER_CACHE = new Map();
 
 async function fetchTMDBDiscover(category, tmdbPage = 1) {
@@ -483,10 +428,7 @@ async function fetchTMDBDiscover(category, tmdbPage = 1) {
     const origLang = CATEGORY_TMDB_LANG[category];
     const isTV = category === "series";
     const endpoint = isTV ? "/discover/tv" : "/discover/movie";
-    const params = {
-      sort_by: "popularity.desc", page: tmdbPage, "vote_count.gte": 50,
-      ...(origLang ? { with_original_language: origLang } : {}),
-    };
+    const params = { sort_by: "popularity.desc", page: tmdbPage, "vote_count.gte": 50, ...(origLang ? { with_original_language: origLang } : {}) };
     const data = await tmdbGet(endpoint, params);
     const results = (data?.results || []).filter(r => r.poster_path);
     TMDB_DISCOVER_CACHE.set(cacheKey, results);
@@ -500,10 +442,8 @@ async function fetchByTMDBTitles(tmdbResults, alreadySeenTitles = new Set()) {
     return t.length > 1 && !alreadySeenTitles.has(t);
   });
   if (!candidates.length) return [];
-
   const BATCH = 5;
   const matched = [];
-
   for (let i = 0; i < candidates.length; i += BATCH) {
     const batch = candidates.slice(i, i + BATCH);
     const results = await Promise.all(batch.map(async (tmdbItem) => {
@@ -535,6 +475,7 @@ async function fetchByTMDBTitles(tmdbResults, alreadySeenTitles = new Set()) {
 function TMDBCard({ item, onClick, gridMode = false }) {
   const [hov, setHov] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
+  // FIX: initialise imgSrc from item.poster directly — no re-fetch if already available
   const [imgSrc, setImgSrc] = useState(item.poster || null);
   const [imgFailed, setImgFailed] = useState(false);
   const [inList, setInList] = useState(() => isInWatchlist(item.id));
@@ -557,10 +498,7 @@ function TMDBCard({ item, onClick, gridMode = false }) {
   }, [item.poster, item.id, item.title, item.year]);
 
   const handleImgError = () => {
-    if (imgSrc && imgSrc.includes("/w185/")) {
-      setImgSrc(imgSrc.replace("/w185/", "/w92/"));
-      return;
-    }
+    if (imgSrc && imgSrc.includes("/w185/")) { setImgSrc(imgSrc.replace("/w185/", "/w92/")); return; }
     setImgFailed(true);
     setImgLoaded(false);
   };
@@ -577,9 +515,8 @@ function TMDBCard({ item, onClick, gridMode = false }) {
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{
-        width: gridMode ? "100%" : 120,
-        flexShrink: 0, cursor: "pointer", borderRadius: 16, overflow: "hidden",
-        background: "#141414",
+        width: gridMode ? "100%" : 120, flexShrink: 0, cursor: "pointer", borderRadius: 16,
+        overflow: "hidden", background: "#141414",
         border: `1px solid ${hov ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)"}`,
         transform: hov ? "scale(1.03) translateY(-2px)" : "scale(1)",
         transition: "transform .25s cubic-bezier(.34,1.56,.64,1), border-color .2s, box-shadow .2s",
@@ -599,8 +536,7 @@ function TMDBCard({ item, onClick, gridMode = false }) {
               {!imgLoaded && <div style={{ width: 24, height: 24, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.06)", borderTopColor: `hsl(${hue},70%,50%)`, animation: "spin 0.8s linear infinite" }} />}
             </div>
             <img
-              src={imgSrc} alt={item.title}
-              loading="lazy" decoding="async"
+              src={imgSrc} alt={item.title} loading="lazy" decoding="async"
               style={{ width: "100%", height: "100%", objectFit: "cover", opacity: imgLoaded ? 1 : 0, transition: "opacity 0.5s ease", display: "block", position: "relative", zIndex: 1 }}
               onLoad={() => setImgLoaded(true)}
               onError={handleImgError}
@@ -622,12 +558,7 @@ function TMDBCard({ item, onClick, gridMode = false }) {
           }}>{initials || "🎬"}</div>
         )}
         {item.rating && item.rating !== "0.0" && (
-          <div style={{
-            position: "absolute", bottom: 7, left: 7, zIndex: 3,
-            background: "rgba(0,0,0,0.82)", borderRadius: 8, padding: "3px 7px",
-            display: "flex", alignItems: "center", gap: 3, backdropFilter: "blur(8px)",
-            border: "1px solid rgba(241,196,15,0.2)",
-          }}>
+          <div style={{ position: "absolute", bottom: 7, left: 7, zIndex: 3, background: "rgba(0,0,0,0.82)", borderRadius: 8, padding: "3px 7px", display: "flex", alignItems: "center", gap: 3, backdropFilter: "blur(8px)", border: "1px solid rgba(241,196,15,0.2)" }}>
             <span style={{ fontSize: 9, color: "#f1c40f" }}>★</span>
             <span style={{ fontSize: 10, fontWeight: 800, color: "#f1c40f" }}>{item.rating}</span>
           </div>
@@ -665,7 +596,6 @@ function TMDBCard({ item, onClick, gridMode = false }) {
 function HeroBannerCarousel({ items, onClick }) {
   const [current, setCurrent] = useState(0);
   const [bgLoaded, setBgLoaded] = useState(false);
-  // FIX #5: use single ref for interval — avoid stale closure
   const intervalRef = useRef(null);
   const touchStartX = useRef(null);
   const itemsLen = items.length;
@@ -675,28 +605,21 @@ function HeroBannerCarousel({ items, onClick }) {
     intervalRef.current = setInterval(() => {
       setCurrent(c => (c + 1) % itemsLen);
       setBgLoaded(false);
-    }, 5000);
+    }, HERO_AUTOPLAY_MS);
   }, [itemsLen]);
 
   useEffect(() => {
     if (!itemsLen) return;
     startTimer();
-    return () => clearInterval(intervalRef.current); // guaranteed cleanup
+    return () => clearInterval(intervalRef.current);
   }, [itemsLen, startTimer]);
 
-  const goTo = (i) => {
-    setCurrent(i);
-    setBgLoaded(false);
-    startTimer();
-  };
-
+  const goTo = (i) => { setCurrent(i); setBgLoaded(false); startTimer(); };
   const onTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
   const onTouchEnd = (e) => {
     if (touchStartX.current === null) return;
     const diff = touchStartX.current - e.changedTouches[0].clientX;
-    if (Math.abs(diff) > 50) {
-      goTo(diff > 0 ? (current + 1) % itemsLen : (current - 1 + itemsLen) % itemsLen);
-    }
+    if (Math.abs(diff) > 50) goTo(diff > 0 ? (current + 1) % itemsLen : (current - 1 + itemsLen) % itemsLen);
     touchStartX.current = null;
   };
 
@@ -705,11 +628,15 @@ function HeroBannerCarousel({ items, onClick }) {
   const hue = [...(item.title || "")].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
   const bgSrc = item.backdrop || item.poster;
 
+  // FIX: Preload next image to avoid visible lag on banner transition
+  const nextItem = items[(current + 1) % itemsLen];
+  const nextSrc = nextItem?.backdrop || nextItem?.poster;
+
   return (
-    <div
-      onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
-      style={{ margin: "0 0 28px", position: "relative", height: 240, cursor: "pointer", overflow: "hidden" }}
-    >
+    <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
+      style={{ margin: "0 0 28px", position: "relative", height: 240, cursor: "pointer", overflow: "hidden" }}>
+      {/* Hidden preload for next banner image */}
+      {nextSrc && <img src={nextSrc} alt="" style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }} />}
       <div style={{ position: "absolute", inset: 0, background: `linear-gradient(135deg,hsl(${hue},35%,10%),hsl(${(hue + 60) % 360},25%,6%))`, transition: "background 0.5s" }} />
       {bgSrc && (
         <img key={bgSrc} src={bgSrc} alt={item.title} loading="lazy"
@@ -737,8 +664,9 @@ function HeroBannerCarousel({ items, onClick }) {
           {item.year && <span style={{ fontSize: 12, color: "#666", fontWeight: 500 }}>{item.year}</span>}
           {item.type === "series" && <span style={{ fontSize: 10, color: "#a78bfa", fontWeight: 700, background: "rgba(167,139,250,0.1)", padding: "3px 8px", borderRadius: 6, border: "1px solid rgba(167,139,250,0.2)" }}>SERIES</span>}
         </div>
+        {/* FIX: overview color #888 instead of #555 — more readable */}
         {item.overview && (
-          <p style={{ fontSize: 11, color: "#555", lineHeight: 1.6, margin: 0, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+          <p style={{ fontSize: 11, color: "#888", lineHeight: 1.6, margin: 0, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
             {item.overview}
           </p>
         )}
@@ -786,8 +714,7 @@ function Poster({ file, seriesTitle = null, size = "card" }) {
             <div style={{ width: 24, height: 24, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.05)", borderTopColor: `hsl(${hue},60%,50%)`, animation: "spin 0.8s linear infinite" }} />
           </div>
         )}
-        <img
-          src={imgSrc} alt={title} loading="lazy" decoding="async"
+        <img src={imgSrc} alt={title} loading="lazy" decoding="async"
           style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "inherit", opacity: imgLoaded ? 1 : 0, transition: "opacity 0.4s ease", display: "block" }}
           onLoad={() => setImgLoaded(true)}
           onError={() => { setImgFailed(true); setImgLoaded(false); }}
@@ -839,9 +766,7 @@ function FileCard({ file, onClick, seriesTitle = null }) {
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
         <div style={{ fontSize: 13.5, fontWeight: 700, color: "#e8e8e8", lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{name}</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {q && (
-            <span style={{ padding: "3px 9px", borderRadius: 7, fontSize: 10, fontWeight: 800, background: qualityBg(q), color: "#fff", letterSpacing: 0.3 }}>{q}</span>
-          )}
+          {q && (<span style={{ padding: "3px 9px", borderRadius: 7, fontSize: 10, fontWeight: 800, background: qualityBg(q), color: "#fff", letterSpacing: 0.3 }}>{q}</span>)}
           {year && <span style={{ padding: "3px 9px", borderRadius: 7, fontSize: 10, fontWeight: 500, background: "rgba(255,255,255,0.05)", color: "#777", border: "1px solid rgba(255,255,255,0.06)" }}>{year}</span>}
         </div>
         {file.file_size > 0 && <span style={{ fontSize: 11, color: "#444", fontWeight: 500 }}>💾 {formatSize(file.file_size)}</span>}
@@ -855,30 +780,16 @@ function FileCard({ file, onClick, seriesTitle = null }) {
 function QualityRow({ file, quality, lang, isLast, onClick }) {
   const [hov, setHov] = useState(false);
   return (
-    <div
-      onClick={onClick}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
+    <div onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{
         display: "flex", alignItems: "center", padding: "11px 16px",
         borderBottom: isLast ? "none" : "1px solid rgba(255,255,255,0.04)",
         background: hov ? "rgba(255,255,255,0.04)" : "transparent",
         cursor: "pointer", transition: "background .15s", gap: 8,
-      }}
-    >
-      {quality && (
-        <span style={{ padding: "3px 10px", borderRadius: 7, fontSize: 10, fontWeight: 800, background: qualityBg(quality), color: "#fff", flexShrink: 0, letterSpacing: 0.3 }}>
-          {quality}
-        </span>
-      )}
-      {lang && (
-        <span style={{ padding: "3px 10px", borderRadius: 7, fontSize: 10, fontWeight: 600, background: "rgba(255,255,255,0.05)", color: "#777", border: "1px solid rgba(255,255,255,0.08)", flexShrink: 0 }}>
-          {lang}
-        </span>
-      )}
-      {file.file_size > 0 && (
-        <span style={{ fontSize: 10.5, color: "#444" }}>💾 {formatSize(file.file_size)}</span>
-      )}
+      }}>
+      {quality && (<span style={{ padding: "3px 10px", borderRadius: 7, fontSize: 10, fontWeight: 800, background: qualityBg(quality), color: "#fff", flexShrink: 0, letterSpacing: 0.3 }}>{quality}</span>)}
+      {lang && (<span style={{ padding: "3px 10px", borderRadius: 7, fontSize: 10, fontWeight: 600, background: "rgba(255,255,255,0.05)", color: "#777", border: "1px solid rgba(255,255,255,0.08)", flexShrink: 0 }}>{lang}</span>)}
+      {file.file_size > 0 && (<span style={{ fontSize: 10.5, color: "#444" }}>💾 {formatSize(file.file_size)}</span>)}
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
         <span style={{ fontSize: 10, color: "#f39c12", fontWeight: 600, opacity: hov ? 1 : 0, transition: "opacity .15s" }}>Download</span>
         <span style={{ color: hov ? "#f39c12" : "#2a2a2a", fontSize: 16, transition: "color .15s" }}>›</span>
@@ -890,7 +801,6 @@ function QualityRow({ file, quality, lang, isLast, onClick }) {
 // ── groupFilesForDisplay ──────────────────────────────────────────────
 function groupFilesForDisplay(files, activeQuality) {
   if (!files.length) return { type: "movie", items: [] };
-
   const seriesFiles = files.filter(f => isSeries(f.file_name));
   if (seriesFiles.length === 0) {
     const filtered = activeQuality !== "All"
@@ -906,7 +816,6 @@ function groupFilesForDisplay(files, activeQuality) {
 
   const seriesTitle = extractMovieTitle(seriesFiles[0].file_name);
   const seasonMap = {};
-
   for (const f of seriesFiles) {
     const s = extractSeason(f.file_name) ?? 1;
     if (!seasonMap[s]) seasonMap[s] = {};
@@ -915,18 +824,13 @@ function groupFilesForDisplay(files, activeQuality) {
     if (!epInfo) { epFrom = 99999; epTo = 99999; isCombined = false; }
     else if (epInfo.type === "combined") { epFrom = epInfo.from; epTo = epInfo.to; isCombined = true; }
     else { epFrom = epInfo.ep; epTo = epInfo.ep; isCombined = false; }
-
     const epKey = isCombined ? `c_${epFrom}_${epTo}` : `e_${epFrom}`;
-    if (!seasonMap[s][epKey]) {
-      seasonMap[s][epKey] = { epFrom, epTo, isCombined, files: [] };
-    }
+    if (!seasonMap[s][epKey]) seasonMap[s][epKey] = { epFrom, epTo, isCombined, files: [] };
     const existing = seasonMap[s][epKey].files.findIndex(
       x => (extractQuality(x.file_name) || "UNKNOWN") === (extractQuality(f.file_name) || "UNKNOWN")
     );
     if (existing !== -1) {
-      if ((f.file_size || 0) > (seasonMap[s][epKey].files[existing].file_size || 0)) {
-        seasonMap[s][epKey].files[existing] = f;
-      }
+      if ((f.file_size || 0) > (seasonMap[s][epKey].files[existing].file_size || 0)) seasonMap[s][epKey].files[existing] = f;
     } else {
       seasonMap[s][epKey].files.push(f);
     }
@@ -957,29 +861,19 @@ function EpisodeQualityRow({ epFrom, epTo, isCombined, files, seriesTitle, seaso
   });
   const bestFile = sorted[0];
   const epLabel = isCombined
-    ? `Episodes ${String(epFrom).padStart(2,"0")}–${String(epTo).padStart(2,"0")}`
-    : epFrom === 99999 ? "Episode ??" : `Episode ${String(epFrom).padStart(2,"0")}`;
+    ? `Episodes ${String(epFrom).padStart(2, "0")}–${String(epTo).padStart(2, "0")}`
+    : epFrom === 99999 ? "Episode ??" : `Episode ${String(epFrom).padStart(2, "0")}`;
 
   return (
-    <div style={{
-      background: "rgba(255,255,255,0.025)", borderRadius: 18,
-      border: `1px solid ${isCombined ? "rgba(46,204,113,0.15)" : "rgba(255,255,255,0.06)"}`,
-      overflow: "hidden",
-    }}>
+    <div style={{ background: "rgba(255,255,255,0.025)", borderRadius: 18, border: `1px solid ${isCombined ? "rgba(46,204,113,0.15)" : "rgba(255,255,255,0.06)"}`, overflow: "hidden" }}>
       <div style={{ display: "flex", gap: 14, padding: "14px 16px 12px" }}>
         <div style={{ width: 56, height: 76, flexShrink: 0, borderRadius: 10, overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,.5)" }}>
           <Poster file={bestFile} seriesTitle={seriesTitle} />
         </div>
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 5 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            {isCombined && (
-              <span style={{ fontSize: 8, fontWeight: 900, color: "#fff", background: "linear-gradient(135deg,#27ae60,#1e8449)", borderRadius: 5, padding: "2px 8px", letterSpacing: 0.5 }}>COMPLETE PACK</span>
-            )}
-            {season && (
-              <span style={{ fontSize: 8, fontWeight: 800, color: "#fff", background: "linear-gradient(135deg,#6366f1,#4f46e5)", borderRadius: 5, padding: "2px 8px", letterSpacing: 0.5 }}>
-                S{String(season).padStart(2,"0")}
-              </span>
-            )}
+            {isCombined && (<span style={{ fontSize: 8, fontWeight: 900, color: "#fff", background: "linear-gradient(135deg,#27ae60,#1e8449)", borderRadius: 5, padding: "2px 8px", letterSpacing: 0.5 }}>COMPLETE PACK</span>)}
+            {season && (<span style={{ fontSize: 8, fontWeight: 800, color: "#fff", background: "linear-gradient(135deg,#6366f1,#4f46e5)", borderRadius: 5, padding: "2px 8px", letterSpacing: 0.5 }}>S{String(season).padStart(2, "0")}</span>)}
           </div>
           <div style={{ fontSize: 12.5, fontWeight: 800, color: isCombined ? "#2ecc71" : "#f39c12", letterSpacing: 0.3 }}>{epLabel}</div>
           <div style={{ fontSize: 12, fontWeight: 600, color: "#999", lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{seriesTitle}</div>
@@ -1011,18 +905,33 @@ function TMDBCategoryRow({ title, items, onItemClick, onSeeAll }) {
           <span style={{ fontSize: 14 }}>{icons[title] || "🎬"}</span>
           <span style={{ fontSize: 13, fontWeight: 800, color: "#e8e8e8", letterSpacing: "0.5px" }}>{title}</span>
         </div>
-        {onSeeAll && (
-          <button onClick={onSeeAll} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "#f39c12", fontWeight: 600, padding: "4px 0" }}>See all ›</button>
-        )}
+        {onSeeAll && (<button onClick={onSeeAll} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "#f39c12", fontWeight: 600, padding: "4px 0" }}>See all ›</button>)}
       </div>
       <div style={{ position: "relative" }}>
         <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingLeft: 16, paddingRight: 16, paddingBottom: 6, scrollbarWidth: "none" }}>
-          {items.map(item => (
-            <TMDBCard key={item.id} item={item} onClick={onItemClick} />
-          ))}
+          {items.map(item => (<TMDBCard key={item.id} item={item} onClick={onItemClick} />))}
         </div>
         <div style={{ position: "absolute", top: 0, right: 0, bottom: 6, width: 48, background: "linear-gradient(to right, transparent, #0a0a0a)", pointerEvents: "none" }} />
       </div>
+    </div>
+  );
+}
+
+// ── Offline Banner ────────────────────────────────────────────────────
+// FIX: New component — shows when user loses internet connection
+function OfflineBanner() {
+  const [offline, setOffline] = useState(!navigator.onLine);
+  useEffect(() => {
+    const on = () => setOffline(false);
+    const off = () => setOffline(true);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, []);
+  if (!offline) return null;
+  return (
+    <div style={{ position: "fixed", top: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, zIndex: 9999, background: "#e74c3c", color: "#fff", fontSize: 12, fontWeight: 700, textAlign: "center", padding: "8px 16px", letterSpacing: 0.5 }}>
+      📡 Internet nahi hai — offline mode
     </div>
   );
 }
@@ -1041,9 +950,7 @@ function TrailerModal({ trailerKey, onClose }) {
           <iframe
             src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&rel=0`}
             style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }}
-            allow="autoplay; encrypted-media"
-            allowFullScreen
-            title="Trailer"
+            allow="autoplay; encrypted-media" allowFullScreen title="Trailer"
           />
         </div>
         <button onClick={onClose} style={{ display: "block", margin: "16px auto 0", padding: "10px 28px", borderRadius: 50, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", color: "#aaa", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
@@ -1064,7 +971,6 @@ function DetailModal({ file, onClose }) {
   const [showTrailer, setShowTrailer] = useState(false);
   const [inList, setInList] = useState(false);
 
-  // FIX #6: single cleanup effect — no duplicates
   useEffect(() => {
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = ""; };
@@ -1081,17 +987,13 @@ function DetailModal({ file, onClose }) {
 
   useEffect(() => {
     let cancelled = false;
-    fetchPosterFromTMDB(title, year).then(data => {
-      if (!cancelled && data) setPosterData(data);
-    });
+    fetchPosterFromTMDB(title, year).then(data => { if (!cancelled && data) setPosterData(data); });
     return () => { cancelled = true; };
   }, [title, year]);
 
   useEffect(() => {
     let cancelled = false;
-    enrichWithTMDB(title, year).then(tmdb => {
-      if (!cancelled && tmdb?.id) setInList(isInWatchlist(tmdb.id));
-    });
+    enrichWithTMDB(title, year).then(tmdb => { if (!cancelled && tmdb?.id) setInList(isInWatchlist(tmdb.id)); });
     return () => { cancelled = true; };
   }, [title, year]);
 
@@ -1117,10 +1019,7 @@ function DetailModal({ file, onClose }) {
     setTrailerLoading(false);
   };
 
-  const showToast = (msg) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2200);
-  };
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2200); };
 
   const handleShare = () => {
     if (navigator.share) {
@@ -1132,19 +1031,13 @@ function DetailModal({ file, onClose }) {
     }
   };
 
-  // FIX #7: use posterMd (w342) for modal hero — better quality
   const heroSrc = posterData?.posterMd || posterData?.poster || null;
 
   return (
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.9)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(16px)" }}>
         <div onClick={e => e.stopPropagation()}
-          style={{
-            background: "#111", borderRadius: "28px 28px 0 0", width: "100%", maxWidth: 480,
-            overflow: "hidden", animation: "slideUp .35s cubic-bezier(.32,1.4,.6,1)",
-            maxHeight: "93vh", overflowY: "auto",
-            border: "1px solid rgba(255,255,255,0.06)", borderBottom: "none",
-          }}>
+          style={{ background: "#111", borderRadius: "28px 28px 0 0", width: "100%", maxWidth: 480, overflow: "hidden", animation: "slideUp .35s cubic-bezier(.32,1.4,.6,1)", maxHeight: "93vh", overflowY: "auto", border: "1px solid rgba(255,255,255,0.06)", borderBottom: "none" }}>
           <div style={{ display: "flex", justifyContent: "center", padding: "12px 0 0" }}>
             <div style={{ width: 40, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.12)" }} />
           </div>
@@ -1187,9 +1080,7 @@ function DetailModal({ file, onClose }) {
               {year && <span style={{ padding: "5px 13px", borderRadius: 9, fontSize: 11, background: "rgba(255,255,255,0.05)", color: "#888", border: "1px solid rgba(255,255,255,0.08)" }}>{year}</span>}
               {file.file_size > 0 && <span style={{ padding: "5px 13px", borderRadius: 9, fontSize: 11, background: "rgba(255,255,255,0.05)", color: "#888", border: "1px solid rgba(255,255,255,0.08)" }}>💾 {formatSize(file.file_size)}</span>}
               {posterData?.imdb_rating && posterData.imdb_rating !== "N/A" && posterData.imdb_rating !== "0.0" && (
-                <span style={{ padding: "5px 13px", borderRadius: 9, fontSize: 11, fontWeight: 800, background: "rgba(241,196,15,0.08)", color: "#f1c40f", border: "1px solid rgba(241,196,15,0.2)" }}>
-                  ★ {posterData.imdb_rating}
-                </span>
+                <span style={{ padding: "5px 13px", borderRadius: 9, fontSize: 11, fontWeight: 800, background: "rgba(241,196,15,0.08)", color: "#f1c40f", border: "1px solid rgba(241,196,15,0.2)" }}>★ {posterData.imdb_rating}</span>
               )}
             </div>
 
@@ -1286,8 +1177,6 @@ function SkeletonFile() {
 }
 
 // ── Category Full Page ────────────────────────────────────────────────
-const PAGE_SIZE = 50;
-
 function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
   const [items, setItems] = useState(initialItems || []);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -1298,7 +1187,6 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
   const dbPageRef = useRef(1);
   const seenTitlesRef = useRef(new Set());
   const seenIdsRef = useRef(new Set());
-  // FIX #8: single ref for in-flight guard — not duplicated in useCallback deps
   const loadingMoreRef = useRef(false);
   const hasMoreRef = useRef(true);
 
@@ -1325,7 +1213,6 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
     });
   }, [category]);
 
-  // FIX #8: loadMore uses refs only — no stale closure issues
   const loadMore = useCallback(async () => {
     if (loadingMoreRef.current || !hasMoreRef.current || !category) return;
     loadingMoreRef.current = true;
@@ -1335,9 +1222,7 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
       pageRef.current += 1;
       const tmdbResults = await fetchTMDBDiscover(category, pageRef.current);
       let newCards = [];
-      if (tmdbResults.length > 0) {
-        newCards = await fetchByTMDBTitles(tmdbResults, seenTitlesRef.current);
-      }
+      if (tmdbResults.length > 0) newCards = await fetchByTMDBTitles(tmdbResults, seenTitlesRef.current);
 
       if (newCards.length === 0) {
         dbPageRef.current += 1;
@@ -1350,10 +1235,8 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
         });
         newCards = fresh;
         if (rawApiCount < API_FETCH_BATCH && newCards.length === 0) {
-          setHasMore(false);
-          hasMoreRef.current = false;
-          loadingMoreRef.current = false;
-          setLoadingMore(false);
+          setHasMore(false); hasMoreRef.current = false;
+          loadingMoreRef.current = false; setLoadingMore(false);
           return;
         }
       }
@@ -1377,13 +1260,13 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
 
     loadingMoreRef.current = false;
     setLoadingMore(false);
-  }, [category]); // FIX: removed hasMore from deps — uses ref now
+  }, [category]);
 
   useEffect(() => {
     if (!sentinelRef.current) return;
     const obs = new IntersectionObserver(entries => {
       if (entries[0].isIntersecting) loadMore();
-    }, { rootMargin: "300px" });
+    }, { rootMargin: INTERSECT_ROOT_MARGIN });
     obs.observe(sentinelRef.current);
     return () => obs.disconnect();
   }, [loadMore]);
@@ -1434,18 +1317,9 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
 
       {hasMore && !loadingMore && !initialLoading && items.length > 0 && (
         <div style={{ display: "flex", justifyContent: "center", padding: "16px 0 8px" }}>
-          <button
-            onClick={loadMore}
-            style={{
-              padding: "13px 36px", borderRadius: 50,
-              background: "linear-gradient(135deg,#f39c12,#e74c3c)",
-              border: "none", color: "#fff", fontWeight: 800, fontSize: 13,
-              cursor: "pointer", letterSpacing: 0.5,
-              boxShadow: "0 6px 20px rgba(243,156,18,0.35)",
-              display: "flex", alignItems: "center", gap: 8,
-            }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+          <button onClick={loadMore}
+            style={{ padding: "13px 36px", borderRadius: 50, background: "linear-gradient(135deg,#f39c12,#e74c3c)", border: "none", color: "#fff", fontWeight: 800, fontSize: 13, cursor: "pointer", letterSpacing: 0.5, boxShadow: "0 6px 20px rgba(243,156,18,0.35)", display: "flex", alignItems: "center", gap: 8 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><path d="M12 5v14M5 12l7 7 7-7" /></svg>
             Load More
           </button>
         </div>
@@ -1472,8 +1346,19 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
 
 // ── Watchlist Tab ─────────────────────────────────────────────────────
 function WatchlistTab({ onItemClick }) {
-  const [items, setItems] = useState([]);
-  useEffect(() => { setItems(getWatchlist()); }, []);
+  // FIX: listen to storage events so list updates when changed from other tabs/modals
+  const [items, setItems] = useState(() => getWatchlist());
+
+  useEffect(() => {
+    const refresh = () => setItems(getWatchlist());
+    window.addEventListener("storage", refresh);
+    // Also refresh when tab becomes visible (user switches back)
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("storage", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
 
   const remove = (id) => {
     const item = items.find(x => String(x.id) === String(id));
@@ -1487,7 +1372,7 @@ function WatchlistTab({ onItemClick }) {
         <div style={{ fontSize: 52, marginBottom: 16 }}>📋</div>
         <div style={{ fontSize: 17, fontWeight: 800, color: "#ccc", marginBottom: 8 }}>My List Khali Hai</div>
         <div style={{ fontSize: 13, color: "#444", lineHeight: 1.6 }}>
-          Kisi bhi movie ya series ke card pe<br />"+": button press karo add karne ke liye
+          Kisi bhi movie ya series ke card pe<br />"+" button press karo add karne ke liye
         </div>
       </div>
     );
@@ -1539,14 +1424,13 @@ async function translateHindiToEnglish(text) {
       const data = await res.json();
       const translated = data?.[0]?.map(x => x?.[0]).filter(Boolean).join("") || result;
       return translated.trim();
-    } catch {
-      return result;
-    }
+    } catch { return result; }
   }
   return result.trim();
 }
 
-function useVoiceSearch(onResult) {
+// FIX: accepts activeLanguage param — voice recognition locale now dynamic
+function useVoiceSearch(onResult, activeLanguage = "All") {
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef(null);
 
@@ -1554,7 +1438,10 @@ function useVoiceSearch(onResult) {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) { alert("Voice search is not supported in this browser"); return; }
     const r = new SpeechRecognition();
-    r.lang = "hi-IN"; r.interimResults = false; r.maxAlternatives = 3;
+    // FIX: dynamic language based on selected language filter
+    r.lang = LANG_TO_SPEECH_LOCALE[activeLanguage] || "hi-IN";
+    r.interimResults = false;
+    r.maxAlternatives = 3;
     r.onstart = () => setListening(true);
     r.onend = () => setListening(false);
     r.onresult = async (e) => {
@@ -1567,7 +1454,7 @@ function useVoiceSearch(onResult) {
     r.onerror = () => setListening(false);
     recognitionRef.current = r;
     r.start();
-  }, [onResult]);
+  }, [onResult, activeLanguage]);
 
   const stop = useCallback(() => {
     recognitionRef.current?.stop();
@@ -1580,28 +1467,31 @@ function useVoiceSearch(onResult) {
 // ── Bottom Navigation ─────────────────────────────────────────────────
 function BottomNav({ tab, setTab }) {
   const tabs = [
-    { id: "home", icon: (active) => (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill={active ? "#f39c12" : "none"} stroke={active ? "#f39c12" : "#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" />
-      </svg>), label: "Home" },
-    { id: "search", icon: (active) => (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#f39c12" : "#555"} strokeWidth="2" strokeLinecap="round">
-        <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-      </svg>), label: "Search" },
-    { id: "mylist", icon: (active) => (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill={active ? "#f39c12" : "none"} stroke={active ? "#f39c12" : "#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-      </svg>), label: "My List" },
+    {
+      id: "home", label: "Home",
+      icon: (active) => (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill={active ? "#f39c12" : "none"} stroke={active ? "#f39c12" : "#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" />
+        </svg>),
+    },
+    {
+      id: "search", label: "Search",
+      icon: (active) => (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#f39c12" : "#555"} strokeWidth="2" strokeLinecap="round">
+          <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>),
+    },
+    {
+      id: "mylist", label: "My List",
+      icon: (active) => (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill={active ? "#f39c12" : "none"} stroke={active ? "#f39c12" : "#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+        </svg>),
+    },
   ];
 
   return (
-    <div style={{
-      position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
-      width: "100%", maxWidth: 480, zIndex: 200,
-      background: "rgba(10,10,10,0.97)", borderTop: "1px solid rgba(255,255,255,0.06)",
-      backdropFilter: "blur(24px)",
-      display: "flex", justifyContent: "space-around", padding: "10px 0 16px",
-    }}>
+    <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, zIndex: 200, background: "rgba(10,10,10,0.97)", borderTop: "1px solid rgba(255,255,255,0.06)", backdropFilter: "blur(24px)", display: "flex", justifyContent: "space-around", padding: "10px 0 16px" }}>
       {tabs.map(t => (
         <button key={t.id} onClick={() => setTab(t.id)}
           style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "4px 20px", transition: "transform .2s", transform: tab === t.id ? "translateY(-1px)" : "none" }}>
@@ -1625,7 +1515,6 @@ function App() {
   const [focused, setFocused] = useState(false);
   const [categoryPage, setCategoryPage] = useState(null);
 
-  // FIX #9: progressive home loading — nowPlaying pehle, baki baad mein
   const [homeData, setHomeData] = useState({
     nowPlaying: [], globalTrend: [], seriesTrend: [],
     bollywood: [], tamilFils: [], malayalamFils: [],
@@ -1641,7 +1530,7 @@ function App() {
   const inputRef = useRef(null);
   const searchAbortRef = useRef(null);
 
-  // FIX #9: 2-phase home load — primary first, then rest
+  // ── Home load — 2-phase: primary fast, secondary in bg ────────────
   useEffect(() => {
     const cached = loadHomeCache();
     if (cached && retryKey === 0) {
@@ -1655,17 +1544,16 @@ function App() {
     setServerWaking(false);
     setLoadError(false);
 
-    const wakingTimer = setTimeout(() => setServerWaking(true), 4000);
+    const wakingTimer = setTimeout(() => setServerWaking(true), SERVER_WAKING_DELAY_MS);
     const errorTimer = setTimeout(() => {
       setHomeLoading(false);
       setLoadError(true);
       setServerWaking(false);
       window.__hideSplash?.();
-    }, 35000);
+    }, SERVER_TIMEOUT_MS);
 
     window.__splashProgress?.(20, "Connecting to server...");
 
-    // Phase 1: load "all" first so hero + nowPlaying shows immediately
     fetchDBCategory("all", 50).then(({ items: latest }) => {
       clearTimeout(wakingTimer);
       window.__splashProgress?.(40, "Loading trending...");
@@ -1678,56 +1566,58 @@ function App() {
       setServerWaking(false);
       window.__hideSplash?.();
 
-      // Phase 2: load rest in background — user already sees content
+      // Phase 2: FIX — sequential batches of 3 to reduce free-server overload
       setHomeSecondaryLoading(true);
-      Promise.all([
-        fetchDBCategory("series", 50),
-        fetchDBCategory("hindi", 50),
-        fetchDBCategory("tamil", 50),
-        fetchDBCategory("malayalam", 50),
-        fetchDBCategory("telugu", 50),
-        fetchDBCategory("kannada", 50),
-        fetchDBCategory("bengali", 50),
-        fetchDBCategory("english", 50),
-        fetchDBCategory("all", 50, API_FETCH_BATCH),
-      ]).then(([series, bolly, tamil, mal, telugu, kannada, bengali, english, topRatedRaw]) => {
-        clearTimeout(errorTimer);
-        window.__splashProgress?.(95, "Almost ready!");
+      (async () => {
+        try {
+          const [series, bolly, tamil] = await Promise.all([
+            fetchDBCategory("series", 50),
+            fetchDBCategory("hindi", 50),
+            fetchDBCategory("tamil", 50),
+          ]);
+          const [mal, telugu, kannada] = await Promise.all([
+            fetchDBCategory("malayalam", 50),
+            fetchDBCategory("telugu", 50),
+            fetchDBCategory("kannada", 50),
+          ]);
+          const [bengali, english, topRatedRaw] = await Promise.all([
+            fetchDBCategory("bengali", 50),
+            fetchDBCategory("english", 50),
+            fetchDBCategory("all", 50, API_FETCH_BATCH),
+          ]);
 
-        const globalItems = latest
-          .filter((_, idx) => idx >= 3)
-          .concat(bolly.items.slice(0, 3))
-          .filter((item, idx, arr) => {
-            const key = item.title?.toLowerCase().replace(/\s+/g, "");
-            return arr.findIndex(x => x.title?.toLowerCase().replace(/\s+/g, "") === key) === idx;
-          })
-          .slice(0, 50);
+          clearTimeout(errorTimer);
+          window.__splashProgress?.(95, "Almost ready!");
 
-        const topRated = topRatedRaw.items.filter(x => parseFloat(x.rating) >= 7.0).slice(0, 50);
+          const globalItems = latest
+            .filter((_, idx) => idx >= 3)
+            .concat(bolly.items.slice(0, 3))
+            .filter((item, idx, arr) => {
+              const key = item.title?.toLowerCase().replace(/\s+/g, "");
+              return arr.findIndex(x => x.title?.toLowerCase().replace(/\s+/g, "") === key) === idx;
+            })
+            .slice(0, 50);
 
-        const newHomeData = {
-          nowPlaying: latest,
-          globalTrend: globalItems,
-          seriesTrend: series.items,
-          bollywood: bolly.items,
-          tamilFils: tamil.items,
-          malayalamFils: mal.items,
-          teluguFils: telugu.items,
-          kannadaFils: kannada.items,
-          bengaliFils: bengali.items,
-          englishFils: english.items,
-          topRated,
-          heroBannerItems: bannerItems,
-        };
+          const topRated = topRatedRaw.items.filter(x => parseFloat(x.rating) >= 7.0).slice(0, 50);
 
-        saveHomeCache(newHomeData);
-        setHomeData(newHomeData);
-        setHomeSecondaryLoading(false);
-        setLoadError(false);
-      }).catch(() => {
-        clearTimeout(errorTimer);
-        setHomeSecondaryLoading(false);
-      });
+          const newHomeData = {
+            nowPlaying: latest, globalTrend: globalItems,
+            seriesTrend: series.items, bollywood: bolly.items,
+            tamilFils: tamil.items, malayalamFils: mal.items,
+            teluguFils: telugu.items, kannadaFils: kannada.items,
+            bengaliFils: bengali.items, englishFils: english.items,
+            topRated, heroBannerItems: bannerItems,
+          };
+
+          saveHomeCache(newHomeData);
+          setHomeData(newHomeData);
+          setHomeSecondaryLoading(false);
+          setLoadError(false);
+        } catch {
+          clearTimeout(errorTimer);
+          setHomeSecondaryLoading(false);
+        }
+      })();
 
     }).catch(() => {
       clearTimeout(wakingTimer);
@@ -1741,7 +1631,7 @@ function App() {
     return () => { clearTimeout(wakingTimer); clearTimeout(errorTimer); };
   }, [retryKey]);
 
-  // FIX #10: Android hardware back button support
+  // FIX: Android hardware back button
   useEffect(() => {
     const handlePopState = () => {
       if (selected) { setSelected(null); return; }
@@ -1749,92 +1639,89 @@ function App() {
       if (tab === "search") { setTab("home"); setQuery(""); setFiles([]); return; }
       if (tab !== "home") { setTab("home"); return; }
     };
-
     window.addEventListener("popstate", handlePopState);
-    // Push a dummy state so back button has something to pop
     window.history.pushState({ page: "app" }, "");
     return () => window.removeEventListener("popstate", handlePopState);
   }, [selected, categoryPage, tab]);
 
-  const doSearch = useCallback(async (q = query) => {
-    if (!q.trim() && quality === "All" && language === "All") {
-      // FIX #11: clear files immediately when query is empty
+  // FIX: doSearch — properly clears loading on abort
+  const doSearch = useCallback(async (q = query, qual = quality, lang = language) => {
+    if (!q.trim() && qual === "All" && lang === "All") {
       setFiles([]);
+      setLoading(false);
       return;
     }
     searchAbortRef.current?.abort();
     const controller = new AbortController();
     searchAbortRef.current = controller;
     setLoading(true);
-    // FIX #11: clear old results immediately so no flash
     setFiles([]);
-    const results = await fetchFiles(q, quality, language, 50, controller.signal);
+    const results = await fetchFiles(q, qual, lang, 50, controller.signal);
     if (results !== null) {
+      // Search completed (not aborted)
       setFiles(results);
       setLoading(false);
+    } else {
+      // FIX: aborted — clear loading so UI doesn't stay stuck
+      setLoading(false);
     }
-    // FIX #12: if aborted, setLoading stays true until next search — fix it
-    // Actually if null (aborted), next doSearch will set loading=true again. Fine.
   }, [query, quality, language]);
 
   useEffect(() => {
     if (tab !== "search") return;
-    const t = setTimeout(() => doSearch(), 350);
+    const t = setTimeout(() => doSearch(), SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [doSearch, tab]);
 
   const clearAll = () => {
-    setQuery("");
-    setQuality("All");
-    setLanguage("All");
-    setFiles([]);
+    setQuery(""); setQuality("All"); setLanguage("All");
+    setFiles([]); setLoading(false);
     searchAbortRef.current?.abort();
   };
   const clearFilters = () => { setQuality("All"); setLanguage("All"); };
 
-  const handleTMDBCardClick = (itemOrTitle) => {
+  // FIX: handleTMDBCardClick — no double fetch, single fetchFiles call
+  const handleTMDBCardClick = useCallback((itemOrTitle) => {
     const movieTitle = typeof itemOrTitle === "string" ? itemOrTitle : itemOrTitle.title;
     setQuality("All");
     setLanguage("All");
     setTab("search");
-    // FIX #11: reset immediately so no stale results
     setFiles([]);
-    setLoading(true);
     setQuery(movieTitle);
-    fetchFiles(movieTitle, "All", "All").then(results => {
-      if (results !== null) { setFiles(results || []); setLoading(false); }
-      else { setLoading(false); } // FIX: don't leak loading state on abort
+    setLoading(true);
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    fetchFiles(movieTitle, "All", "All", 50, controller.signal).then(results => {
+      if (results !== null) {
+        setFiles(results || []);
+        setLoading(false);
+      } else {
+        setLoading(false);
+      }
     });
-  };
+  }, []);
 
+  // FIX: pass language to voice search so locale is dynamic
   const { listening, start: startVoice, stop: stopVoice } = useVoiceSearch((transcript) => {
     setQuery(transcript);
     setTab("search");
-    doSearch(transcript);
-  });
+    doSearch(transcript, quality, language);
+  }, language);
 
   const trendingChips = homeData.nowPlaying.slice(0, 6);
 
   return (
     <div style={{ background: "#0a0a0a", minHeight: "100vh", fontFamily: "'DM Sans',sans-serif", color: "#eee", maxWidth: 480, margin: "0 auto", paddingBottom: 64 }}>
 
+      {/* FIX: Offline banner */}
+      <OfflineBanner />
+
       {/* ── HEADER ── */}
-      <div style={{
-        position: "sticky", top: 0, zIndex: 100,
-        background: "rgba(10,10,10,0.92)",
-        borderBottom: "1px solid rgba(255,255,255,0.05)",
-        padding: "13px 16px",
-        backdropFilter: "blur(20px)",
-      }}>
+      <div style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(10,10,10,0.92)", borderBottom: "1px solid rgba(255,255,255,0.05)", padding: "13px 16px", backdropFilter: "blur(20px)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           {tab === "search" ? (
-            <button onClick={() => {
-              setTab("home");
-              setQuery("");
-              setFiles([]);
-              setCategoryPage(null);
-              searchAbortRef.current?.abort();
-            }}
+            <button onClick={() => { setTab("home"); setQuery(""); setFiles([]); setLoading(false); setCategoryPage(null); searchAbortRef.current?.abort(); }}
               style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, color: "#888", padding: 0 }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2.5" strokeLinecap="round"><path d="M19 12H5M12 5l-7 7 7 7" /></svg>
               <span style={{ fontSize: 13, fontWeight: 600 }}>Home</span>
@@ -1849,15 +1736,7 @@ function App() {
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button
               onClick={listening ? stopVoice : startVoice}
-              style={{
-                width: 36, height: 36, borderRadius: "50%",
-                background: listening ? "rgba(231,76,60,0.2)" : "rgba(255,255,255,0.04)",
-                border: `1px solid ${listening ? "rgba(231,76,60,0.5)" : "rgba(255,255,255,0.08)"}`,
-                color: listening ? "#e74c3c" : "#555",
-                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                animation: listening ? "pulse 1s ease infinite" : "none",
-                transition: "all .2s",
-              }}>
+              style={{ width: 36, height: 36, borderRadius: "50%", background: listening ? "rgba(231,76,60,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${listening ? "rgba(231,76,60,0.5)" : "rgba(255,255,255,0.08)"}`, color: listening ? "#e74c3c" : "#555", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", animation: listening ? "pulse 1s ease infinite" : "none", transition: "all .2s" }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zm-1 18.93A8 8 0 0 1 4 12H2a10 10 0 0 0 9 9.93V24h2v-2.07A10 10 0 0 0 22 12h-2a8 8 0 0 1-7 7.93z" />
               </svg>
@@ -1925,7 +1804,6 @@ function App() {
               )}
               <TMDBCategoryRow title="NOW PLAYING" items={homeData.nowPlaying} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "NOW PLAYING", category: "all", items: homeData.nowPlaying })} />
 
-              {/* Secondary rows — show skeletons while loading */}
               {homeSecondaryLoading && homeData.globalTrend.length === 0 ? (
                 [1, 2].map(i => (
                   <div key={i} style={{ marginBottom: 32, paddingLeft: 16 }}>
@@ -1983,17 +1861,12 @@ function App() {
               </>
             )}
 
-            <div style={{
-              background: "rgba(255,255,255,0.03)", borderRadius: 22, padding: "14px 16px",
-              border: `1px solid ${focused ? "rgba(243,156,18,0.3)" : "rgba(255,255,255,0.06)"}`,
-              marginBottom: 18, transition: "border-color .2s",
-              boxShadow: focused ? "0 0 0 3px rgba(243,156,18,0.06)" : "none",
-            }}>
+            <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 22, padding: "14px 16px", border: `1px solid ${focused ? "rgba(243,156,18,0.3)" : "rgba(255,255,255,0.06)"}`, marginBottom: 18, transition: "border-color .2s", boxShadow: focused ? "0 0 0 3px rgba(243,156,18,0.06)" : "none" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(255,255,255,0.04)", border: `1px solid ${focused ? "rgba(243,156,18,0.2)" : "rgba(255,255,255,0.07)"}`, borderRadius: 14, padding: "11px 14px", marginBottom: 16, transition: "border-color .2s" }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2.5"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
                 <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)}
                   onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
-                  onKeyDown={e => e.key === "Enter" && doSearch()}
+                  onKeyDown={e => { if (e.key === "Enter" && tab === "search") doSearch(); }}
                   placeholder="Search movies, series..."
                   style={{ flex: 1, background: "transparent", border: "none", outline: "none", fontSize: 14, color: "#eee", fontFamily: "inherit" }} />
                 <button onClick={listening ? stopVoice : startVoice}
@@ -2003,7 +1876,7 @@ function App() {
                   </svg>
                 </button>
                 {query && (
-                  <button onClick={() => { setQuery(""); setFiles([]); searchAbortRef.current?.abort(); inputRef.current?.focus(); }}
+                  <button onClick={() => { setQuery(""); setFiles([]); setLoading(false); searchAbortRef.current?.abort(); inputRef.current?.focus(); }}
                     style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: "50%", width: 22, height: 22, color: "#666", cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
                 )}
               </div>
@@ -2115,8 +1988,7 @@ function App() {
       {/* ── BOTTOM NAV ── */}
       <BottomNav tab={tab} setTab={(t) => {
         setTab(t);
-        if (t !== "search") { setCategoryPage(null); }
-        if (t !== "search") { searchAbortRef.current?.abort(); }
+        if (t !== "search") { setCategoryPage(null); searchAbortRef.current?.abort(); }
       }} />
 
       {selected && <DetailModal file={selected} onClose={() => setSelected(null)} />}
