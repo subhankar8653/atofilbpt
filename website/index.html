@@ -2,13 +2,116 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Suhani Bot - Search & get files instantly" />
-    <title>Suhani</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Suhani Bot – Search movies, series & get files instantly on Telegram" />
+    <meta name="theme-color" content="#0a0a0a" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Suhani" />
+
+    <!-- OG / Social Preview -->
+    <meta property="og:title" content="Suhani Search – Movies & Series" />
+    <meta property="og:description" content="Search & stream movies, series for free via Telegram." />
+    <meta property="og:type" content="website" />
+
+    <title>Suhani – Movies & Series</title>
+
+    <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>" />
+
+    <!-- ✅ BUG FIX: Fonts loaded here in <head>, NOT inside JSX component -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;0,9..40,900;1,9..40,400&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      /* Base reset */
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+      html {
+        background: #0a0a0a;
+        -webkit-text-size-adjust: 100%;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        overscroll-behavior: none;
+      }
+
+      body {
+        background: #0a0a0a;
+        color: #eee;
+        font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+        overscroll-behavior: none;
+        -webkit-tap-highlight-color: transparent;
+        /* Safe area for notched phones */
+        padding-bottom: env(safe-area-inset-bottom);
+      }
+
+      #root {
+        min-height: 100dvh;
+      }
+
+      /* Smooth scrolling */
+      html { scroll-behavior: smooth; }
+
+      /* Prevent text selection flash on tap */
+      button, a { -webkit-tap-highlight-color: transparent; user-select: none; }
+
+      /* Global scrollbar */
+      ::-webkit-scrollbar { width: 3px; height: 3px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+
+      /* Loading screen shown before React mounts */
+      #splash {
+        position: fixed; inset: 0;
+        background: #0a0a0a;
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        z-index: 9999;
+        transition: opacity 0.4s ease;
+      }
+      #splash.hidden { opacity: 0; pointer-events: none; }
+      #splash-logo {
+        font-family: 'Bebas Neue', sans-serif;
+        font-size: 42px; letter-spacing: 6px;
+        background: linear-gradient(135deg, #f39c12, #e74c3c);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 20px;
+      }
+      #splash-spinner {
+        width: 28px; height: 28px; border-radius: 50%;
+        border: 2px solid rgba(243,156,18,0.15);
+        border-top-color: #f39c12;
+        animation: splash-spin 0.85s linear infinite;
+      }
+      @keyframes splash-spin { to { transform: rotate(360deg); } }
+    </style>
   </head>
   <body>
+    <!-- Splash screen (hidden once React mounts) -->
+    <div id="splash">
+      <div id="splash-logo">SUHANI</div>
+      <div id="splash-spinner"></div>
+    </div>
+
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+
+    <script>
+      // Hide splash once React has rendered
+      window.__hideSplash = function() {
+        var s = document.getElementById('splash');
+        if (s) {
+          s.classList.add('hidden');
+          setTimeout(function() { s.remove(); }, 450);
+        }
+      };
+    </script>
   </body>
 </html>
