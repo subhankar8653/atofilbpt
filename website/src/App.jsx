@@ -25,11 +25,34 @@ class ErrorBoundary extends Component {
 
 // ═══════════════════════════════════════════════════════════════════
 // CONFIG — .env mein VITE_API_BASE aur VITE_TMDB_KEY daalo
+// Multiple TMDB keys ke liye: VITE_TMDB_KEY_1, VITE_TMDB_KEY_2, etc.
 // ═══════════════════════════════════════════════════════════════════
 const BOT_USERNAME = import.meta.env.VITE_BOT_USERNAME || "My_Suhani_bot";
-const API_BASE = import.meta.env.VITE_API_BASE || "https://worker-production-58e0.up.railway.app";
 
-const TMDB_API_KEY = import.meta.env.VITE_TMDB_KEY || "";
+// FIX: https:// ensure karo API_BASE mein
+const _RAW_API_BASE = import.meta.env.VITE_API_BASE || "worker-production-58e0.up.railway.app";
+const API_BASE = _RAW_API_BASE.startsWith("http") ? _RAW_API_BASE : `https://${_RAW_API_BASE}`;
+
+// ── Multiple TMDB API Keys (rotation for rate limit bypass) ──────────
+const _TMDB_KEYS = [
+  import.meta.env.VITE_TMDB_KEY,
+  import.meta.env.VITE_TMDB_KEY_2,
+  import.meta.env.VITE_TMDB_KEY_3,
+  import.meta.env.VITE_TMDB_KEY_4,
+].filter(Boolean);
+if (_TMDB_KEYS.length === 0) _TMDB_KEYS.push("");
+let _tmdbKeyIndex = 0;
+const _tmdbKeyFailCount = new Map();
+function getNextTMDBKey() {
+  // Round-robin rotation
+  const key = _TMDB_KEYS[_tmdbKeyIndex % _TMDB_KEYS.length];
+  _tmdbKeyIndex = (_tmdbKeyIndex + 1) % _TMDB_KEYS.length;
+  return key;
+}
+function markKeyFailed(key) {
+  _tmdbKeyFailCount.set(key, (_tmdbKeyFailCount.get(key) || 0) + 1);
+}
+
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMG = "https://image.tmdb.org/t/p/w185";
 const TMDB_IMG_MD = "https://image.tmdb.org/t/p/w342";
@@ -249,13 +272,49 @@ async function fetchTrending(category = "all", limit = 12) {
   } catch { return []; }
 }
 
+// ── TMDB Request Queue (throttle to avoid rate limits) ──────────────
+const _tmdbQueue = [];
+let _tmdbRunning = 0;
+const TMDB_CONCURRENCY = 4;
+const TMDB_DELAY_MS = 80;
+
+function _tmdbEnqueue(fn) {
+  return new Promise((resolve, reject) => {
+    _tmdbQueue.push({ fn, resolve, reject });
+    _tmdbDrain();
+  });
+}
+async function _tmdbDrain() {
+  if (_tmdbRunning >= TMDB_CONCURRENCY || _tmdbQueue.length === 0) return;
+  _tmdbRunning++;
+  const { fn, resolve, reject } = _tmdbQueue.shift();
+  try { resolve(await fn()); } catch (e) { reject(e); }
+  finally {
+    await new Promise(r => setTimeout(r, TMDB_DELAY_MS));
+    _tmdbRunning--;
+    _tmdbDrain();
+  }
+}
+
 async function tmdbGet(endpoint, params = {}) {
-  try {
-    const p = new URLSearchParams({ api_key: TMDB_API_KEY, language: "en-US", ...params });
-    const res = await fetch(`${TMDB_BASE}${endpoint}?${p}`);
-    if (!res.ok) throw new Error("TMDB error");
-    return await res.json();
-  } catch { return null; }
+  return _tmdbEnqueue(async () => {
+    const key = getNextTMDBKey();
+    const p = new URLSearchParams({ api_key: key, language: "en-US", ...params });
+    try {
+      const res = await fetch(`${TMDB_BASE}${endpoint}?${p}`);
+      if (res.status === 429) {
+        markKeyFailed(key);
+        await new Promise(r => setTimeout(r, 1000));
+        const key2 = getNextTMDBKey();
+        const p2 = new URLSearchParams({ api_key: key2, language: "en-US", ...params });
+        const res2 = await fetch(`${TMDB_BASE}${endpoint}?${p2}`);
+        if (!res2.ok) return null;
+        return await res2.json();
+      }
+      if (!res.ok) return null;
+      return await res.json();
+    } catch { return null; }
+  });
 }
 
 // ── SessionStorage Cache ──────────────────────────────────────────────
@@ -490,10 +549,14 @@ function TMDBCard({ item, onClick, gridMode = false }) {
     } else {
       setImgSrc(null);
       let cancelled = false;
-      fetchPosterFromTMDB(item.title, item.year).then(data => {
-        if (!cancelled && data?.poster) setImgSrc(data.poster);
-      });
-      return () => { cancelled = true; };
+      // Staggered delay: saare cards ek saath API hit na karein
+      const delay = Math.floor(Math.random() * 600);
+      const timer = setTimeout(() => {
+        fetchPosterFromTMDB(item.title, item.year).then(data => {
+          if (!cancelled && data?.poster) setImgSrc(data.poster);
+        });
+      }, delay);
+      return () => { cancelled = true; clearTimeout(timer); };
     }
   }, [item.poster, item.id, item.title, item.year]);
 
