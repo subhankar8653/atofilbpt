@@ -21,7 +21,7 @@
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>" />
 
-    <!-- ✅ BUG FIX: Fonts loaded here in <head>, NOT inside JSX component -->
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -30,7 +30,6 @@
     />
 
     <style>
-      /* Base reset */
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
       html {
@@ -47,71 +46,155 @@
         font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
         overscroll-behavior: none;
         -webkit-tap-highlight-color: transparent;
-        /* Safe area for notched phones */
         padding-bottom: env(safe-area-inset-bottom);
       }
 
-      #root {
-        min-height: 100dvh;
-      }
-
-      /* Smooth scrolling */
+      #root { min-height: 100dvh; }
       html { scroll-behavior: smooth; }
-
-      /* Prevent text selection flash on tap */
       button, a { -webkit-tap-highlight-color: transparent; user-select: none; }
-
-      /* Global scrollbar */
       ::-webkit-scrollbar { width: 3px; height: 3px; }
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
 
-      /* Loading screen shown before React mounts */
+      /* ── SPLASH SCREEN ── */
       #splash {
         position: fixed; inset: 0;
         background: #0a0a0a;
         display: flex; flex-direction: column;
         align-items: center; justify-content: center;
         z-index: 9999;
-        transition: opacity 0.4s ease;
+        transition: opacity 0.5s ease;
+        gap: 0;
       }
-      #splash.hidden { opacity: 0; pointer-events: none; }
+      #splash.fade-out {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      /* Clapperboard icon */
+      #splash-icon {
+        font-size: 52px;
+        margin-bottom: 18px;
+        animation: splash-pop 0.6s cubic-bezier(.34,1.56,.64,1) both;
+      }
+
+      /* SUHANI logo */
       #splash-logo {
         font-family: 'Bebas Neue', sans-serif;
-        font-size: 42px; letter-spacing: 6px;
-        background: linear-gradient(135deg, #f39c12, #e74c3c);
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        background-clip: text;
-        margin-bottom: 20px;
+        font-size: 48px;
+        letter-spacing: 8px;
+        line-height: 1;
+        margin-bottom: 4px;
+        animation: splash-pop 0.6s cubic-bezier(.34,1.56,.64,1) 0.1s both;
       }
-      #splash-spinner {
-        width: 28px; height: 28px; border-radius: 50%;
-        border: 2px solid rgba(243,156,18,0.15);
-        border-top-color: #f39c12;
-        animation: splash-spin 0.85s linear infinite;
+      #splash-logo span.s { color: #f39c12; }
+      #splash-logo span.w { color: #fff; opacity: 0.92; }
+
+      /* SEARCH subtitle */
+      #splash-sub {
+        font-family: 'DM Sans', sans-serif;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 5px;
+        color: #444;
+        margin-bottom: 48px;
+        animation: splash-pop 0.6s cubic-bezier(.34,1.56,.64,1) 0.2s both;
+      }
+
+      /* Loading bar container */
+      #splash-bar-wrap {
+        width: 160px;
+        height: 3px;
+        background: rgba(255,255,255,0.06);
+        border-radius: 3px;
+        overflow: hidden;
+        animation: splash-pop 0.4s ease 0.3s both;
+      }
+
+      /* The bar itself — animated by JS */
+      #splash-bar {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #f39c12, #e74c3c);
+        border-radius: 3px;
+        transition: width 0.35s cubic-bezier(.4,0,.2,1);
+        box-shadow: 0 0 10px rgba(243,156,18,0.6);
+      }
+
+      /* Loading text */
+      #splash-status {
+        margin-top: 16px;
+        font-size: 11px;
+        font-weight: 600;
+        color: #333;
+        letter-spacing: 0.5px;
+        min-height: 16px;
+        animation: splash-pop 0.4s ease 0.4s both;
+        transition: opacity 0.2s;
+      }
+
+      @keyframes splash-pop {
+        from { opacity: 0; transform: translateY(12px) scale(0.95); }
+        to   { opacity: 1; transform: translateY(0)    scale(1); }
       }
       @keyframes splash-spin { to { transform: rotate(360deg); } }
     </style>
   </head>
   <body>
-    <!-- Splash screen (hidden once React mounts) -->
+    <!-- Splash screen -->
     <div id="splash">
-      <div id="splash-logo">SUHANI</div>
-      <div id="splash-spinner"></div>
+      <div id="splash-icon">🎬</div>
+      <div id="splash-logo">
+        <span class="s">SUHANI</span><span class="w"> SEARCH</span>
+      </div>
+      <div id="splash-sub">MOVIES &amp; SERIES</div>
+      <div id="splash-bar-wrap">
+        <div id="splash-bar"></div>
+      </div>
+      <div id="splash-status">Connecting...</div>
     </div>
 
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
 
     <script>
-      // Hide splash once React has rendered
-      window.__hideSplash = function() {
-        var s = document.getElementById('splash');
-        if (s) {
-          s.classList.add('hidden');
-          setTimeout(function() { s.remove(); }, 450);
-        }
+      var _splashProgress = 0;
+      var _splashDone = false;
+
+      // Progress update karo — App.jsx se call hoga
+      window.__splashProgress = function(pct, msg) {
+        if (_splashDone) return;
+        _splashProgress = Math.max(_splashProgress, pct);
+        var bar = document.getElementById('splash-bar');
+        var status = document.getElementById('splash-status');
+        if (bar) bar.style.width = _splashProgress + '%';
+        if (status && msg) status.textContent = msg;
       };
+
+      // Splash hatao
+      window.__hideSplash = function() {
+        if (_splashDone) return;
+        _splashDone = true;
+        var s = document.getElementById('splash');
+        if (!s) return;
+        // 100% fill karo pehle, phir fade out
+        window.__splashProgress(100, 'Ready!');
+        setTimeout(function() {
+          s.classList.add('fade-out');
+          setTimeout(function() { s.remove(); }, 550);
+        }, 300);
+      };
+
+      // Fake progress — server slow ho toh user ko pata chale kuch ho raha hai
+      var _fakeTimer = setInterval(function() {
+        if (_splashDone) { clearInterval(_fakeTimer); return; }
+        if (_splashProgress < 30) {
+          window.__splashProgress(_splashProgress + 3, 'Connecting...');
+        } else if (_splashProgress < 55) {
+          window.__splashProgress(_splashProgress + 1.5, 'Loading content...');
+        }
+        // 55%+ par rok do — real progress App.jsx se aayegi
+      }, 200);
     </script>
   </body>
 </html>
