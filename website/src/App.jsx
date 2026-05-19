@@ -102,6 +102,10 @@ function cleanFileName(name = "") {
 function extractMovieTitle(name = "") {
   let n = stripPromotion(name);
   n = n.replace(/\.(mkv|mp4|avi|mov|webm)$/i, "");
+  // FIX: strip leading bracket tags like [ASK], [HC], [ABC123] that pollute title
+  n = n.replace(/^\s*(\[[^\]]{1,10}\]\s*)+/, "");
+  // FIX: strip trailing/inline bracket tags too
+  n = n.replace(/\[[^\]]{1,10}\]/g, " ");
   n = n.replace(/[_+]/g, " ").replace(/\.(?!\d)/g, " ").trim();
   n = n.replace(/\d{1,2}:\d{2}/g, " ");
   n = n.replace(/\b(19|20)\d{2}\b.*/i, "").trim();
@@ -113,7 +117,6 @@ function extractMovieTitle(name = "") {
     return !/^(multi|dual|dubbed|hindi|english|tamil|telugu|malayalam|kannada|bengali|punjabi|amazon|netflix)$/i.test(w);
   });
   n = filtered.join(" ").replace(/\s+/g, " ").trim();
-  // BUG FIX: was slicing to 4 words, now allow up to 6 for longer titles
   const finalWords = n.split(" ").filter(w => w.length > 1);
   return finalWords.slice(0, 6).join(" ") || cleanFileName(name).split(" ").slice(0, 4).join(" ");
 }
@@ -1245,8 +1248,36 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
           <span style={{ fontSize: 12, color: "#555", fontWeight: 600 }}>Aur load ho raha hai...</span>
         </div>
       )}
+      {/* Load More button — visible when hasMore and not currently loading */}
+      {hasMore && !loadingMore && !initialLoading && items.length > 0 && (
+        <div style={{ display: "flex", justifyContent: "center", padding: "16px 0 8px" }}>
+          <button
+            onClick={loadMore}
+            style={{
+              padding: "13px 36px", borderRadius: 50,
+              background: "linear-gradient(135deg,#f39c12,#e74c3c)",
+              border: "none", color: "#fff", fontWeight: 800, fontSize: 13,
+              cursor: "pointer", letterSpacing: 0.5,
+              boxShadow: "0 6px 20px rgba(243,156,18,0.35)",
+              transition: "transform .2s, box-shadow .2s",
+              display: "flex", alignItems: "center", gap: 8,
+            }}
+            onMouseEnter={e => e.currentTarget.style.transform = "scale(1.04)"}
+            onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+            Load More
+          </button>
+        </div>
+      )}
       {!hasMore && !loadingMore && items.length > 0 && (
-        <div style={{ textAlign: "center", padding: "20px 0 10px", fontSize: 11, color: "#2a2a2a", fontWeight: 600 }}>── Yahi tak hai ──</div>
+        <div style={{ textAlign: "center", padding: "20px 0 10px" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 30, height: 1, background: "rgba(255,255,255,0.06)" }} />
+            <span style={{ fontSize: 11, color: "#2a2a2a", fontWeight: 600 }}>Sab dekh liya! 🎬</span>
+            <div style={{ width: 30, height: 1, background: "rgba(255,255,255,0.06)" }} />
+          </div>
+        </div>
       )}
       {!initialLoading && items.length === 0 && (
         <div style={{ textAlign: "center", padding: "60px 20px" }}>
@@ -1299,6 +1330,45 @@ function WatchlistTab({ onItemClick }) {
 }
 
 // ── Voice Search ──────────────────────────────────────────────────────
+// Hindi script → Roman transliteration map (common movie words)
+const HINDI_TO_ROMAN = {
+  "पुष्पा": "pushpa", "पठान": "pathaan", "जवान": "jawan", "दंगल": "dangal",
+  "बाहुबली": "bahubali", "केजीएफ": "kgf", "आरआरआर": "rrr", "शाहरुख": "shahrukh",
+  "सलमान": "salman", "आमिर": "aamir", "रणबीर": "ranbir", "दीपिका": "deepika",
+  "कटरीना": "katrina", "प्रियंका": "priyanka", "अक्षय": "akshay", "अजय": "ajay",
+  "विक्की": "vicky", "रोहित": "rohit", "जुग जुग जियो": "jug jugg jeeyo",
+  "ब्रह्मास्त्र": "brahmastra", "गदर": "gadar", "भूल भुलैया": "bhool bhulaiyaa",
+  "स्त्री": "stree", "एनिमल": "animal", "टाइगर": "tiger", "वॉर": "war",
+  "क्रिक": "crick", "फिल्म": "film", "मूवी": "movie", "सीरीज": "series",
+  "हिंदी": "hindi", "तमिल": "tamil", "तेलुगु": "telugu", "बंगाली": "bengali",
+};
+
+async function translateHindiToEnglish(text) {
+  // Step 1: exact match in our map
+  const lower = text.toLowerCase().trim();
+  for (const [hi, en] of Object.entries(HINDI_TO_ROMAN)) {
+    if (lower === hi.toLowerCase()) return en;
+  }
+  // Step 2: partial replacements
+  let result = text;
+  for (const [hi, en] of Object.entries(HINDI_TO_ROMAN)) {
+    result = result.replace(new RegExp(hi, "gi"), en);
+  }
+  // If still has Devanagari, try Google Translate API (free unofficial endpoint)
+  if (/[\u0900-\u097F]/.test(result)) {
+    try {
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=hi&tl=en&dt=t&q=${encodeURIComponent(text)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const translated = data?.[0]?.map(x => x?.[0]).filter(Boolean).join("") || result;
+      return translated.trim();
+    } catch {
+      return result; // fallback to partial replacement
+    }
+  }
+  return result.trim();
+}
+
 function useVoiceSearch(onResult) {
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef(null);
@@ -1307,10 +1377,20 @@ function useVoiceSearch(onResult) {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) { alert("Voice search is not supported in this browser"); return; }
     const r = new SpeechRecognition();
-    r.lang = "hi-IN"; r.interimResults = false; r.maxAlternatives = 1;
+    // Accept both Hindi and English speech, translate after
+    r.lang = "hi-IN"; r.interimResults = false; r.maxAlternatives = 3;
     r.onstart = () => setListening(true);
     r.onend = () => setListening(false);
-    r.onresult = (e) => { onResult(e.results[0][0].transcript); };
+    r.onresult = async (e) => {
+      // Try all alternatives, pick the one that looks most like English already
+      const alternatives = Array.from(e.results[0]).map(a => a.transcript);
+      // Prefer alternative with no Devanagari (user might have spoken in English)
+      const englishAlt = alternatives.find(t => !/[\u0900-\u097F]/.test(t));
+      const raw = englishAlt || alternatives[0];
+      // Translate if needed
+      const translated = await translateHindiToEnglish(raw);
+      onResult(translated);
+    };
     r.onerror = () => setListening(false);
     recognitionRef.current = r;
     r.start();
