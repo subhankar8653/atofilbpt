@@ -39,6 +39,24 @@ const TMDB_IMG_ORIG = "https://image.tmdb.org/t/p/original";
 const QUALITIES = ["All", "2160p", "1080p", "720p", "480p", "360p", "240p"];
 const LANGUAGES = ["All", "Hindi", "English", "Tamil", "Telugu", "Malayalam", "Kannada", "Bengali", "Punjabi"];
 
+// ── LocalStorage Helpers (Watchlist) ─────────────────────────────────
+function getWatchlist() {
+  try { return JSON.parse(localStorage.getItem("watchlist") || "[]"); } catch { return []; }
+}
+function saveWatchlist(list) {
+  try { localStorage.setItem("watchlist", JSON.stringify(list)); } catch {}
+}
+function isInWatchlist(id) {
+  return getWatchlist().some(x => String(x.id) === String(id));
+}
+function toggleWatchlist(item) {
+  const list = getWatchlist();
+  const idx = list.findIndex(x => String(x.id) === String(item.id));
+  if (idx !== -1) { list.splice(idx, 1); } else { list.unshift(item); }
+  saveWatchlist(list);
+  return idx === -1; // true = added
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 function formatSize(bytes) {
   if (!bytes) return "";
@@ -95,8 +113,9 @@ function extractMovieTitle(name = "") {
     return !/^(multi|dual|dubbed|hindi|english|tamil|telugu|malayalam|kannada|bengali|punjabi|amazon|netflix)$/i.test(w);
   });
   n = filtered.join(" ").replace(/\s+/g, " ").trim();
+  // BUG FIX: was slicing to 4 words, now allow up to 6 for longer titles
   const finalWords = n.split(" ").filter(w => w.length > 1);
-  return finalWords.slice(0, 4).join(" ") || cleanFileName(name).split(" ").slice(0, 3).join(" ");
+  return finalWords.slice(0, 6).join(" ") || cleanFileName(name).split(" ").slice(0, 4).join(" ");
 }
 
 function extractEpisodeInfo(name = "") {
@@ -143,7 +162,6 @@ function extractLanguage(name = "") {
   return null;
 }
 function buildCaption(fileName = "") {
-  const clean = stripPromotion(fileName).replace(/\.(mkv|mp4|avi|mov|webm)$/i, "");
   const title = extractMovieTitle(fileName);
   const season = extractSeason(fileName);
   const epInfo = extractEpisodeInfo(fileName);
@@ -174,17 +192,18 @@ function buildCaption(fileName = "") {
 const QUALITY_ORDER = { "2160P": 0, "1080P": 1, "720P": 2, "480P": 3, "360P": 4, "240P": 5 };
 
 // ── Bot API ──────────────────────────────────────────────────────────
-async function fetchFiles(query, quality, language, limit = 50) {
+async function fetchFiles(query, quality, language, limit = 50, signal) {
   try {
     const params = new URLSearchParams({ q: query || ".", quality, language, limit });
-    const res = await fetch(`${API_BASE}/api/search?${params}`);
+    const res = await fetch(`${API_BASE}/api/search?${params}`, signal ? { signal } : {});
     if (!res.ok) throw new Error("API error");
     const data = await res.json();
     let files = data.files || [];
+    // Client-side filter only when API doesn't support it
     if (quality && quality !== "All") {
       files = files.filter(f => {
         const q = extractQuality(f.file_name);
-        return q && q.toUpperCase() === quality.toUpperCase().replace("P","") + "P";
+        return q && q.toUpperCase() === quality.toUpperCase();
       });
     }
     if (language && language !== "All") {
@@ -194,7 +213,10 @@ async function fetchFiles(query, quality, language, limit = 50) {
       });
     }
     return files;
-  } catch { return []; }
+  } catch (e) {
+    if (e.name === "AbortError") return null; // distinguish abort from real error
+    return [];
+  }
 }
 
 async function fetchTrending(category = "all", limit = 12) {
@@ -216,7 +238,7 @@ async function tmdbGet(endpoint, params = {}) {
   } catch { return null; }
 }
 
-const TMDB_CACHE_MAX = 200;
+const TMDB_CACHE_MAX = 300;
 const tmdbCache = new Map();
 const tmdbInFlight = new Map();
 
@@ -239,6 +261,7 @@ async function enrichWithTMDB(title, year) {
       }
       const out = {
         id: result.id,
+        tmdbId: result.id,
         title: result.title || result.name || title,
         poster: result.poster_path ? `${TMDB_IMG}${result.poster_path}` : null,
         backdrop: result.backdrop_path ? `${TMDB_IMG_ORIG}${result.backdrop_path}` : null,
@@ -246,6 +269,7 @@ async function enrichWithTMDB(title, year) {
         year: (result.release_date || result.first_air_date || "").slice(0, 4) || year,
         overview: result.overview || null,
         type: result.media_type === "tv" ? "series" : "movie",
+        genreIds: result.genre_ids || [],
       };
       if (tmdbCache.size >= TMDB_CACHE_MAX) tmdbCache.delete(tmdbCache.keys().next().value);
       tmdbCache.set(key, out);
@@ -273,8 +297,18 @@ async function fetchPosterFromTMDB(title, year) {
   } catch { return null; }
 }
 
-// Strict language filter: sirf woh files jo PRIMARILY us language ki hain
-// "Hindi Dubbed" wali files ko Bollywood mein nahi dikhana
+// Fetch YouTube trailer key from TMDB
+async function fetchTrailerKey(tmdbId, type = "movie") {
+  try {
+    const endpoint = type === "series" ? `/tv/${tmdbId}/videos` : `/movie/${tmdbId}/videos`;
+    const data = await tmdbGet(endpoint, { language: "en-US" });
+    const videos = data?.results || [];
+    const trailer = videos.find(v => v.type === "Trailer" && v.site === "YouTube")
+      || videos.find(v => v.site === "YouTube");
+    return trailer?.key || null;
+  } catch { return null; }
+}
+
 const CATEGORY_LANG_FILTER = {
   hindi:     /\bhindi\b/i,
   tamil:     /\btamil\b/i,
@@ -286,14 +320,10 @@ const CATEGORY_LANG_FILTER = {
   series:    null,
 };
 
-// Hindi category ke liye extra check: "Hindi Dubbed" anime/Hollywood reject karo
-// Jab ek file mein koi aur language bhi ho toh wo Bollywood nahi hai
 const NON_BOLLYWOOD_PATTERNS = /\b(dubbed|dub|anime|doraemon|dragon\s?ball|naruto|one\s?piece|bleach|detective\s?conan|shin\s?chan|pokemon|hollywood|english|korean|chinese|japanese|kannada|telugu|tamil|malayalam|bengali)\b/i;
 
-// API se ek baar mein kitna maango
 const API_FETCH_BATCH = 200;
 
-// Language categories ke liye search query mapping
 const CATEGORY_SEARCH_QUERY = {
   hindi:     "hindi",
   tamil:     "tamil",
@@ -302,8 +332,8 @@ const CATEGORY_SEARCH_QUERY = {
   kannada:   "kannada",
   bengali:   "bengali",
   english:   "english",
-  series:    null, // trending se
-  all:       null, // trending se
+  series:    null,
+  all:       null,
 };
 
 async function fetchDBCategory(category, limit = 12, offset = 0) {
@@ -315,24 +345,15 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
     let res;
 
     if (searchQuery) {
-      // Language categories: search API use karo — poore database se milega
       const pageNum = offset > 0 ? Math.floor(offset / API_FETCH_BATCH) + 1 : 1;
       const params = new URLSearchParams({
-        q: searchQuery,
-        quality: "All",
-        language: "All",
-        limit: API_FETCH_BATCH,
-        page: pageNum,
+        q: searchQuery, quality: "All", language: "All",
+        limit: API_FETCH_BATCH, page: pageNum,
       });
       res = await fetch(`${API_BASE}/api/search?${params}`, { signal: controller.signal });
     } else {
-      // All / series: trending API use karo
       const pageNum = offset > 0 ? Math.floor(offset / API_FETCH_BATCH) + 1 : 1;
-      const params = new URLSearchParams({
-        category,
-        limit: API_FETCH_BATCH,
-        page: pageNum,
-      });
+      const params = new URLSearchParams({ category, limit: API_FETCH_BATCH, page: pageNum });
       res = await fetch(`${API_BASE}/api/trending?${params}`, { signal: controller.signal });
     }
 
@@ -341,28 +362,19 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
     const data = await res.json();
     let files = data.files || [];
 
-    // Series filter
     if (category === "series") {
       files = files.filter(f => isSeries(f.file_name));
     }
 
-    // Language STRICT filter — sirf woh files jo actually us language ki hain
     const langFilter = CATEGORY_LANG_FILTER[category];
     if (langFilter) {
       let filtered = files.filter(f => langFilter.test(f.file_name));
-
-      // Bollywood ke liye extra: "Hindi Dubbed" anime/foreign reject karo
       if (category === "hindi") {
-        filtered = filtered.filter(f => !NON_BOLLYWOOD_PATTERNS.test(
-          f.file_name.replace(/\bhindi\b/gi, "") // hindi word hata ke baaki check karo
-        ));
-        // Agar filtered bahut kam ho (< 20%) toh original rakh lo (edge case)
+        filtered = filtered.filter(f => !NON_BOLLYWOOD_PATTERNS.test(f.file_name.replace(/\bhindi\b/gi, "")));
         if (filtered.length < files.length * 0.05 && files.length > 0) {
-          // Just use original language filter without extra check
           filtered = files.filter(f => langFilter.test(f.file_name));
         }
       } else {
-        // Dusri languages ke liye: filtered > 10% ho toh use karo
         if (filtered.length < files.length * 0.1 && files.length > 0) {
           filtered = files.filter(f => langFilter.test(f.file_name));
         }
@@ -370,7 +382,6 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
       files = filtered;
     }
 
-    // Duplicate titles hata do
     const seen = new Set();
     const unique = [];
     for (const f of files) {
@@ -382,7 +393,6 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
       }
     }
 
-    // Sirf limit tak lo
     const sliced = unique.slice(0, limit);
 
     const enriched = await Promise.all(
@@ -392,7 +402,7 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
         return {
           id: f.file_id, title: f._title, poster: null,
           backdrop: null, rating: null, year: f._year,
-          overview: null, type: "movie", _file: f,
+          overview: null, type: "movie", _file: f, genreIds: [],
         };
       })
     );
@@ -405,8 +415,15 @@ function TMDBCard({ item, onClick, gridMode = false }) {
   const [hov, setHov] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
+  const [inList, setInList] = useState(() => isInWatchlist(item.id));
   const hue = [...(item.title || "")].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
   const initials = (item.title || "").split(" ").slice(0, 2).map(w => w[0] || "").join("").toUpperCase();
+
+  const handleWatchlist = (e) => {
+    e.stopPropagation();
+    const added = toggleWatchlist(item);
+    setInList(added);
+  };
 
   return (
     <div
@@ -421,6 +438,7 @@ function TMDBCard({ item, onClick, gridMode = false }) {
         transform: hov ? "scale(1.03) translateY(-2px)" : "scale(1)",
         transition: "transform .25s cubic-bezier(.34,1.56,.64,1), border-color .2s, box-shadow .2s",
         boxShadow: hov ? `0 16px 40px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,0.06)` : "0 2px 8px rgba(0,0,0,.3)",
+        position: "relative",
       }}
     >
       <div style={{ height: 165, background: "#181818", overflow: "hidden", position: "relative" }}>
@@ -441,7 +459,6 @@ function TMDBCard({ item, onClick, gridMode = false }) {
               onLoad={() => setImgLoaded(true)}
               onError={() => { setImgFailed(true); setImgLoaded(false); }}
             />
-            {/* Hover overlay */}
             {hov && imgLoaded && (
               <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.25)", display: "flex", alignItems: "center", justifyContent: "center", transition: "opacity 0.2s" }}>
                 <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(243,156,18,0.9)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 16px rgba(243,156,18,0.5)" }}>
@@ -472,6 +489,22 @@ function TMDBCard({ item, onClick, gridMode = false }) {
         {item.type === "series" && (
           <div style={{ position: "absolute", top: 7, right: 7, background: "rgba(99,102,241,0.9)", borderRadius: 6, padding: "2px 6px", fontSize: 8, fontWeight: 800, color: "#fff", letterSpacing: 0.5, backdropFilter: "blur(4px)" }}>SERIES</div>
         )}
+        {/* Watchlist button */}
+        <button
+          onClick={handleWatchlist}
+          style={{
+            position: "absolute", top: 7, left: 7,
+            width: 26, height: 26, borderRadius: "50%",
+            background: inList ? "rgba(243,156,18,0.95)" : "rgba(0,0,0,0.7)",
+            border: `1px solid ${inList ? "rgba(243,156,18,0.5)" : "rgba(255,255,255,0.15)"}`,
+            color: "#fff", cursor: "pointer", fontSize: 13,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            backdropFilter: "blur(4px)", transition: "all .2s",
+            opacity: hov || inList ? 1 : 0,
+          }}
+        >
+          {inList ? "✓" : "+"}
+        </button>
       </div>
       <div style={{ padding: "10px 10px 12px" }}>
         <div style={{ fontSize: 11.5, fontWeight: 600, color: "#d4d4d4", lineHeight: 1.4, marginBottom: 4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
@@ -483,71 +516,99 @@ function TMDBCard({ item, onClick, gridMode = false }) {
   );
 }
 
-// ── Hero Banner ────────────────────────────────────────────────────────
-function HeroBannerTMDB({ item, onClick }) {
+// ── Hero Banner Carousel ───────────────────────────────────────────────
+function HeroBannerCarousel({ items, onClick }) {
+  const [current, setCurrent] = useState(0);
   const [bgLoaded, setBgLoaded] = useState(false);
+  const intervalRef = useRef(null);
+  const touchStartX = useRef(null);
+
+  const resetTimer = useCallback(() => {
+    clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(() => {
+      setCurrent(c => (c + 1) % items.length);
+      setBgLoaded(false);
+    }, 5000);
+  }, [items.length]);
+
+  useEffect(() => {
+    if (!items.length) return;
+    resetTimer();
+    return () => clearInterval(intervalRef.current);
+  }, [items.length, resetTimer]);
+
+  const goTo = (i) => {
+    setCurrent(i);
+    setBgLoaded(false);
+    resetTimer();
+  };
+
+  const onTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
+  const onTouchEnd = (e) => {
+    if (touchStartX.current === null) return;
+    const diff = touchStartX.current - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 50) {
+      goTo(diff > 0 ? (current + 1) % items.length : (current - 1 + items.length) % items.length);
+    }
+    touchStartX.current = null;
+  };
+
+  if (!items.length) return null;
+  const item = items[current];
   const hue = [...(item.title || "")].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
   const bgSrc = item.backdrop || item.poster;
 
   return (
     <div
-      onClick={() => onClick(item)}
-      style={{
-        margin: "0 14px 28px", borderRadius: 24, overflow: "hidden", position: "relative",
-        height: 220, cursor: "pointer",
-        background: `linear-gradient(135deg,hsl(${hue},35%,10%),hsl(${(hue + 60) % 360},25%,6%))`,
-        boxShadow: "0 20px 60px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,0.04)",
-      }}
+      onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
+      style={{ margin: "0 0 28px", position: "relative", height: 240, cursor: "pointer", overflow: "hidden" }}
     >
+      {/* Background */}
+      <div style={{ position: "absolute", inset: 0, background: `linear-gradient(135deg,hsl(${hue},35%,10%),hsl(${(hue + 60) % 360},25%,6%))`, transition: "background 0.5s" }} />
       {bgSrc && (
-        <img
-          src={bgSrc} alt={item.title} loading="lazy"
-          style={{
-            position: "absolute", inset: 0, width: "100%", height: "100%",
-            objectFit: "cover", objectPosition: "center top",
-            opacity: bgLoaded ? 0.55 : 0, transition: "opacity 0.7s ease",
-          }}
-          onLoad={() => setBgLoaded(true)} onError={() => setBgLoaded(false)}
-        />
+        <img key={bgSrc} src={bgSrc} alt={item.title} loading="lazy"
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top", opacity: bgLoaded ? 0.55 : 0, transition: "opacity 0.7s ease" }}
+          onLoad={() => setBgLoaded(true)} onError={() => setBgLoaded(false)} />
       )}
-      {/* Gradient overlays */}
       <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to right,rgba(0,0,0,.95) 30%,rgba(0,0,0,.2))" }} />
-      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top,rgba(0,0,0,.95) 0%,transparent 50%)" }} />
+      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top,rgba(0,0,0,.98) 0%,transparent 55%)" }} />
 
-      <div style={{ position: "absolute", bottom: 0, left: 0, right: "20%", padding: "20px 22px" }}>
-        <div style={{ fontSize: 9, fontWeight: 800, color: "#f39c12", letterSpacing: "3px", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+      {/* Content */}
+      <div onClick={() => onClick(item)} style={{ position: "absolute", bottom: 0, left: 0, right: "20%", padding: "20px 18px" }}>
+        <div style={{ fontSize: 9, fontWeight: 800, color: "#f39c12", letterSpacing: "3px", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ width: 20, height: 2, background: "linear-gradient(90deg,#f39c12,#e74c3c)", display: "inline-block", borderRadius: 2 }} />
           FEATURED TODAY
         </div>
-        <div style={{ fontSize: 24, fontWeight: 900, color: "#fff", lineHeight: 1.15, marginBottom: 10, textShadow: "0 2px 12px rgba(0,0,0,.8)", letterSpacing: "-0.3px" }}>
+        <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", lineHeight: 1.15, marginBottom: 8, textShadow: "0 2px 12px rgba(0,0,0,.8)", letterSpacing: "-0.3px" }}>
           {item.title}
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
           {item.rating && item.rating !== "0.0" && (
-            <span style={{ display: "flex", alignItems: "center", gap: 4, background: "rgba(241,196,15,0.1)", borderRadius: 8, padding: "4px 10px", border: "1px solid rgba(241,196,15,0.25)" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 4, background: "rgba(241,196,15,0.1)", borderRadius: 8, padding: "3px 10px", border: "1px solid rgba(241,196,15,0.25)" }}>
               <span style={{ fontSize: 11, color: "#f1c40f" }}>★</span>
               <span style={{ fontSize: 12, color: "#f1c40f", fontWeight: 800 }}>{item.rating}</span>
             </span>
           )}
           {item.year && <span style={{ fontSize: 12, color: "#666", fontWeight: 500 }}>{item.year}</span>}
-          {item.type === "series" && (
-            <span style={{ fontSize: 10, color: "#a78bfa", fontWeight: 700, background: "rgba(167,139,250,0.1)", padding: "3px 8px", borderRadius: 6, border: "1px solid rgba(167,139,250,0.2)" }}>SERIES</span>
-          )}
+          {item.type === "series" && <span style={{ fontSize: 10, color: "#a78bfa", fontWeight: 700, background: "rgba(167,139,250,0.1)", padding: "3px 8px", borderRadius: 6, border: "1px solid rgba(167,139,250,0.2)" }}>SERIES</span>}
         </div>
         {item.overview && (
-          <p style={{ fontSize: 11.5, color: "#555", lineHeight: 1.6, margin: 0, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+          <p style={{ fontSize: 11, color: "#555", lineHeight: 1.6, margin: 0, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
             {item.overview}
           </p>
         )}
       </div>
+
       {/* Play button */}
-      <div style={{
-        position: "absolute", right: 20, bottom: 20, width: 50, height: 50, borderRadius: "50%",
-        background: "linear-gradient(135deg,#f39c12,#e74c3c)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        boxShadow: "0 6px 24px rgba(243,156,18,.5)",
-      }}>
+      <div onClick={() => onClick(item)} style={{ position: "absolute", right: 18, bottom: 20, width: 48, height: 48, borderRadius: "50%", background: "linear-gradient(135deg,#f39c12,#e74c3c)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 6px 24px rgba(243,156,18,.5)", cursor: "pointer" }}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z" /></svg>
+      </div>
+
+      {/* Dot indicators */}
+      <div style={{ position: "absolute", bottom: 8, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 5 }}>
+        {items.map((_, i) => (
+          <button key={i} onClick={() => goTo(i)} style={{ width: i === current ? 18 : 6, height: 6, borderRadius: 3, background: i === current ? "#f39c12" : "rgba(255,255,255,0.25)", border: "none", cursor: "pointer", padding: 0, transition: "all .3s" }} />
+        ))}
       </div>
     </div>
   );
@@ -559,6 +620,7 @@ function Poster({ file, seriesTitle = null, size = "card" }) {
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
   const [rating, setRating] = useState(null);
+  // BUG FIX: use seriesTitle for series, else extract from filename
   const title = seriesTitle || extractMovieTitle(file.file_name);
   const year = extractYear(file.file_name);
 
@@ -769,9 +831,7 @@ function EpisodeQualityRow({ epFrom, epTo, isCombined, files, seriesTitle, seaso
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 5 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             {isCombined && (
-              <span style={{ fontSize: 8, fontWeight: 900, color: "#fff", background: "linear-gradient(135deg,#27ae60,#1e8449)", borderRadius: 5, padding: "2px 8px", letterSpacing: 0.5 }}>
-                COMPLETE PACK
-              </span>
+              <span style={{ fontSize: 8, fontWeight: 900, color: "#fff", background: "linear-gradient(135deg,#27ae60,#1e8449)", borderRadius: 5, padding: "2px 8px", letterSpacing: 0.5 }}>COMPLETE PACK</span>
             )}
             {season && (
               <span style={{ fontSize: 8, fontWeight: 800, color: "#fff", background: "linear-gradient(135deg,#6366f1,#4f46e5)", borderRadius: 5, padding: "2px 8px", letterSpacing: 0.5 }}>
@@ -779,24 +839,13 @@ function EpisodeQualityRow({ epFrom, epTo, isCombined, files, seriesTitle, seaso
               </span>
             )}
           </div>
-          <div style={{ fontSize: 12.5, fontWeight: 800, color: isCombined ? "#2ecc71" : "#f39c12", letterSpacing: 0.3 }}>
-            {epLabel}
-          </div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "#999", lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-            {seriesTitle}
-          </div>
+          <div style={{ fontSize: 12.5, fontWeight: 800, color: isCombined ? "#2ecc71" : "#f39c12", letterSpacing: 0.3 }}>{epLabel}</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#999", lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{seriesTitle}</div>
         </div>
       </div>
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
         {sorted.map((f, idx) => (
-          <QualityRow
-            key={f.file_id}
-            file={f}
-            quality={extractQuality(f.file_name)}
-            lang={extractLanguage(f.file_name)}
-            isLast={idx === sorted.length - 1}
-            onClick={() => onFileClick(f)}
-          />
+          <QualityRow key={f.file_id} file={f} quality={extractQuality(f.file_name)} lang={extractLanguage(f.file_name)} isLast={idx === sorted.length - 1} onClick={() => onFileClick(f)} />
         ))}
       </div>
     </div>
@@ -806,20 +855,11 @@ function EpisodeQualityRow({ epFrom, epTo, isCombined, files, seriesTitle, seaso
 // ── TMDB Category Row ─────────────────────────────────────────────────
 function TMDBCategoryRow({ title, items, onItemClick, onSeeAll }) {
   if (!items || !items.length) return null;
-  
-  // Category icons
   const icons = {
-    "NOW PLAYING": "🎬",
-    "GLOBAL TRENDING": "🌍",
-    "TRENDING SERIES": "📺",
-    "BOLLYWOOD": "🎭",
-    "TAMIL MOVIES": "🌟",
-    "MALAYALAM MOVIES": "🌴",
-    "TELUGU MOVIES": "🎪",
-    "KANNADA MOVIES": "🏔️",
-    "BENGALI MOVIES": "🌊",
-    "ENGLISH MOVIES": "🎥",
-    "TOP RATED ALL TIME": "🏆",
+    "NOW PLAYING": "🎬", "GLOBAL TRENDING": "🌍", "TRENDING SERIES": "📺",
+    "BOLLYWOOD": "🎭", "TAMIL MOVIES": "🌟", "MALAYALAM MOVIES": "🌴",
+    "TELUGU MOVIES": "🎪", "KANNADA MOVIES": "🏔️", "BENGALI MOVIES": "🌊",
+    "ENGLISH MOVIES": "🎥", "TOP RATED ALL TIME": "🏆",
   };
 
   return (
@@ -839,11 +879,34 @@ function TMDBCategoryRow({ title, items, onItemClick, onSeeAll }) {
             <TMDBCard key={item.id} item={item} onClick={onItemClick} />
           ))}
         </div>
-        <div style={{
-          position: "absolute", top: 0, right: 0, bottom: 6, width: 48,
-          background: "linear-gradient(to right, transparent, #0a0a0a)",
-          pointerEvents: "none",
-        }} />
+        <div style={{ position: "absolute", top: 0, right: 0, bottom: 6, width: 48, background: "linear-gradient(to right, transparent, #0a0a0a)", pointerEvents: "none" }} />
+      </div>
+    </div>
+  );
+}
+
+// ── Trailer Modal ─────────────────────────────────────────────────────
+function TrailerModal({ trailerKey, onClose }) {
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = ""; };
+  }, []);
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.95)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(20px)" }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 480, padding: "0 16px" }}>
+        <div style={{ position: "relative", paddingBottom: "56.25%", height: 0, borderRadius: 16, overflow: "hidden", boxShadow: "0 24px 60px rgba(0,0,0,.9)" }}>
+          <iframe
+            src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&rel=0`}
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }}
+            allow="autoplay; encrypted-media"
+            allowFullScreen
+            title="Trailer"
+          />
+        </div>
+        <button onClick={onClose} style={{ display: "block", margin: "16px auto 0", padding: "10px 28px", borderRadius: 50, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", color: "#aaa", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+          ✕ Close
+        </button>
       </div>
     </div>
   );
@@ -853,19 +916,64 @@ function TMDBCategoryRow({ title, items, onItemClick, onSeeAll }) {
 function DetailModal({ file, onClose }) {
   const [posterData, setPosterData] = useState(null);
   const [bgLoaded, setBgLoaded] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [trailerKey, setTrailerKey] = useState(null);
+  const [trailerLoading, setTrailerLoading] = useState(false);
+  const [showTrailer, setShowTrailer] = useState(false);
+  const [inList, setInList] = useState(false);
+
+  // BUG FIX: separate mount/unmount effect for overflow to avoid leaks
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = ""; };
+  }, []);
+
+  const isSer = isSeries(file.file_name);
   const q = extractQuality(file.file_name);
   const year = extractYear(file.file_name);
   const name = cleanFileName(file.file_name);
-  const title = extractMovieTitle(file.file_name);
+  // BUG FIX: for series use series-aware title
+  const serTitle = isSer ? extractMovieTitle(file.file_name) : null;
+  const title = serTitle || extractMovieTitle(file.file_name);
   const link = tgLink(file.file_id);
   const hue = [...title].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
-  const [toast, setToast] = useState(null);
 
   useEffect(() => {
-    document.body.style.overflow = "hidden";
-    fetchPosterFromTMDB(title, year).then(data => { if (data?.poster) setPosterData(data); });
-    return () => { document.body.style.overflow = ""; };
+    fetchPosterFromTMDB(title, year).then(data => {
+      if (data?.poster) setPosterData(data);
+    });
   }, [title, year]);
+
+  // Load TMDB id for trailer
+  useEffect(() => {
+    enrichWithTMDB(title, year).then(tmdb => {
+      if (tmdb?.tmdbId) {
+        setInList(isInWatchlist(tmdb.id));
+      }
+    });
+  }, [title, year]);
+
+  const handleWatchlist = async () => {
+    const tmdb = await enrichWithTMDB(title, year);
+    if (!tmdb) { showToast("ℹ️ TMDB data nahi mila"); return; }
+    const added = toggleWatchlist(tmdb);
+    setInList(added);
+    showToast(added ? "✅ My List mein add hua!" : "🗑️ My List se remove hua");
+  };
+
+  const handleTrailer = async () => {
+    if (trailerKey) { setShowTrailer(true); return; }
+    setTrailerLoading(true);
+    const tmdb = await enrichWithTMDB(title, year);
+    if (tmdb?.tmdbId) {
+      const key = await fetchTrailerKey(tmdb.tmdbId, tmdb.type);
+      if (key) { setTrailerKey(key); setShowTrailer(true); }
+      else showToast("❌ Trailer nahi mila");
+    } else {
+      showToast("❌ Trailer nahi mila");
+    }
+    setTrailerLoading(false);
+  };
 
   const showToast = (msg) => {
     setToast(msg);
@@ -883,95 +991,109 @@ function DetailModal({ file, onClose }) {
   };
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.9)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(16px)" }}>
-      <div onClick={e => e.stopPropagation()}
-        style={{
-          background: "#111", borderRadius: "28px 28px 0 0", width: "100%", maxWidth: 480,
-          overflow: "hidden", animation: "slideUp .35s cubic-bezier(.32,1.4,.6,1)",
-          maxHeight: "93vh", overflowY: "auto",
-          border: "1px solid rgba(255,255,255,0.06)", borderBottom: "none",
-        }}>
-        {/* Drag handle */}
-        <div style={{ display: "flex", justifyContent: "center", padding: "12px 0 0" }}>
-          <div style={{ width: 40, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.12)" }} />
-        </div>
-
-        {/* Hero image */}
-        <div style={{ position: "relative", height: 290, background: `linear-gradient(135deg,hsl(${hue},35%,10%),hsl(${(hue + 60) % 360},25%,7%))` }}>
-          {posterData?.poster ? (
-            <img src={posterData.poster} alt={title}
-              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top", opacity: bgLoaded ? 1 : 0, transition: "opacity 0.6s ease" }}
-              onLoad={() => setBgLoaded(true)} onError={() => setBgLoaded(false)} />
-          ) : (
-            <div style={{ position: "absolute", inset: 0 }}><Poster file={file} size="banner" /></div>
-          )}
-          <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom,rgba(0,0,0,0.1) 0%,rgba(17,17,17,1) 100%)" }} />
-          <button onClick={onClose}
-            style={{ position: "absolute", top: 16, right: 16, width: 38, height: 38, borderRadius: "50%", background: "rgba(0,0,0,.75)", border: "1px solid rgba(255,255,255,0.1)", color: "#aaa", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(8px)" }}>✕</button>
-        </div>
-
-        {/* Content */}
-        <div style={{ padding: "4px 20px 40px" }}>
-          {(() => {
-            const lines = buildCaption(file.file_name).split("\n");
-            return (
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", lineHeight: 1.2, marginBottom: 6, letterSpacing: "-0.3px" }}>{lines[0]}</div>
-                {lines[1] && <div style={{ fontSize: 12, fontWeight: 700, color: "#6366f1", letterSpacing: 0.5, marginBottom: 3 }}>{lines[1]}</div>}
-                {lines[2] && <div style={{ fontSize: 11, fontWeight: 600, color: "#666", letterSpacing: 0.5 }}>{lines[2]}</div>}
-              </div>
-            );
-          })()}
-
-          {/* Badges */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
-            {q && <span style={{ padding: "5px 13px", borderRadius: 9, fontSize: 11, fontWeight: 800, background: qualityBg(q), color: "#fff" }}>{q}</span>}
-            {year && <span style={{ padding: "5px 13px", borderRadius: 9, fontSize: 11, background: "rgba(255,255,255,0.05)", color: "#888", border: "1px solid rgba(255,255,255,0.08)" }}>{year}</span>}
-            {file.file_size > 0 && <span style={{ padding: "5px 13px", borderRadius: 9, fontSize: 11, background: "rgba(255,255,255,0.05)", color: "#888", border: "1px solid rgba(255,255,255,0.08)" }}>💾 {formatSize(file.file_size)}</span>}
-            {posterData?.imdb_rating && posterData.imdb_rating !== "N/A" && posterData.imdb_rating !== "0.0" && (
-              <span style={{ padding: "5px 13px", borderRadius: 9, fontSize: 11, fontWeight: 800, background: "rgba(241,196,15,0.08)", color: "#f1c40f", border: "1px solid rgba(241,196,15,0.2)" }}>
-                ★ {posterData.imdb_rating}
-              </span>
-            )}
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.9)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(16px)" }}>
+        <div onClick={e => e.stopPropagation()}
+          style={{
+            background: "#111", borderRadius: "28px 28px 0 0", width: "100%", maxWidth: 480,
+            overflow: "hidden", animation: "slideUp .35s cubic-bezier(.32,1.4,.6,1)",
+            maxHeight: "93vh", overflowY: "auto",
+            border: "1px solid rgba(255,255,255,0.06)", borderBottom: "none",
+          }}>
+          <div style={{ display: "flex", justifyContent: "center", padding: "12px 0 0" }}>
+            <div style={{ width: 40, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.12)" }} />
           </div>
 
-          {/* Plot */}
-          {posterData?.plot && (
-            <p style={{ fontSize: 13, color: "#555", lineHeight: 1.75, marginBottom: 22, padding: "14px 16px", background: "rgba(255,255,255,0.02)", borderRadius: 14, border: "1px solid rgba(255,255,255,0.04)" }}>
-              {posterData.plot}
-            </p>
-          )}
-
-          {/* Action buttons */}
-          <div style={{ display: "flex", gap: 10 }}>
-            <a href={link} target="_blank" rel="noopener noreferrer"
-              style={{ flex: 1, padding: "16px 0", borderRadius: 18, background: "linear-gradient(135deg,#f39c12,#e74c3c)", color: "#fff", fontSize: 14, fontWeight: 800, textAlign: "center", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, boxShadow: "0 6px 28px rgba(243,156,18,.35)", letterSpacing: 0.3 }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-2.03 9.571c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.893.65z" />
-              </svg>
-              Open in Telegram
-            </a>
-            <button onClick={handleShare}
-              style={{ width: 56, height: 56, borderRadius: 18, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#777", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all .2s" }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
-                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-              </svg>
+          {/* Hero image */}
+          <div style={{ position: "relative", height: 290, background: `linear-gradient(135deg,hsl(${hue},35%,10%),hsl(${(hue + 60) % 360},25%,7%))` }}>
+            {posterData?.poster ? (
+              <img src={posterData.poster} alt={title}
+                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top", opacity: bgLoaded ? 1 : 0, transition: "opacity 0.6s ease" }}
+                onLoad={() => setBgLoaded(true)} onError={() => setBgLoaded(false)} />
+            ) : (
+              <div style={{ position: "absolute", inset: 0 }}><Poster file={file} seriesTitle={serTitle} size="banner" /></div>
+            )}
+            <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom,rgba(0,0,0,0.1) 0%,rgba(17,17,17,1) 100%)" }} />
+            <button onClick={onClose}
+              style={{ position: "absolute", top: 16, right: 16, width: 38, height: 38, borderRadius: "50%", background: "rgba(0,0,0,.75)", border: "1px solid rgba(255,255,255,0.1)", color: "#aaa", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(8px)" }}>✕</button>
+            {/* Trailer button overlay */}
+            <button onClick={handleTrailer}
+              style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", padding: "8px 20px", borderRadius: 50, background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.25)", color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, backdropFilter: "blur(8px)", transition: "all .2s" }}>
+              {trailerLoading
+                ? <div style={{ width: 14, height: 14, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", animation: "spin 0.8s linear infinite" }} />
+                : <svg width="12" height="12" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z" /></svg>
+              }
+              Watch Trailer
             </button>
           </div>
+
+          {/* Content */}
+          <div style={{ padding: "4px 20px 40px" }}>
+            {(() => {
+              const lines = buildCaption(file.file_name).split("\n");
+              return (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", lineHeight: 1.2, marginBottom: 6, letterSpacing: "-0.3px" }}>{lines[0]}</div>
+                  {lines[1] && <div style={{ fontSize: 12, fontWeight: 700, color: "#6366f1", letterSpacing: 0.5, marginBottom: 3 }}>{lines[1]}</div>}
+                  {lines[2] && <div style={{ fontSize: 11, fontWeight: 600, color: "#666", letterSpacing: 0.5 }}>{lines[2]}</div>}
+                </div>
+              );
+            })()}
+
+            {/* Badges */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
+              {q && <span style={{ padding: "5px 13px", borderRadius: 9, fontSize: 11, fontWeight: 800, background: qualityBg(q), color: "#fff" }}>{q}</span>}
+              {year && <span style={{ padding: "5px 13px", borderRadius: 9, fontSize: 11, background: "rgba(255,255,255,0.05)", color: "#888", border: "1px solid rgba(255,255,255,0.08)" }}>{year}</span>}
+              {file.file_size > 0 && <span style={{ padding: "5px 13px", borderRadius: 9, fontSize: 11, background: "rgba(255,255,255,0.05)", color: "#888", border: "1px solid rgba(255,255,255,0.08)" }}>💾 {formatSize(file.file_size)}</span>}
+              {posterData?.imdb_rating && posterData.imdb_rating !== "N/A" && posterData.imdb_rating !== "0.0" && (
+                <span style={{ padding: "5px 13px", borderRadius: 9, fontSize: 11, fontWeight: 800, background: "rgba(241,196,15,0.08)", color: "#f1c40f", border: "1px solid rgba(241,196,15,0.2)" }}>
+                  ★ {posterData.imdb_rating}
+                </span>
+              )}
+            </div>
+
+            {/* Plot */}
+            {posterData?.plot && (
+              <p style={{ fontSize: 13, color: "#555", lineHeight: 1.75, marginBottom: 22, padding: "14px 16px", background: "rgba(255,255,255,0.02)", borderRadius: 14, border: "1px solid rgba(255,255,255,0.04)" }}>
+                {posterData.plot}
+              </p>
+            )}
+
+            {/* Watchlist button */}
+            <button onClick={handleWatchlist}
+              style={{ width: "100%", padding: "13px 0", borderRadius: 14, background: inList ? "rgba(243,156,18,0.1)" : "rgba(255,255,255,0.04)", border: `1px solid ${inList ? "rgba(243,156,18,0.3)" : "rgba(255,255,255,0.08)"}`, color: inList ? "#f39c12" : "#888", fontWeight: 700, fontSize: 13, cursor: "pointer", marginBottom: 10, transition: "all .2s", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              {inList ? "✓ My List mein Hai" : "+ My List mein Add Karo"}
+            </button>
+
+            {/* Action buttons */}
+            <div style={{ display: "flex", gap: 10 }}>
+              <a href={link} target="_blank" rel="noopener noreferrer"
+                style={{ flex: 1, padding: "16px 0", borderRadius: 18, background: "linear-gradient(135deg,#f39c12,#e74c3c)", color: "#fff", fontSize: 14, fontWeight: 800, textAlign: "center", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, boxShadow: "0 6px 28px rgba(243,156,18,.35)", letterSpacing: 0.3 }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-2.03 9.571c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.893.65z" />
+                </svg>
+                Open in Telegram
+              </a>
+              <button onClick={handleShare}
+                style={{ width: 56, height: 56, borderRadius: 18, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#777", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all .2s" }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                </svg>
+              </button>
+            </div>
+          </div>
         </div>
+
+        {toast && (
+          <div style={{ position: "fixed", bottom: 100, left: "50%", transform: "translateX(-50%)", background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 14, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "#eee", zIndex: 2000, whiteSpace: "nowrap", animation: "toastIn 0.25s ease", boxShadow: "0 8px 28px rgba(0,0,0,0.7)" }}>
+            {toast}
+          </div>
+        )}
       </div>
 
-      {toast && (
-        <div style={{
-          position: "fixed", bottom: 100, left: "50%", transform: "translateX(-50%)",
-          background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 14,
-          padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "#eee",
-          zIndex: 2000, whiteSpace: "nowrap", animation: "toastIn 0.25s ease",
-          boxShadow: "0 8px 28px rgba(0,0,0,0.7)",
-        }}>{toast}</div>
-      )}
-    </div>
+      {showTrailer && trailerKey && <TrailerModal trailerKey={trailerKey} onClose={() => setShowTrailer(false)} />}
+    </>
   );
 }
 
@@ -987,9 +1109,7 @@ function FilterRow({ label, items, active, onSelect, accent }) {
             <button key={item} onClick={() => onSelect(item)} style={{
               padding: "7px 16px", borderRadius: 50, border: "none", cursor: "pointer",
               fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", transition: "all .18s",
-              background: on
-                ? (accent ? "linear-gradient(135deg,#f39c12,#e74c3c)" : "rgba(255,255,255,0.9)")
-                : "rgba(255,255,255,0.04)",
+              background: on ? (accent ? "linear-gradient(135deg,#f39c12,#e74c3c)" : "rgba(255,255,255,0.9)") : "rgba(255,255,255,0.04)",
               color: on ? (accent ? "#fff" : "#111") : "#555",
               boxShadow: on && accent ? "0 4px 16px rgba(243,156,18,.35)" : "none",
               transform: on ? "scale(1.05)" : "scale(1)",
@@ -1036,10 +1156,10 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
   const [hasMore, setHasMore] = useState(true);
   const [initialLoading, setInitialLoading] = useState(false);
   const sentinelRef = useRef(null);
-  const pageRef = useRef(1); // Page-based pagination
-  const seenIdsRef = useRef(new Set()); // Global dedup
+  const pageRef = useRef(1);
+  const seenIdsRef = useRef(new Set());
+  const loadingMoreRef = useRef(false); // BUG FIX: use ref to avoid stale closure
 
-  // Pehli baar fresh fetch (zyada limit ke saath)
   useEffect(() => {
     if (!category) return;
     setInitialLoading(true);
@@ -1047,7 +1167,6 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
     seenIdsRef.current = new Set();
     fetchDBCategory(category, PAGE_SIZE, 0).then(data => {
       const fresh = data || [];
-      // Seed seen IDs
       fresh.forEach(x => seenIdsRef.current.add(String(x.id)));
       setItems(fresh);
       setHasMore(fresh.length >= PAGE_SIZE);
@@ -1055,20 +1174,10 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
     });
   }, [category]);
 
-  // IntersectionObserver — jab sentinel screen pe aaye toh load more
-  useEffect(() => {
-    if (!sentinelRef.current) return;
-    const obs = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting && !loadingMore && hasMore && !initialLoading) {
-        loadMore();
-      }
-    }, { rootMargin: "200px" });
-    obs.observe(sentinelRef.current);
-    return () => obs.disconnect();
-  }, [loadingMore, hasMore, initialLoading]);
-
-  const loadMore = async () => {
-    if (loadingMore || !hasMore || !category) return;
+  // BUG FIX: loadMore via ref to avoid stale closure in IntersectionObserver
+  const loadMore = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMore || !category) return;
+    loadingMoreRef.current = true;
     setLoadingMore(true);
     pageRef.current += 1;
     const nextOffset = (pageRef.current - 1) * API_FETCH_BATCH;
@@ -1078,30 +1187,26 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
     } else {
       const fresh = newItems.filter(x => !seenIdsRef.current.has(String(x.id)));
       fresh.forEach(x => seenIdsRef.current.add(String(x.id)));
-      if (fresh.length > 0) {
-        setItems(prev => [...prev, ...fresh]);
-      }
-      if (newItems.length < PAGE_SIZE || fresh.length === 0) {
-        setHasMore(false);
-      }
+      if (fresh.length > 0) setItems(prev => [...prev, ...fresh]);
+      if (newItems.length < PAGE_SIZE || fresh.length === 0) setHasMore(false);
     }
+    loadingMoreRef.current = false;
     setLoadingMore(false);
-  };
+  }, [hasMore, category]);
+
+  useEffect(() => {
+    if (!sentinelRef.current) return;
+    const obs = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && !loadingMoreRef.current) loadMore();
+    }, { rootMargin: "200px" });
+    obs.observe(sentinelRef.current);
+    return () => obs.disconnect();
+  }, [loadMore]);
 
   return (
-    <div style={{ paddingBottom: 60 }}>
-      {/* Sticky Header */}
-      <div style={{
-        padding: "12px 16px", display: "flex", alignItems: "center", gap: 12,
-        position: "sticky", top: 56, zIndex: 50,
-        background: "rgba(10,10,10,0.96)", backdropFilter: "blur(14px)",
-        borderBottom: "1px solid rgba(255,255,255,0.05)",
-      }}>
-        <button onClick={onBack} style={{
-          background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
-          borderRadius: "50%", width: 34, height: 34, cursor: "pointer",
-          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-        }}>
+    <div style={{ paddingBottom: 80 }}>
+      <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, position: "sticky", top: 56, zIndex: 50, background: "rgba(10,10,10,0.96)", backdropFilter: "blur(14px)", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+        <button onClick={onBack} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "50%", width: 34, height: 34, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2.5" strokeLinecap="round"><path d="M19 12H5M12 5l-7 7 7 7" /></svg>
         </button>
         <span style={{ fontSize: 15, fontWeight: 900, color: "#e8e8e8", letterSpacing: 0.5 }}>{title}</span>
@@ -1111,7 +1216,6 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
         }
       </div>
 
-      {/* 3-column grid */}
       {initialLoading ? (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, padding: "14px 12px" }}>
           {[...Array(12)].map((_, i) => (
@@ -1134,30 +1238,124 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
         </div>
       )}
 
-      {/* Infinite scroll sentinel */}
       <div ref={sentinelRef} style={{ height: 1 }} />
-
-      {/* Load more spinner */}
       {loadingMore && (
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 10, padding: "20px 0" }}>
           <div style={{ width: 20, height: 20, borderRadius: "50%", border: "2px solid rgba(243,156,18,0.2)", borderTopColor: "#f39c12", animation: "spin 0.8s linear infinite" }} />
           <span style={{ fontSize: 12, color: "#555", fontWeight: 600 }}>Aur load ho raha hai...</span>
         </div>
       )}
-
-      {/* End of list */}
       {!hasMore && !loadingMore && items.length > 0 && (
-        <div style={{ textAlign: "center", padding: "20px 0 10px", fontSize: 11, color: "#2a2a2a", fontWeight: 600 }}>
-          ── Yahi tak hai ──
-        </div>
+        <div style={{ textAlign: "center", padding: "20px 0 10px", fontSize: 11, color: "#2a2a2a", fontWeight: 600 }}>── Yahi tak hai ──</div>
       )}
-
       {!initialLoading && items.length === 0 && (
         <div style={{ textAlign: "center", padding: "60px 20px" }}>
           <div style={{ fontSize: 44, marginBottom: 12 }}>🎬</div>
           <div style={{ fontSize: 14, color: "#555" }}>Koi content nahi mila</div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Watchlist Tab ─────────────────────────────────────────────────────
+function WatchlistTab({ onItemClick }) {
+  const [items, setItems] = useState([]);
+  useEffect(() => { setItems(getWatchlist()); }, []);
+
+  const remove = (id) => {
+    const item = items.find(x => String(x.id) === String(id));
+    if (item) toggleWatchlist(item);
+    setItems(getWatchlist());
+  };
+
+  if (items.length === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: "80px 24px" }}>
+        <div style={{ fontSize: 52, marginBottom: 16 }}>📋</div>
+        <div style={{ fontSize: 17, fontWeight: 800, color: "#ccc", marginBottom: 8 }}>My List Khali Hai</div>
+        <div style={{ fontSize: 13, color: "#444", lineHeight: 1.6 }}>
+          Kisi bhi movie ya series ke card pe<br />"+" button press karo add karne ke liye
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: "16px 12px 80px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+        {items.map((item, i) => (
+          <div key={item.id} style={{ position: "relative", animation: `fadeIn .2s ease ${i * 0.04}s both` }}>
+            <TMDBCard item={item} onClick={onItemClick} gridMode />
+            <button onClick={() => remove(item.id)}
+              style={{ position: "absolute", top: 7, right: 7, width: 22, height: 22, borderRadius: "50%", background: "rgba(231,76,60,0.9)", border: "none", color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10 }}>
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Voice Search ──────────────────────────────────────────────────────
+function useVoiceSearch(onResult) {
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef(null);
+
+  const start = useCallback(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) { alert("Voice search is not supported in this browser"); return; }
+    const r = new SpeechRecognition();
+    r.lang = "hi-IN"; r.interimResults = false; r.maxAlternatives = 1;
+    r.onstart = () => setListening(true);
+    r.onend = () => setListening(false);
+    r.onresult = (e) => { onResult(e.results[0][0].transcript); };
+    r.onerror = () => setListening(false);
+    recognitionRef.current = r;
+    r.start();
+  }, [onResult]);
+
+  const stop = useCallback(() => {
+    recognitionRef.current?.stop();
+    setListening(false);
+  }, []);
+
+  return { listening, start, stop };
+}
+
+// ── Bottom Navigation ─────────────────────────────────────────────────
+function BottomNav({ tab, setTab }) {
+  const tabs = [
+    { id: "home", icon: (active) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill={active ? "#f39c12" : "none"} stroke={active ? "#f39c12" : "#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" />
+      </svg>), label: "Home" },
+    { id: "search", icon: (active) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#f39c12" : "#555"} strokeWidth="2" strokeLinecap="round">
+        <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+      </svg>), label: "Search" },
+    { id: "mylist", icon: (active) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill={active ? "#f39c12" : "none"} stroke={active ? "#f39c12" : "#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+      </svg>), label: "My List" },
+  ];
+
+  return (
+    <div style={{
+      position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
+      width: "100%", maxWidth: 480, zIndex: 200,
+      background: "rgba(10,10,10,0.97)", borderTop: "1px solid rgba(255,255,255,0.06)",
+      backdropFilter: "blur(24px)",
+      display: "flex", justifyContent: "space-around", padding: "10px 0 16px",
+    }}>
+      {tabs.map(t => (
+        <button key={t.id} onClick={() => setTab(t.id)}
+          style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "4px 20px", transition: "transform .2s", transform: tab === t.id ? "translateY(-1px)" : "none" }}>
+          {t.icon(tab === t.id)}
+          <span style={{ fontSize: 10, fontWeight: 700, color: tab === t.id ? "#f39c12" : "#444", letterSpacing: 0.3 }}>{t.label}</span>
+        </button>
+      ))}
     </div>
   );
 }
@@ -1172,29 +1370,31 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(null);
   const [focused, setFocused] = useState(false);
-  const [categoryPage, setCategoryPage] = useState(null); // { title, items }
+  const [categoryPage, setCategoryPage] = useState(null);
 
   const [homeData, setHomeData] = useState({
     nowPlaying: [], globalTrend: [], seriesTrend: [],
     bollywood: [], tamilFils: [], malayalamFils: [],
     teluguFils: [], kannadaFils: [], bengaliFils: [],
-    englishFils: [], topRated: [], heroBanner: null,
+    englishFils: [], topRated: [], heroBannerItems: [],
   });
   const [homeLoading, setHomeLoading] = useState(true);
   const [serverWaking, setServerWaking] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  // BUG FIX: retryKey to force useEffect re-run on retry
+  const [retryKey, setRetryKey] = useState(0);
 
   const inputRef = useRef(null);
+  const searchAbortRef = useRef(null); // BUG FIX: abort in-flight search on new search
 
+  // BUG FIX: retryKey added to deps so retry actually re-fetches
   useEffect(() => {
     if (tab !== "home") return;
     setHomeLoading(true);
     setServerWaking(false);
     setLoadError(false);
 
-    // Agar 4 sec mein response nahi aaya toh "server warm ho raha hai" dikhao
     const wakingTimer = setTimeout(() => setServerWaking(true), 4000);
-    // 25 sec mein bhi kuch nahi aaya toh error state
     const errorTimer = setTimeout(() => {
       setHomeLoading(false);
       setLoadError(true);
@@ -1218,15 +1418,20 @@ function App() {
           return arr.findIndex(x => x.title?.toLowerCase().replace(/\s+/g, "") === key) === idx;
         })
         .slice(0, 8);
-      const heroItem = latest.find(m => m.backdrop) || latest[0];
+
+      // Hero banner: pick 5 items with backdrop
+      const bannerItems = latest.filter(m => m.backdrop).slice(0, 5);
+      if (bannerItems.length < 3) bannerItems.push(...latest.slice(0, 5 - bannerItems.length));
+
       setHomeData(prev => ({
         ...prev,
         nowPlaying: latest, globalTrend: globalItems,
         seriesTrend: series, bollywood: bolly,
-        heroBanner: heroItem || null,
+        heroBannerItems: bannerItems,
       }));
       setHomeLoading(false);
 
+      // Second wave — regional + top rated
       setTimeout(() => {
         Promise.all([
           fetchDBCategory("tamil", 12),
@@ -1235,11 +1440,15 @@ function App() {
           fetchDBCategory("kannada", 12),
           fetchDBCategory("bengali", 12),
           fetchDBCategory("english", 12),
-        ]).then(([tamil, mal, telugu, kannada, bengali, english]) => {
+          // BUG FIX: actually fetch top rated (was never fetched before)
+          fetchDBCategory("all", 12, API_FETCH_BATCH),
+        ]).then(([tamil, mal, telugu, kannada, bengali, english, topRated]) => {
           setHomeData(prev => ({
             ...prev,
             tamilFils: tamil, malayalamFils: mal, teluguFils: telugu,
             kannadaFils: kannada, bengaliFils: bengali, englishFils: english,
+            // top rated = high rating filter from second page
+            topRated: topRated.filter(x => parseFloat(x.rating) >= 7.0).slice(0, 12),
           }));
         });
       }, 1000);
@@ -1252,14 +1461,20 @@ function App() {
     });
 
     return () => { clearTimeout(wakingTimer); clearTimeout(errorTimer); };
-  }, [tab]);
+  }, [tab, retryKey]); // BUG FIX: retryKey in deps
 
   const doSearch = useCallback(async (q = query) => {
     if (!q.trim() && quality === "All" && language === "All") { setFiles([]); return; }
+    // BUG FIX: abort previous in-flight search
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
     setLoading(true);
-    const results = await fetchFiles(q, quality, language);
-    setFiles(results);
-    setLoading(false);
+    const results = await fetchFiles(q, quality, language, 50, controller.signal);
+    if (results !== null) { // null means aborted
+      setFiles(results);
+      setLoading(false);
+    }
   }, [query, quality, language]);
 
   useEffect(() => {
@@ -1279,16 +1494,22 @@ function App() {
     setLoading(true);
     setQuery(movieTitle);
     fetchFiles(movieTitle, "All", "All").then(results => {
-      setFiles(results);
-      setLoading(false);
+      if (results !== null) { setFiles(results); setLoading(false); }
     });
   };
+
+  // Voice search
+  const { listening, start: startVoice, stop: stopVoice } = useVoiceSearch((transcript) => {
+    setQuery(transcript);
+    setTab("search");
+    doSearch(transcript);
+  });
 
   const trendingChips = homeData.nowPlaying.slice(0, 6);
 
   return (
-    <div style={{ background: "#0a0a0a", minHeight: "100vh", fontFamily: "'DM Sans',sans-serif", color: "#eee", maxWidth: 480, margin: "0 auto" }}>
-      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;0,9..40,900;1,9..40,400&family=Bebas+Neue&display=swap" />
+    <div style={{ background: "#0a0a0a", minHeight: "100vh", fontFamily: "'DM Sans',sans-serif", color: "#eee", maxWidth: 480, margin: "0 auto", paddingBottom: 64 }}>
+      {/* Fonts loaded in index.html — not inside JSX render */}
 
       {/* ── HEADER ── */}
       <div style={{
@@ -1300,7 +1521,7 @@ function App() {
       }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           {tab === "search" ? (
-            <button onClick={() => { setTab("home"); setQuery(""); setFiles([]); setCategoryPage(null); }}
+            <button onClick={() => { setTab("home"); setQuery(""); setFiles([]); setCategoryPage(null); searchAbortRef.current?.abort(); }}
               style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, color: "#888", padding: 0 }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2.5" strokeLinecap="round"><path d="M19 12H5M12 5l-7 7 7 7" /></svg>
               <span style={{ fontSize: 13, fontWeight: 600 }}>Home</span>
@@ -1312,20 +1533,34 @@ function App() {
               </span>
             </div>
           )}
-          {tab === "home" && (
-            <button onClick={() => { setTab("search"); setTimeout(() => inputRef.current?.focus(), 150); }}
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {/* Voice search button — always visible */}
+            <button
+              onClick={listening ? stopVoice : startVoice}
               style={{
-                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-                borderRadius: 50, padding: "8px 16px", display: "flex", alignItems: "center", gap: 7,
-                cursor: "pointer", color: "#555", fontSize: 12, fontWeight: 500, transition: "all .2s",
+                width: 36, height: 36, borderRadius: "50%",
+                background: listening ? "rgba(231,76,60,0.2)" : "rgba(255,255,255,0.04)",
+                border: `1px solid ${listening ? "rgba(231,76,60,0.5)" : "rgba(255,255,255,0.08)"}`,
+                color: listening ? "#e74c3c" : "#555",
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                animation: listening ? "pulse 1s ease infinite" : "none",
+                transition: "all .2s",
               }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2.5"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
-              Search movies...
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zm-1 18.93A8 8 0 0 1 4 12H2a10 10 0 0 0 9 9.93V24h2v-2.07A10 10 0 0 0 22 12h-2a8 8 0 0 1-7 7.93z" />
+              </svg>
             </button>
-          )}
-          {tab === "search" && (
-            <span style={{ fontSize: 17, fontWeight: 900, fontFamily: "'Bebas Neue',sans-serif", letterSpacing: 2, color: "#f39c12" }}>SEARCH</span>
-          )}
+            {tab === "home" && (
+              <button onClick={() => { setTab("search"); setTimeout(() => inputRef.current?.focus(), 150); }}
+                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 50, padding: "8px 16px", display: "flex", alignItems: "center", gap: 7, cursor: "pointer", color: "#555", fontSize: 12, fontWeight: 500, transition: "all .2s" }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2.5"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+                Search movies...
+              </button>
+            )}
+            {tab === "search" && (
+              <span style={{ fontSize: 17, fontWeight: 900, fontFamily: "'Bebas Neue',sans-serif", letterSpacing: 2, color: "#f39c12" }}>SEARCH</span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1334,13 +1569,8 @@ function App() {
         <div style={{ paddingBottom: 36 }}>
           {homeLoading ? (
             <div style={{ padding: "20px 16px" }}>
-              {/* Server waking up banner */}
               {serverWaking && (
-                <div style={{
-                  display: "flex", alignItems: "center", gap: 10,
-                  background: "rgba(243,156,18,0.08)", border: "1px solid rgba(243,156,18,0.2)",
-                  borderRadius: 14, padding: "12px 16px", marginBottom: 20,
-                }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(243,156,18,0.08)", border: "1px solid rgba(243,156,18,0.2)", borderRadius: 14, padding: "12px 16px", marginBottom: 20 }}>
                   <div style={{ width: 18, height: 18, borderRadius: "50%", border: "2px solid rgba(243,156,18,0.3)", borderTopColor: "#f39c12", animation: "spin 0.9s linear infinite", flexShrink: 0 }} />
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#f39c12" }}>Server warm ho raha hai...</div>
@@ -1348,7 +1578,7 @@ function App() {
                   </div>
                 </div>
               )}
-              <div style={{ height: 220, borderRadius: 24, background: "rgba(255,255,255,0.03)", marginBottom: 32, animation: "pulse 1.8s ease infinite" }} />
+              <div style={{ height: 240, borderRadius: 0, background: "rgba(255,255,255,0.03)", marginBottom: 32, animation: "pulse 1.8s ease infinite" }} />
               {[1, 2, 3].map(i => (
                 <div key={i} style={{ marginBottom: 32 }}>
                   <div style={{ height: 14, width: 150, borderRadius: 6, background: "rgba(255,255,255,0.04)", marginBottom: 14, animation: "pulse 1.8s ease infinite" }} />
@@ -1363,10 +1593,11 @@ function App() {
               <div style={{ fontSize: 52, marginBottom: 16 }}>🔌</div>
               <div style={{ fontSize: 17, fontWeight: 800, color: "#ccc", marginBottom: 8 }}>Server se connect nahi hua</div>
               <div style={{ fontSize: 13, color: "#555", lineHeight: 1.6, marginBottom: 28 }}>
-                Bot server (Render) temporarily down lag raha hai.<br />Thodi der baad try karo ya search use karo.
+                Bot server temporarily down lag raha hai.<br />Thodi der baad try karo ya search use karo.
               </div>
               <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-                <button onClick={() => { setHomeLoading(true); setLoadError(false); }}
+                {/* BUG FIX: retry now works via retryKey increment */}
+                <button onClick={() => { setLoadError(false); setHomeLoading(true); setRetryKey(k => k + 1); }}
                   style={{ padding: "12px 28px", borderRadius: 50, background: "linear-gradient(135deg,#f39c12,#e74c3c)", border: "none", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
                   🔄 Retry
                 </button>
@@ -1378,10 +1609,9 @@ function App() {
             </div>
           ) : (
             <>
-              {homeData.heroBanner && (
-                <div style={{ paddingTop: 20 }}>
-                  <HeroBannerTMDB item={homeData.heroBanner} onClick={handleTMDBCardClick} />
-                </div>
+              {/* BUG FIX: Carousel instead of single HeroBanner */}
+              {homeData.heroBannerItems.length > 0 && (
+                <HeroBannerCarousel items={homeData.heroBannerItems} onClick={handleTMDBCardClick} />
               )}
               <TMDBCategoryRow title="NOW PLAYING" items={homeData.nowPlaying} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "NOW PLAYING", category: "all", items: homeData.nowPlaying })} />
               <TMDBCategoryRow title="GLOBAL TRENDING" items={homeData.globalTrend} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "GLOBAL TRENDING", category: "all", items: homeData.globalTrend })} />
@@ -1393,6 +1623,7 @@ function App() {
               <TMDBCategoryRow title="KANNADA MOVIES" items={homeData.kannadaFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "KANNADA MOVIES", category: "kannada", items: homeData.kannadaFils })} />
               <TMDBCategoryRow title="BENGALI MOVIES" items={homeData.bengaliFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "BENGALI MOVIES", category: "bengali", items: homeData.bengaliFils })} />
               <TMDBCategoryRow title="ENGLISH MOVIES" items={homeData.englishFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "ENGLISH MOVIES", category: "english", items: homeData.englishFils })} />
+              {/* BUG FIX: topRated now actually gets data */}
               <TMDBCategoryRow title="TOP RATED ALL TIME" items={homeData.topRated} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "TOP RATED ALL TIME", category: "all", items: homeData.topRated })} />
             </>
           )}
@@ -1414,19 +1645,13 @@ function App() {
       {tab === "search" && (
         <div>
           <div style={{ padding: "18px 16px 0" }}>
-            {/* Trending chips */}
             {trendingChips.length > 0 && !query && (
               <>
                 <div style={{ fontSize: 10, fontWeight: 700, color: "#3a3a3a", letterSpacing: "1.5px", marginBottom: 10 }}>TRENDING NOW</div>
                 <div style={{ display: "flex", gap: 8, overflowX: "auto", marginBottom: 20, scrollbarWidth: "none" }}>
                   {trendingChips.map(item => (
                     <button key={item.id} onClick={() => handleTMDBCardClick(item)}
-                      style={{
-                        padding: "7px 14px", borderRadius: 50, background: "rgba(255,255,255,0.04)",
-                        border: "1px solid rgba(255,255,255,0.07)", color: "#666",
-                        fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer",
-                        display: "flex", alignItems: "center", gap: 5, transition: "all .2s",
-                      }}>
+                      style={{ padding: "7px 14px", borderRadius: 50, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", color: "#666", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, transition: "all .2s" }}>
                       <span style={{ fontSize: 10 }}>🔥</span>{item.title}
                     </button>
                   ))}
@@ -1434,24 +1659,26 @@ function App() {
               </>
             )}
 
-            {/* Search input + filters */}
             <div style={{
               background: "rgba(255,255,255,0.03)", borderRadius: 22, padding: "14px 16px",
               border: `1px solid ${focused ? "rgba(243,156,18,0.3)" : "rgba(255,255,255,0.06)"}`,
               marginBottom: 18, transition: "border-color .2s",
               boxShadow: focused ? "0 0 0 3px rgba(243,156,18,0.06)" : "none",
             }}>
-              <div style={{
-                display: "flex", alignItems: "center", gap: 10,
-                background: "rgba(255,255,255,0.04)", border: `1px solid ${focused ? "rgba(243,156,18,0.2)" : "rgba(255,255,255,0.07)"}`,
-                borderRadius: 14, padding: "11px 14px", marginBottom: 16, transition: "border-color .2s",
-              }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(255,255,255,0.04)", border: `1px solid ${focused ? "rgba(243,156,18,0.2)" : "rgba(255,255,255,0.07)"}`, borderRadius: 14, padding: "11px 14px", marginBottom: 16, transition: "border-color .2s" }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2.5"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
                 <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)}
                   onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
                   onKeyDown={e => e.key === "Enter" && doSearch()}
                   placeholder="Search movies, series..."
                   style={{ flex: 1, background: "transparent", border: "none", outline: "none", fontSize: 14, color: "#eee", fontFamily: "inherit" }} />
+                {/* BUG FIX: show mic button in search input too */}
+                <button onClick={listening ? stopVoice : startVoice}
+                  style={{ background: listening ? "rgba(231,76,60,0.15)" : "transparent", border: "none", borderRadius: "50%", width: 28, height: 28, color: listening ? "#e74c3c" : "#555", cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", transition: "all .2s" }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zm-1 18.93A8 8 0 0 1 4 12H2a10 10 0 0 0 9 9.93V24h2v-2.07A10 10 0 0 0 22 12h-2a8 8 0 0 1-7 7.93z" />
+                  </svg>
+                </button>
                 {query && (
                   <button onClick={() => { setQuery(""); inputRef.current?.focus(); }}
                     style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: "50%", width: 22, height: 22, color: "#666", cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
@@ -1500,15 +1727,7 @@ function App() {
                         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                           {seasonData.epGroups.map((grp, i) => (
                             <div key={grp.key} style={{ animation: `fadeIn .25s ease ${i * 0.03}s both` }}>
-                              <EpisodeQualityRow
-                                epFrom={grp.epFrom}
-                                epTo={grp.epTo}
-                                isCombined={grp.isCombined}
-                                files={grp.files}
-                                seriesTitle={grouped.seriesTitle}
-                                season={seasonData.season}
-                                onFileClick={setSelected}
-                              />
+                              <EpisodeQualityRow epFrom={grp.epFrom} epTo={grp.epTo} isCombined={grp.isCombined} files={grp.files} seriesTitle={grouped.seriesTitle} season={seasonData.season} onFileClick={setSelected} />
                             </div>
                           ))}
                         </div>
@@ -1547,15 +1766,35 @@ function App() {
         </div>
       )}
 
-      {/* ── FOOTER ── */}
-      <div style={{ textAlign: "center", padding: "14px 16px 32px", borderTop: "1px solid rgba(255,255,255,0.04)", fontSize: 11, color: "#2a2a2a" }}>
-        <p style={{ margin: "0 0 6px", lineHeight: 1.7 }}>All contents are publicly available on Telegram.<br />We do not host any files.</p>
-        <div style={{ display: "flex", justifyContent: "center", gap: 16, alignItems: "center" }}>
-          <span>© {new Date().getFullYear()} Suhani Search</span>
-          <span style={{ color: "#1e1e1e" }}>•</span>
-          <a href={`https://t.me/${BOT_USERNAME}`} style={{ color: "#333", textDecoration: "none" }}>Report issue</a>
+      {/* ── MY LIST TAB ── */}
+      {tab === "mylist" && (
+        <div>
+          <div style={{ padding: "16px 16px 8px" }}>
+            <div style={{ fontSize: 22, fontWeight: 900, color: "#e8e8e8" }}>📋 My List</div>
+            <div style={{ fontSize: 12, color: "#444", marginTop: 4 }}>Tumhari saved movies aur series</div>
+          </div>
+          <WatchlistTab onItemClick={handleTMDBCardClick} />
         </div>
-      </div>
+      )}
+
+      {/* ── FOOTER (only on home) ── */}
+      {tab === "home" && !categoryPage && (
+        <div style={{ textAlign: "center", padding: "14px 16px 16px", borderTop: "1px solid rgba(255,255,255,0.04)", fontSize: 11, color: "#2a2a2a" }}>
+          <p style={{ margin: "0 0 6px", lineHeight: 1.7 }}>All contents are publicly available on Telegram.<br />We do not host any files.</p>
+          <div style={{ display: "flex", justifyContent: "center", gap: 16, alignItems: "center" }}>
+            <span>© {new Date().getFullYear()} Suhani Search</span>
+            <span style={{ color: "#1e1e1e" }}>•</span>
+            <a href={`https://t.me/${BOT_USERNAME}`} style={{ color: "#333", textDecoration: "none" }}>Report issue</a>
+          </div>
+        </div>
+      )}
+
+      {/* ── BOTTOM NAV ── */}
+      <BottomNav tab={tab} setTab={(t) => {
+        setTab(t);
+        if (t !== "search") { setCategoryPage(null); }
+        if (t !== "search") { searchAbortRef.current?.abort(); }
+      }} />
 
       {selected && <DetailModal file={selected} onClose={() => setSelected(null)} />}
 
