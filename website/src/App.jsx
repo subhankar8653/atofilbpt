@@ -27,7 +27,7 @@ class ErrorBoundary extends Component {
 // CONFIG — .env mein VITE_API_BASE aur VITE_TMDB_KEY daalo
 // ═══════════════════════════════════════════════════════════════════
 const BOT_USERNAME = import.meta.env.VITE_BOT_USERNAME || "My_Suhani_bot";
-const API_BASE = import.meta.env.VITE_API_BASE || "worker-production-58e0.up.railway.app";
+const API_BASE = import.meta.env.VITE_API_BASE || "https://worker-production-58e0.up.railway.app";
 
 const TMDB_API_KEY = import.meta.env.VITE_TMDB_KEY || "";
 const TMDB_BASE = "https://api.themoviedb.org/3";
