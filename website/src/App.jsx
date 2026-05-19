@@ -32,8 +32,9 @@ const API_BASE = "https://grouphbot.onrender.com";
 // ⚠️  TMDB API KEY — .env file mein VITE_TMDB_KEY=your_key_here likhna
 const TMDB_API_KEY = import.meta.env.VITE_TMDB_KEY || "";
 const TMDB_BASE = "https://api.themoviedb.org/3";
-const TMDB_IMG = "https://image.tmdb.org/t/p/w500";
+const TMDB_IMG = "https://image.tmdb.org/t/p/w342";
 const TMDB_IMG_ORIG = "https://image.tmdb.org/t/p/original";
+const TMDB_IMG_FALLBACK = "https://image.tmdb.org/t/p/w185";
 // ═══════════════════════════════════════════════════════════════════
 
 const QUALITIES = ["All", "2160p", "1080p", "720p", "480p", "360p", "240p"];
@@ -435,14 +436,118 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
   } catch { return []; }
 }
 
-// ── TMDB Card ─────────────────────────────────────────────────────────
+// ── TMDB Discover → DB Match (Smart Load More) ───────────────────────
+// TMDB genre IDs for common genres
+const TMDB_GENRE_MAP = {
+  action: 28, comedy: 35, drama: 18, thriller: 53, horror: 27,
+  romance: 10749, scifi: 878, animation: 16, crime: 80, mystery: 9648,
+};
+
+// Category → TMDB region/language filter
+const CATEGORY_TMDB_LANG = {
+  hindi: "hi", tamil: "ta", malayalam: "ml", telugu: "te",
+  kannada: "kn", bengali: "bn", english: "en",
+  series: null, all: null,
+};
+
+const TMDB_DISCOVER_CACHE = new Map();
+
+async function fetchTMDBDiscover(category, tmdbPage = 1) {
+  const cacheKey = `disc_${category}_${tmdbPage}`;
+  if (TMDB_DISCOVER_CACHE.has(cacheKey)) return TMDB_DISCOVER_CACHE.get(cacheKey);
+
+  try {
+    const origLang = CATEGORY_TMDB_LANG[category];
+    const isTV = category === "series";
+    const endpoint = isTV ? "/discover/tv" : "/discover/movie";
+
+    const params = {
+      sort_by: "popularity.desc",
+      page: tmdbPage,
+      "vote_count.gte": 50,
+      ...(origLang ? { with_original_language: origLang } : {}),
+    };
+
+    const data = await tmdbGet(endpoint, params);
+    const results = (data?.results || []).filter(r => r.poster_path);
+    TMDB_DISCOVER_CACHE.set(cacheKey, results);
+    return results;
+  } catch { return []; }
+}
+
+// Given TMDB titles, search bot DB and return matched+enriched items
+async function fetchByTMDBTitles(tmdbResults, alreadySeenTitles = new Set()) {
+  const candidates = tmdbResults.filter(r => {
+    const t = (r.title || r.name || "").toLowerCase().replace(/\s+/g, "");
+    return t.length > 1 && !alreadySeenTitles.has(t);
+  });
+
+  if (!candidates.length) return [];
+
+  // Search DB for each title in parallel (batched)
+  const BATCH = 5;
+  const matched = [];
+
+  for (let i = 0; i < candidates.length; i += BATCH) {
+    const batch = candidates.slice(i, i + BATCH);
+    const results = await Promise.all(batch.map(async (tmdbItem) => {
+      const title = tmdbItem.title || tmdbItem.name || "";
+      const year = (tmdbItem.release_date || tmdbItem.first_air_date || "").slice(0, 4);
+      const titleKey = title.toLowerCase().replace(/\s+/g, "");
+
+      if (alreadySeenTitles.has(titleKey)) return null;
+
+      // Search bot DB for this title
+      const files = await fetchFiles(title, "All", "All", 5);
+      if (!files || files.length === 0) return null;
+
+      // Found in DB — build enriched card using TMDB data directly (no extra API call)
+      alreadySeenTitles.add(titleKey);
+      const out = {
+        id: tmdbItem.id,
+        tmdbId: tmdbItem.id,
+        title,
+        poster: tmdbItem.poster_path ? `${TMDB_IMG}${tmdbItem.poster_path}` : null,
+        backdrop: tmdbItem.backdrop_path ? `${TMDB_IMG_ORIG}${tmdbItem.backdrop_path}` : null,
+        rating: tmdbItem.vote_average ? tmdbItem.vote_average.toFixed(1) : null,
+        year,
+        overview: tmdbItem.overview || null,
+        type: tmdbItem.first_air_date ? "series" : "movie",
+        genreIds: tmdbItem.genre_ids || [],
+        _file: files[0],
+      };
+      return out;
+    }));
+    matched.push(...results.filter(Boolean));
+  }
+  return matched;
+}
 function TMDBCard({ item, onClick, gridMode = false }) {
   const [hov, setHov] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
+  const [imgSrc, setImgSrc] = useState(item.poster || null);
   const [imgFailed, setImgFailed] = useState(false);
   const [inList, setInList] = useState(() => isInWatchlist(item.id));
   const hue = [...(item.title || "")].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
   const initials = (item.title || "").split(" ").slice(0, 2).map(w => w[0] || "").join("").toUpperCase();
+
+  // Reset on item change
+  useEffect(() => {
+    setImgLoaded(false);
+    setImgFailed(false);
+    setImgSrc(item.poster || null);
+  }, [item.poster, item.id]);
+
+  const handleImgError = () => {
+    // Retry with smaller fallback URL before giving up
+    if (imgSrc && imgSrc.includes("/w342/")) {
+      setImgSrc(imgSrc.replace("/w342/", "/w185/"));
+      return;
+    }
+    // If fallback also fails, show initials placeholder
+    setImgFailed(true);
+    setImgLoaded(false);
+  };
 
   const handleWatchlist = (e) => {
     e.stopPropagation();
@@ -467,25 +572,26 @@ function TMDBCard({ item, onClick, gridMode = false }) {
       }}
     >
       <div style={{ height: 165, background: "#181818", overflow: "hidden", position: "relative" }}>
-        {item.poster && !imgFailed ? (
+        {imgSrc && !imgFailed ? (
           <>
-            {!imgLoaded && (
-              <div style={{
-                position: "absolute", inset: 0,
-                background: `linear-gradient(160deg,hsl(${hue},40%,11%),hsl(${(hue + 60) % 360},30%,7%))`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-                <div style={{ width: 24, height: 24, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.06)", borderTopColor: `hsl(${hue},70%,50%)`, animation: "spin 0.8s linear infinite" }} />
-              </div>
-            )}
+            {/* Placeholder shown while loading */}
+            <div style={{
+              position: "absolute", inset: 0,
+              background: `linear-gradient(160deg,hsl(${hue},40%,11%),hsl(${(hue + 60) % 360},30%,7%))`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              opacity: imgLoaded ? 0 : 1, transition: "opacity 0.4s ease",
+            }}>
+              {!imgLoaded && <div style={{ width: 24, height: 24, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.06)", borderTopColor: `hsl(${hue},70%,50%)`, animation: "spin 0.8s linear infinite" }} />}
+            </div>
             <img
-              src={item.poster} alt={item.title} loading="lazy" decoding="async"
-              style={{ width: "100%", height: "100%", objectFit: "cover", opacity: imgLoaded ? 1 : 0, transition: "opacity 0.5s ease", display: "block" }}
+              src={imgSrc} alt={item.title}
+              loading="lazy" decoding="async"
+              style={{ width: "100%", height: "100%", objectFit: "cover", opacity: imgLoaded ? 1 : 0, transition: "opacity 0.5s ease", display: "block", position: "relative", zIndex: 1 }}
               onLoad={() => setImgLoaded(true)}
-              onError={() => { setImgFailed(true); setImgLoaded(false); }}
+              onError={handleImgError}
             />
             {hov && imgLoaded && (
-              <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.25)", display: "flex", alignItems: "center", justifyContent: "center", transition: "opacity 0.2s" }}>
+              <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.25)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }}>
                 <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(243,156,18,0.9)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 16px rgba(243,156,18,0.5)" }}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z" /></svg>
                 </div>
@@ -500,25 +606,25 @@ function TMDBCard({ item, onClick, gridMode = false }) {
             fontSize: "24px", fontWeight: "900", color: `hsl(${hue},70%,65%)`, letterSpacing: "2px",
           }}>{initials || "🎬"}</div>
         )}
-        {item.rating && item.rating !== "0.0" && imgLoaded && !imgFailed && (
+        {/* Rating — show always, not just when image loaded */}
+        {item.rating && item.rating !== "0.0" && (
           <div style={{
-            position: "absolute", bottom: 7, left: 7,
+            position: "absolute", bottom: 7, left: 7, zIndex: 3,
             background: "rgba(0,0,0,0.82)", borderRadius: 8, padding: "3px 7px",
             display: "flex", alignItems: "center", gap: 3, backdropFilter: "blur(8px)",
             border: "1px solid rgba(241,196,15,0.2)",
           }}>
             <span style={{ fontSize: 9, color: "#f1c40f" }}>★</span>
-            <span style={{ fontSize: 10, fontWeight: 800, color: "#f1c40f", fontFamily: "'Space Grotesk',sans-serif" }}>{item.rating}</span>
+            <span style={{ fontSize: 10, fontWeight: 800, color: "#f1c40f" }}>{item.rating}</span>
           </div>
         )}
         {item.type === "series" && (
-          <div style={{ position: "absolute", top: 7, right: 7, background: "rgba(99,102,241,0.9)", borderRadius: 6, padding: "2px 6px", fontSize: 8, fontWeight: 800, color: "#fff", letterSpacing: 0.5, backdropFilter: "blur(4px)" }}>SERIES</div>
+          <div style={{ position: "absolute", top: 7, right: 7, zIndex: 3, background: "rgba(99,102,241,0.9)", borderRadius: 6, padding: "2px 6px", fontSize: 8, fontWeight: 800, color: "#fff", letterSpacing: 0.5, backdropFilter: "blur(4px)" }}>SERIES</div>
         )}
-        {/* Watchlist button */}
         <button
           onClick={handleWatchlist}
           style={{
-            position: "absolute", top: 7, left: 7,
+            position: "absolute", top: 7, left: 7, zIndex: 3,
             width: 26, height: 26, borderRadius: "50%",
             background: inList ? "rgba(243,156,18,0.95)" : "rgba(0,0,0,0.7)",
             border: `1px solid ${inList ? "rgba(243,156,18,0.5)" : "rgba(255,255,255,0.15)"}`,
@@ -1178,11 +1284,12 @@ const PAGE_SIZE = 24;
 function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
   const [items, setItems] = useState(initialItems || []);
   const [loadingMore, setLoadingMore] = useState(false);
-  // hasMore: true until API returns 0 raw files (not display count)
   const [hasMore, setHasMore] = useState(true);
   const [initialLoading, setInitialLoading] = useState(false);
   const sentinelRef = useRef(null);
-  const pageRef = useRef(1);
+  const pageRef = useRef(1);           // TMDB discover page
+  const dbPageRef = useRef(1);         // DB page for fallback
+  const seenTitlesRef = useRef(new Set());
   const seenIdsRef = useRef(new Set());
   const loadingMoreRef = useRef(false);
 
@@ -1191,15 +1298,19 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
     setInitialLoading(true);
     setHasMore(true);
     pageRef.current = 1;
+    dbPageRef.current = 1;
+    seenTitlesRef.current = new Set();
     seenIdsRef.current = new Set();
+
     fetchDBCategory(category, PAGE_SIZE, 0).then(data => {
       const fresh = data || [];
-      fresh.forEach(x => seenIdsRef.current.add(String(x.id)));
+      fresh.forEach(x => {
+        seenIdsRef.current.add(String(x.id));
+        seenTitlesRef.current.add((x.title || "").toLowerCase().replace(/\s+/g, ""));
+      });
       setItems(fresh);
-      // hasMore = true as long as API returned a full batch (rawApiCount)
-      // If API gave fewer than API_FETCH_BATCH raw files, it's the last page
       const rawCount = data?._rawApiCount ?? fresh.length;
-      setHasMore(rawCount >= API_FETCH_BATCH);
+      setHasMore(rawCount >= API_FETCH_BATCH || fresh.length >= 8);
       setInitialLoading(false);
     });
   }, [category]);
@@ -1208,19 +1319,53 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
     if (loadingMoreRef.current || !hasMore || !category) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
-    pageRef.current += 1;
-    const nextOffset = (pageRef.current - 1) * API_FETCH_BATCH;
-    const newItems = await fetchDBCategory(category, PAGE_SIZE, nextOffset);
-    const rawCount = newItems?._rawApiCount ?? 0;
-    if (!newItems || newItems.length === 0) {
+
+    try {
+      // Strategy 1: TMDB Discover → find titles that exist in bot DB
+      pageRef.current += 1;
+      const tmdbResults = await fetchTMDBDiscover(category, pageRef.current);
+
+      let newCards = [];
+      if (tmdbResults.length > 0) {
+        newCards = await fetchByTMDBTitles(tmdbResults, seenTitlesRef.current);
+      }
+
+      // Strategy 2: fallback to DB pagination if TMDB gave nothing
+      if (newCards.length === 0) {
+        dbPageRef.current += 1;
+        const nextOffset = (dbPageRef.current - 1) * API_FETCH_BATCH;
+        const dbItems = await fetchDBCategory(category, PAGE_SIZE, nextOffset);
+        const rawCount = dbItems?._rawApiCount ?? 0;
+        const fresh = (dbItems || []).filter(x => !seenIdsRef.current.has(String(x.id)));
+        fresh.forEach(x => {
+          seenIdsRef.current.add(String(x.id));
+          seenTitlesRef.current.add((x.title || "").toLowerCase().replace(/\s+/g, ""));
+        });
+        newCards = fresh;
+        if (rawCount < API_FETCH_BATCH && newCards.length === 0) {
+          setHasMore(false);
+          loadingMoreRef.current = false;
+          setLoadingMore(false);
+          return;
+        }
+      }
+
+      if (newCards.length > 0) {
+        // Deduplicate by id before adding
+        const deduped = newCards.filter(x => !seenIdsRef.current.has(String(x.id)));
+        deduped.forEach(x => {
+          seenIdsRef.current.add(String(x.id));
+          seenTitlesRef.current.add((x.title || "").toLowerCase().replace(/\s+/g, ""));
+        });
+        if (deduped.length > 0) setItems(prev => [...prev, ...deduped]);
+      }
+
+      // Keep hasMore = true as long as TMDB has more pages (up to page 20)
+      setHasMore(pageRef.current < 20);
+    } catch {
       setHasMore(false);
-    } else {
-      const fresh = newItems.filter(x => !seenIdsRef.current.has(String(x.id)));
-      fresh.forEach(x => seenIdsRef.current.add(String(x.id)));
-      if (fresh.length > 0) setItems(prev => [...prev, ...fresh]);
-      // Only mark done when API itself has no more pages
-      setHasMore(rawCount >= API_FETCH_BATCH);
     }
+
     loadingMoreRef.current = false;
     setLoadingMore(false);
   }, [hasMore, category]);
@@ -1270,13 +1415,14 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
       )}
 
       <div ref={sentinelRef} style={{ height: 1 }} />
+
       {loadingMore && (
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 10, padding: "20px 0" }}>
           <div style={{ width: 20, height: 20, borderRadius: "50%", border: "2px solid rgba(243,156,18,0.2)", borderTopColor: "#f39c12", animation: "spin 0.8s linear infinite" }} />
-          <span style={{ fontSize: 12, color: "#555", fontWeight: 600 }}>Aur load ho raha hai...</span>
+          <span style={{ fontSize: 12, color: "#555", fontWeight: 600 }}>Aur dhundh raha hai...</span>
         </div>
       )}
-      {/* Load More button — visible when hasMore and not currently loading */}
+
       {hasMore && !loadingMore && !initialLoading && items.length > 0 && (
         <div style={{ display: "flex", justifyContent: "center", padding: "16px 0 8px" }}>
           <button
@@ -1287,8 +1433,8 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
               border: "none", color: "#fff", fontWeight: 800, fontSize: 13,
               cursor: "pointer", letterSpacing: 0.5,
               boxShadow: "0 6px 20px rgba(243,156,18,0.35)",
-              transition: "transform .2s, box-shadow .2s",
               display: "flex", alignItems: "center", gap: 8,
+              transition: "transform .2s",
             }}
             onMouseEnter={e => e.currentTarget.style.transform = "scale(1.04)"}
             onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
@@ -1298,6 +1444,7 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
           </button>
         </div>
       )}
+
       {!hasMore && !loadingMore && items.length > 0 && (
         <div style={{ textAlign: "center", padding: "20px 0 10px" }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
