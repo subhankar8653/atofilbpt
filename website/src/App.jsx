@@ -252,10 +252,27 @@ async function enrichWithTMDB(title, year) {
 
   const promise = (async () => {
     try {
-      const data = await tmdbGet("/search/multi", {
-        query: title, ...(year ? { year } : {}), page: 1,
-      });
-      const result = (data?.results || []).find(r => r.poster_path);
+      // Strategy: try multiple search variations to maximize poster hit rate
+      const searches = [
+        // 1. Exact title + year
+        year ? { query: title, year } : null,
+        // 2. Title without year (year mismatch common with regional films)
+        { query: title },
+        // 3. First 3 words only (long titles often fail)
+        title.split(" ").length > 3 ? { query: title.split(" ").slice(0, 3).join(" ") } : null,
+        // 4. First 2 words (last resort)
+        title.split(" ").length > 2 ? { query: title.split(" ").slice(0, 2).join(" ") } : null,
+      ].filter(Boolean);
+
+      let result = null;
+      for (const params of searches) {
+        const data = await tmdbGet("/search/multi", { ...params, page: 1 });
+        const found = (data?.results || []).find(r => r.poster_path);
+        if (found) { result = found; break; }
+        // Small delay between retries to avoid rate limit
+        await new Promise(r => setTimeout(r, 80));
+      }
+
       if (!result) {
         if (tmdbCache.size >= TMDB_CACHE_MAX) tmdbCache.delete(tmdbCache.keys().next().value);
         tmdbCache.set(key, null);
@@ -364,6 +381,8 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
     if (!res.ok) throw new Error();
     const data = await res.json();
     let files = data.files || [];
+    // Save raw API count BEFORE any filtering — used for hasMore detection
+    const rawApiCount = files.length;
 
     if (category === "series") {
       files = files.filter(f => isSeries(f.file_name));
@@ -409,7 +428,10 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
         };
       })
     );
-    return enriched.filter(Boolean);
+    // Return both items AND rawApiCount so callers can decide hasMore correctly
+    const result = enriched.filter(Boolean);
+    result._rawApiCount = rawApiCount; // attach metadata
+    return result;
   } catch { return []; }
 }
 
@@ -1156,28 +1178,32 @@ const PAGE_SIZE = 24;
 function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
   const [items, setItems] = useState(initialItems || []);
   const [loadingMore, setLoadingMore] = useState(false);
+  // hasMore: true until API returns 0 raw files (not display count)
   const [hasMore, setHasMore] = useState(true);
   const [initialLoading, setInitialLoading] = useState(false);
   const sentinelRef = useRef(null);
   const pageRef = useRef(1);
   const seenIdsRef = useRef(new Set());
-  const loadingMoreRef = useRef(false); // BUG FIX: use ref to avoid stale closure
+  const loadingMoreRef = useRef(false);
 
   useEffect(() => {
     if (!category) return;
     setInitialLoading(true);
+    setHasMore(true);
     pageRef.current = 1;
     seenIdsRef.current = new Set();
     fetchDBCategory(category, PAGE_SIZE, 0).then(data => {
       const fresh = data || [];
       fresh.forEach(x => seenIdsRef.current.add(String(x.id)));
       setItems(fresh);
-      setHasMore(fresh.length >= PAGE_SIZE);
+      // hasMore = true as long as API returned a full batch (rawApiCount)
+      // If API gave fewer than API_FETCH_BATCH raw files, it's the last page
+      const rawCount = data?._rawApiCount ?? fresh.length;
+      setHasMore(rawCount >= API_FETCH_BATCH);
       setInitialLoading(false);
     });
   }, [category]);
 
-  // BUG FIX: loadMore via ref to avoid stale closure in IntersectionObserver
   const loadMore = useCallback(async () => {
     if (loadingMoreRef.current || !hasMore || !category) return;
     loadingMoreRef.current = true;
@@ -1185,13 +1211,15 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
     pageRef.current += 1;
     const nextOffset = (pageRef.current - 1) * API_FETCH_BATCH;
     const newItems = await fetchDBCategory(category, PAGE_SIZE, nextOffset);
+    const rawCount = newItems?._rawApiCount ?? 0;
     if (!newItems || newItems.length === 0) {
       setHasMore(false);
     } else {
       const fresh = newItems.filter(x => !seenIdsRef.current.has(String(x.id)));
       fresh.forEach(x => seenIdsRef.current.add(String(x.id)));
       if (fresh.length > 0) setItems(prev => [...prev, ...fresh]);
-      if (newItems.length < PAGE_SIZE || fresh.length === 0) setHasMore(false);
+      // Only mark done when API itself has no more pages
+      setHasMore(rawCount >= API_FETCH_BATCH);
     }
     loadingMoreRef.current = false;
     setLoadingMore(false);
@@ -1201,7 +1229,7 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
     if (!sentinelRef.current) return;
     const obs = new IntersectionObserver(entries => {
       if (entries[0].isIntersecting && !loadingMoreRef.current) loadMore();
-    }, { rootMargin: "200px" });
+    }, { rootMargin: "300px" });
     obs.observe(sentinelRef.current);
     return () => obs.disconnect();
   }, [loadMore]);
