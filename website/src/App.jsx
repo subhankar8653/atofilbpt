@@ -527,12 +527,22 @@ function TMDBCard({ item, onClick, gridMode = false }) {
   const hue = [...(item.title || "")].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
   const initials = (item.title || "").split(" ").slice(0, 2).map(w => w[0] || "").join("").toUpperCase();
 
-  // Reset on item change
+  // Reset on item change + fallback fetch agar poster null ho
   useEffect(() => {
     setImgLoaded(false);
     setImgFailed(false);
-    setImgSrc(item.poster || null);
-  }, [item.poster, item.id]);
+    if (item.poster) {
+      setImgSrc(item.poster);
+    } else {
+      // Poster nahi mila enrichWithTMDB se — directly fetchPosterFromTMDB try karo
+      setImgSrc(null);
+      let cancelled = false;
+      fetchPosterFromTMDB(item.title, item.year).then(data => {
+        if (!cancelled && data?.poster) setImgSrc(data.poster);
+      });
+      return () => { cancelled = true; };
+    }
+  }, [item.poster, item.id, item.title, item.year]);
 
   const handleImgError = () => {
     // Retry with smaller fallback URL before giving up
