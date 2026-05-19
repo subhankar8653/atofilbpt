@@ -1285,7 +1285,7 @@ function SkeletonFile() {
 }
 
 // ── Category Full Page ────────────────────────────────────────────────
-const PAGE_SIZE = 24;
+const PAGE_SIZE = 50;
 
 function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
   const [items, setItems] = useState(initialItems || []);
@@ -1663,10 +1663,11 @@ function App() {
     }, 25000);
 
     Promise.all([
-      fetchDBCategory("all", 12),
-      fetchDBCategory("series", 12),
-      fetchDBCategory("hindi", 12),
+      fetchDBCategory("all", 50),
+      fetchDBCategory("series", 50),
+      fetchDBCategory("hindi", 50),
     ]).then(([latest, series, bolly]) => {
+      window.__splashProgress?.(60, 'Loading movies...');
       clearTimeout(wakingTimer);
       clearTimeout(errorTimer);
       setServerWaking(false);
@@ -1691,34 +1692,38 @@ function App() {
         heroBannerItems: bannerItems,
       }));
       setHomeLoading(false);
+      window.__splashProgress?.(65, 'Loading posters...');
 
       // Second wave — regional + top rated
+      window.__splashProgress?.(70, 'Loading regional content...');
       setTimeout(() => {
         Promise.all([
-          fetchDBCategory("tamil", 12),
-          fetchDBCategory("malayalam", 12),
-          fetchDBCategory("telugu", 12),
-          fetchDBCategory("kannada", 12),
-          fetchDBCategory("bengali", 12),
-          fetchDBCategory("english", 12),
-          // BUG FIX: actually fetch top rated (was never fetched before)
-          fetchDBCategory("all", 12, API_FETCH_BATCH),
+          fetchDBCategory("tamil", 50),
+          fetchDBCategory("malayalam", 50),
+          fetchDBCategory("telugu", 50),
+          fetchDBCategory("kannada", 50),
+          fetchDBCategory("bengali", 50),
+          fetchDBCategory("english", 50),
+          fetchDBCategory("all", 50, API_FETCH_BATCH),
         ]).then(([tamil, mal, telugu, kannada, bengali, english, topRated]) => {
           setHomeData(prev => ({
             ...prev,
             tamilFils: tamil, malayalamFils: mal, teluguFils: telugu,
             kannadaFils: kannada, bengaliFils: bengali, englishFils: english,
-            // top rated = high rating filter from second page
-            topRated: topRated.filter(x => parseFloat(x.rating) >= 7.0).slice(0, 12),
+            topRated: topRated.filter(x => parseFloat(x.rating) >= 7.0).slice(0, 50),
           }));
+          window.__splashProgress?.(90, 'Almost ready...');
+          // Saare posters load hone ke baad splash hatao
+          setTimeout(() => { window.__hideSplash?.(); }, 800);
         });
-      }, 1000);
+      }, 600);
     }).catch(() => {
       clearTimeout(wakingTimer);
       clearTimeout(errorTimer);
       setHomeLoading(false);
       setLoadError(true);
       setServerWaking(false);
+      window.__hideSplash?.();
     });
 
     return () => { clearTimeout(wakingTimer); clearTimeout(errorTimer); };
