@@ -358,6 +358,42 @@ async def root_route_handler(_):
     })
 
 
+# ── /api/get-links — Website ke liye Fast Download + Watch Online URLs ────────
+from urllib.parse import quote_plus as _qp
+from LucyBot.util.file_properties import get_name as _get_name, get_hash as _get_hash
+
+@routes.get("/api/get-links")
+async def api_get_links(request: web.Request):
+    """
+    file_id lekar LOG_CHANNEL mein forward karo,
+    phir watch URL aur download URL return karo.
+    Usage: /api/get-links?file_id=<telegram_file_id>
+    """
+    file_id = request.rel_url.query.get("file_id", "").strip()
+    if not file_id:
+        return web.json_response({"error": "file_id required"}, status=400)
+    try:
+        log_msg = await Codeflix.send_cached_media(
+            chat_id=LOG_CHANNEL,
+            file_id=file_id,
+        )
+        file_name = _qp(_get_name(log_msg))
+        hash_val  = _get_hash(log_msg)
+        msg_id    = log_msg.id
+
+        base = URL.rstrip("/")
+        watch_url    = f"{base}/watch/{msg_id}/{file_name}?hash={hash_val}"
+        download_url = f"{base}/dl/{msg_id}?hash={hash_val}"
+
+        return web.json_response({
+            "watch_url":    watch_url,
+            "download_url": download_url,
+        })
+    except Exception as e:
+        logging.error(f"/api/get-links error: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
 @routes.get(r"/watch/{path:\S+}", allow_head=True)
 async def stream_watch_handler(request: web.Request):
     try:
