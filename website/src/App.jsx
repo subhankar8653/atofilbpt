@@ -335,6 +335,28 @@ function loadHomeCache() {
 const tmdbCache = new Map();
 const tmdbInFlight = new Map();
 
+// ── Poster Cache helpers — backend MongoDB cache ke saath ────────────
+async function checkPosterCache(title, year) {
+  try {
+    const params = new URLSearchParams({ title });
+    if (year) params.set("year", year);
+    const res = await fetch(`${API_BASE}/api/poster-cache?${params}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.cached ? data.data : null;
+  } catch { return null; }
+}
+
+async function savePosterCache(title, year, tmdbData) {
+  try {
+    await fetch(`${API_BASE}/api/poster-cache`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, year, tmdb_data: tmdbData }),
+    });
+  } catch { /* silently ignore — cache save fail hona critical nahi */ }
+}
+
 async function enrichWithTMDB(title, year) {
   const key = `e_${title}_${year}`;
   if (tmdbCache.has(key)) return tmdbCache.get(key);
@@ -342,6 +364,16 @@ async function enrichWithTMDB(title, year) {
 
   const promise = (async () => {
     try {
+      // ✅ Step 1: Pehle backend MongoDB cache check karo
+      const cached = await checkPosterCache(title, year);
+      if (cached) {
+        if (tmdbCache.size >= TMDB_CACHE_MAX) tmdbCache.delete(tmdbCache.keys().next().value);
+        tmdbCache.set(key, cached);
+        tmdbInFlight.delete(key);
+        return cached;
+      }
+
+      // Step 2: Cache miss — TMDB se fetch karo
       const searches = [year ? { query: title, year } : null, { query: title }].filter(Boolean);
       let result = null;
       for (const params of searches) {
@@ -370,6 +402,10 @@ async function enrichWithTMDB(title, year) {
       if (tmdbCache.size >= TMDB_CACHE_MAX) tmdbCache.delete(tmdbCache.keys().next().value);
       tmdbCache.set(key, out);
       tmdbInFlight.delete(key);
+
+      // ✅ Step 3: Background mein save karo (await nahi — non-blocking)
+      savePosterCache(title, year, out);
+
       return out;
     } catch {
       tmdbInFlight.delete(key);
