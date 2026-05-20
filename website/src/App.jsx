@@ -1074,6 +1074,8 @@ function DetailModal({ file, onClose }) {
   const [trailerLoading, setTrailerLoading] = useState(false);
   const [showTrailer, setShowTrailer] = useState(false);
   const [inList, setInList] = useState(false);
+  const [links, setLinks] = useState(null);       // { watch_url, download_url }
+  const [linksLoading, setLinksLoading] = useState(false);
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
@@ -1133,6 +1135,23 @@ function DetailModal({ file, onClose }) {
         .then(() => showToast("✅ Link copied!"))
         .catch(() => showToast("❌ Copy failed"));
     }
+  };
+
+  const handleGetLinks = async () => {
+    if (links) return; // already loaded
+    setLinksLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/get-links?file_id=${encodeURIComponent(file.file_id)}`);
+      const data = await res.json();
+      if (data.watch_url) {
+        setLinks(data);
+      } else {
+        showToast("❌ Links generate nahi hue");
+      }
+    } catch (e) {
+      showToast("❌ Server error");
+    }
+    setLinksLoading(false);
   };
 
   const heroSrc = posterData?.posterMd || posterData?.poster || null;
@@ -1199,16 +1218,41 @@ function DetailModal({ file, onClose }) {
               {inList ? "✓ My List mein Hai" : "+ My List mein Add Karo"}
             </button>
 
+            {/* ── Fast Download + Watch Online buttons ── */}
+            {!links ? (
+              <button onClick={handleGetLinks} disabled={linksLoading}
+                style={{ width: "100%", padding: "15px 0", borderRadius: 18, background: "linear-gradient(135deg,#f39c12,#e74c3c)", border: "none", color: "#fff", fontSize: 14, fontWeight: 800, cursor: linksLoading ? "default" : "pointer", marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, boxShadow: "0 6px 28px rgba(243,156,18,.35)", opacity: linksLoading ? 0.75 : 1, transition: "all .2s" }}>
+                {linksLoading
+                  ? <><div style={{ width: 16, height: 16, borderRadius: "50%", border: "2.5px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", animation: "spin 0.8s linear infinite" }} /> Generating Links...</>
+                  : <><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-2.03 9.571c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.893.65z" /></svg> Get Download & Watch Links</>
+                }
+              </button>
+            ) : (
+              <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+                <a href={links.download_url} target="_blank" rel="noopener noreferrer"
+                  style={{ flex: 1, padding: "15px 0", borderRadius: 18, background: "linear-gradient(135deg,#27ae60,#1e8449)", color: "#fff", fontSize: 13, fontWeight: 800, textAlign: "center", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, boxShadow: "0 6px 20px rgba(39,174,96,.3)" }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  🚀 Fast Download
+                </a>
+                <a href={links.watch_url} target="_blank" rel="noopener noreferrer"
+                  style={{ flex: 1, padding: "15px 0", borderRadius: 18, background: "linear-gradient(135deg,#8e44ad,#6c3483)", color: "#fff", fontSize: 13, fontWeight: 800, textAlign: "center", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, boxShadow: "0 6px 20px rgba(142,68,173,.3)" }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                  🖥️ Watch Online
+                </a>
+              </div>
+            )}
+
+            {/* ── Open in Telegram + Share ── */}
             <div style={{ display: "flex", gap: 10 }}>
               <a href={link} target="_blank" rel="noopener noreferrer"
-                style={{ flex: 1, padding: "16px 0", borderRadius: 18, background: "linear-gradient(135deg,#f39c12,#e74c3c)", color: "#fff", fontSize: 14, fontWeight: 800, textAlign: "center", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, boxShadow: "0 6px 28px rgba(243,156,18,.35)", letterSpacing: 0.3 }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                style={{ flex: 1, padding: "14px 0", borderRadius: 18, background: "linear-gradient(135deg,#229ED9,#1a7aab)", color: "#fff", fontSize: 13, fontWeight: 800, textAlign: "center", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, boxShadow: "0 6px 20px rgba(34,158,217,.25)" }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-2.03 9.571c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.893.65z" />
                 </svg>
                 Open in Telegram
               </a>
               <button onClick={handleShare}
-                style={{ width: 56, height: 56, borderRadius: 18, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#777", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all .2s" }}>
+                style={{ width: 54, height: 54, borderRadius: 18, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#777", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all .2s" }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
                   <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
