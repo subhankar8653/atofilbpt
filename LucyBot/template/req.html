@@ -243,6 +243,12 @@
   <!-- ═══════════════════ CONTENT ═══════════════════ -->
   <div class="content">
 
+    <!-- Dual Audio tip banner (shown only for dual/multi audio files) -->
+    <div id="dualAudioTip" style="display:none;background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.25);border-radius:12px;padding:10px 14px;margin:10px 0 4px;font-size:11px;color:#a5b4fc;line-height:1.6;">
+      🎵 <strong>Dual Audio File</strong> — Is file mein 2 audio tracks hain.<br>
+      MX Player ya VLC mein open karein → <em>Audio Track</em> select karein (🎵 icon).
+    </div>
+
     <!-- Title & meta -->
     <div style="margin:14px 0 4px">
       <div class="file-title">{{ file_name }}</div>
@@ -296,8 +302,9 @@
     <div class="variant-section" id="langSection" style="display:none">
       <div class="variant-title">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-        LANGUAGE
+        LANGUAGE / AUDIO TRACK
       </div>
+      <div style="font-size:10px;color:#555;margin-bottom:8px">Dual Audio files mein ek hi file hoti hai — player mein audio track switch karein</div>
       <div class="variant-chips" id="langChips"></div>
     </div>
 
@@ -552,14 +559,29 @@ document.addEventListener("keydown", (e) => {
 // ═══════════════════════════════════════════════
 (function() {
   const m = FILE_NAME.match(/\b(2160p|4K|1080p|720p|480p|360p|240p)\b/i);
-  if (!m) return;
-  const q = m[1].toUpperCase().replace("4K","2160P");
-  const cls = q.includes("2160") ? "q2160" : q.includes("1080") ? "q1080" : q.includes("720") ? "q720" : q.includes("480") ? "q480" : "q360";
-  const b = document.createElement("span");
-  b.className = `badge badge-q ${cls}`;
-  b.textContent = q;
-  document.getElementById("metaRow").prepend(b);
+  if (m) {
+    const q = m[1].toUpperCase().replace("4K","2160P");
+    const cls = q.includes("2160") ? "q2160" : q.includes("1080") ? "q1080" : q.includes("720") ? "q720" : q.includes("480") ? "q480" : "q360";
+    const b = document.createElement("span");
+    b.className = `badge badge-q ${cls}`;
+    b.textContent = q;
+    document.getElementById("metaRow").prepend(b);
+  }
+  // Dual / Multi Audio badge
+  if (/\b(dual[\s._-]?audio|multi[\s._-]?audio|dual|multi)\b/i.test(FILE_NAME)) {
+    const db = document.createElement("span");
+    db.className = "badge";
+    db.style.cssText = "background:rgba(99,102,241,.15);color:#818cf8;border:1px solid rgba(99,102,241,.3);font-size:10px;font-weight:800;padding:3px 9px;border-radius:7px;";
+    db.textContent = "🎵 Dual Audio";
+    document.getElementById("metaRow").appendChild(db);
+  }
 })();
+
+// Show dual audio tip if applicable
+if (/\b(dual[\s._-]?audio|multi[\s._-]?audio|dual|multi)\b/i.test(FILE_NAME)) {
+  const tip = document.getElementById("dualAudioTip");
+  if (tip) tip.style.display = "block";
+}
 
 // ═══════════════════════════════════════════════
 // QUALITY & LANGUAGE VARIANTS (from Railway API)
@@ -570,11 +592,40 @@ function extractMovieTitle(name) {
   return name.replace(/\s+/g," ").trim();
 }
 
-const LANGS = ["Hindi","English","Tamil","Telugu","Malayalam","Kannada","Bengali","Punjabi"];
-const QUALS = ["2160p","1080p","720p","480p","360p","240p"];
+const LANGS = ["Hindi","English","Tamil","Telugu","Malayalam","Kannada","Bengali","Punjabi","Marathi","Gujarati","Bhojpuri","Urdu"];
+const QUALS = ["2160p","4K","1080p","720p","480p","360p","240p"];
 
-function detectLang(name) { return LANGS.find(l => new RegExp(`\\b${l}\\b`,"i").test(name)) || null; }
+// Detect ALL languages in a filename (handles Dual Audio, Multi Audio)
+function detectAllLangs(name) {
+  const found = LANGS.filter(l => new RegExp(`\\b${l}\\b`,"i").test(name));
+  return found.length ? found : null;
+}
+
+// Detect single lang (for chip label)
+function detectLang(name) {
+  // Check for Dual/Multi Audio first
+  if (/\b(dual[\s._-]?audio|multi[\s._-]?audio|dual|multi)\b/i.test(name)) {
+    const found = LANGS.filter(l => new RegExp(`\\b${l}\\b`,"i").test(name));
+    if (found.length >= 2) return found.join(" + ");
+    if (found.length === 1) return found[0] + " Dual";
+    return "Dual Audio";
+  }
+  const found = LANGS.filter(l => new RegExp(`\\b${l}\\b`,"i").test(name));
+  return found.length ? found.join(" + ") : null;
+}
+
 function detectQual(name) { return QUALS.find(q => new RegExp(`\\b${q}\\b`,"i").test(name)) || null; }
+
+// Returns a clean lang key for grouping (sorted, lowercase)
+function langKey(name) {
+  if (/\b(dual[\s._-]?audio|multi[\s._-]?audio|dual|multi)\b/i.test(name)) {
+    const found = LANGS.filter(l => new RegExp(`\\b${l}\\b`,"i").test(name));
+    if (found.length) return found.map(l=>l.toLowerCase()).sort().join("+");
+    return "dualaudio";
+  }
+  const found = LANGS.filter(l => new RegExp(`\\b${l}\\b`,"i").test(name));
+  return found.length ? found.map(l=>l.toLowerCase()).sort().join("+") : null;
+}
 
 async function loadVariants() {
   const title = extractMovieTitle(FILE_NAME);
@@ -584,44 +635,69 @@ async function loadVariants() {
     const data = await res.json();
     if (!data.files || !data.files.length) return;
 
-    const curQ = detectQual(FILE_NAME);
-    const curL = detectLang(FILE_NAME);
+    const curQ    = detectQual(FILE_NAME);
+    const curLKey = langKey(FILE_NAME);
+    const curLLabel = detectLang(FILE_NAME);
 
     // Group by quality and language
     const qualMap = {}, langMap = {};
+
+    // Add current file itself to maps so it always appears
+    const curFileObj = { file_id: null, file_name: FILE_NAME, _isCurrent: true };
+    if (curQ && !qualMap[curQ]) qualMap[curQ] = curFileObj;
+    if (curLKey && !langMap[curLKey]) langMap[curLKey] = { file: curFileObj, label: curLLabel };
+
     data.files.forEach(f => {
-      const q = detectQual(f.file_name);
-      const l = detectLang(f.file_name);
-      if (q) { if (!qualMap[q]) qualMap[q] = f; }
-      if (l) { if (!langMap[l]) langMap[l] = f; }
+      const q  = detectQual(f.file_name);
+      const lk = langKey(f.file_name);
+      const ll = detectLang(f.file_name);
+      if (q  && !qualMap[q])  qualMap[q]  = f;
+      if (lk && !langMap[lk]) langMap[lk] = { file: f, label: ll };
     });
 
-    // Quality chips
+    // Quality chips — show if >1 variant OR if current has quality tag
     const quals = Object.keys(qualMap).sort((a,b) => QUALS.indexOf(a)-QUALS.indexOf(b));
-    if (quals.length > 1) {
-      const qSec  = document.getElementById("qualSection");
+    if (quals.length >= 1) {
+      const qSec   = document.getElementById("qualSection");
       const qChips = document.getElementById("qualChips");
       qSec.style.display = "block";
       quals.forEach(q => {
+        const f = qualMap[q];
         const c = document.createElement("button");
         c.className = "chip" + (q===curQ ? " active" : "");
         c.textContent = q;
-        c.onclick = () => switchVariant(qualMap[q].file_id, c, "qual");
+        if (f._isCurrent || !f.file_id) {
+          // Current file – just highlight, no navigation
+          c.onclick = () => showToast("▶️ Already playing " + q);
+        } else {
+          c.onclick = () => switchVariant(f.file_id, c, "qual");
+        }
         qChips.appendChild(c);
       });
     }
 
-    // Language chips
-    const langs = Object.keys(langMap);
-    if (langs.length > 1) {
+    // Language chips — show always if any language found
+    const langKeys = Object.keys(langMap);
+    if (langKeys.length >= 1) {
       const lSec   = document.getElementById("langSection");
       const lChips = document.getElementById("langChips");
       lSec.style.display = "block";
-      langs.forEach(l => {
+      langKeys.forEach(lk => {
+        const entry = langMap[lk];
+        const f     = entry.file;
+        const label = entry.label;
         const c = document.createElement("button");
-        c.className = "chip" + (l===curL ? " active" : "");
-        c.textContent = l;
-        c.onclick = () => switchVariant(langMap[l].file_id, c, "lang");
+        c.className = "chip" + (lk===curLKey ? " active" : "");
+        c.textContent = label || lk;
+        // Add 🎵 icon for dual/multi audio
+        if (/\+/.test(lk) || lk==="dualaudio") {
+          c.innerHTML = "🎵 " + (label || lk);
+        }
+        if (f._isCurrent || !f.file_id) {
+          c.onclick = () => showToast("▶️ Already playing this version");
+        } else {
+          c.onclick = () => switchVariant(f.file_id, c, "lang");
+        }
         lChips.appendChild(c);
       });
     }
