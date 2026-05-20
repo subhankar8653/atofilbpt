@@ -221,12 +221,47 @@ async def api_poster_cache_get(request: web.Request):
         return web.json_response({"cached": False, "data": None}, status=500)
 
 
+# ── Log channel queue — FLOOD_WAIT se bachne ke liye ────────────────────────
+import asyncio as _asyncio
+_log_queue = _asyncio.Queue()
+_log_task_started = False
+
+async def _log_channel_worker():
+    """
+    Background worker — ek queue se ek ek message bhejo, 5 second gap ke saath.
+    Telegram flood wait se permanently bach jayenge.
+    """
+    while True:
+        msg = await _log_queue.get()
+        try:
+            await Codeflix.send_message(LOG_CHANNEL, msg, disable_web_page_preview=False)
+        except Exception as e:
+            logging.warning(f"Log queue send failed: {e}")
+        finally:
+            _log_queue.task_done()
+        await _asyncio.sleep(5)  # 5 second gap — Telegram rate limit safe
+
+def _ensure_log_worker():
+    global _log_task_started
+    if not _log_task_started:
+        _asyncio.get_event_loop().create_task(_log_channel_worker())
+        _log_task_started = True
+
+def _enqueue_log(msg: str):
+    """Non-blocking — queue mein daal do, worker bhej dega."""
+    _ensure_log_worker()
+    try:
+        _log_queue.put_nowait(msg)
+    except Exception:
+        pass  # Queue full ho toh silently drop karo
+
+
 # ── /api/poster-cache POST — TMDB result save karo + log channel pe bhejo ────
 @routes.post("/api/poster-cache")
 async def api_poster_cache_post(request: web.Request):
     """
     Frontend TMDB se fetch karne ke baad yahan bheje —
-    MongoDB mein save hoga aur LOG_CHANNEL pe message jayega.
+    MongoDB mein save hoga aur LOG_CHANNEL pe queue message jayega.
     Body: { title, year, tmdb_data: { poster, posterMd, rating, ... } }
     """
     try:
@@ -241,7 +276,7 @@ async def api_poster_cache_post(request: web.Request):
         # 1. MongoDB mein save karo
         saved = await save_poster_cache(title, year, tmdb_data)
 
-        # 2. LOG_CHANNEL pe message bhejo (sirf agar save hua)
+        # 2. Queue mein daal do — worker 5sec gap se bhejega (no flood wait!)
         if saved:
             try:
                 rating   = tmdb_data.get("rating") or "N/A"
@@ -260,9 +295,9 @@ async def api_poster_cache_post(request: web.Request):
                     f"**Poster:** [Link]({poster})\n\n"
                     f"📦 **Total Cached:** {total}"
                 )
-                await Codeflix.send_message(LOG_CHANNEL, msg, disable_web_page_preview=False)
+                _enqueue_log(msg)  # ✅ Queue — no direct send, no flood wait
             except Exception as log_err:
-                logging.warning(f"Log channel send failed (ignored): {log_err}")
+                logging.warning(f"Log enqueue failed (ignored): {log_err}")
 
         return web.json_response({"saved": saved})
 
