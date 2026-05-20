@@ -95,6 +95,8 @@ function toggleWatchlist(item) {
   const idx = list.findIndex(x => String(x.id) === String(item.id));
   if (idx !== -1) { list.splice(idx, 1); } else { list.unshift(item); }
   saveWatchlist(list);
+  // FIX: same-tab mein bhi update ho — custom event dispatch karo
+  window.dispatchEvent(new Event("watchlist-update"));
   return idx === -1;
 }
 
@@ -675,7 +677,7 @@ function TMDBCard({ item, onClick, gridMode = false }) {
             color: "#fff", cursor: "pointer", fontSize: 13,
             display: "flex", alignItems: "center", justifyContent: "center",
             backdropFilter: "blur(4px)", transition: "all .2s",
-            opacity: hov || inList ? 1 : 0,
+            opacity: 1,  // FIX: mobile pe hover nahi hota — hamesha visible
           }}
         >
           {inList ? "✓" : "+"}
@@ -702,8 +704,11 @@ function HeroBannerCarousel({ items, onClick }) {
   const startTimer = useCallback(() => {
     clearInterval(intervalRef.current);
     intervalRef.current = setInterval(() => {
-      setCurrent(c => (c + 1) % itemsLen);
-      setBgLoaded(false);
+      // FIX: setBgLoaded false sirf tab karo jab next image alag ho
+      setCurrent(c => {
+        const next = (c + 1) % itemsLen;
+        return next;
+      });
     }, HERO_AUTOPLAY_MS);
   }, [itemsLen]);
 
@@ -713,7 +718,7 @@ function HeroBannerCarousel({ items, onClick }) {
     return () => clearInterval(intervalRef.current);
   }, [itemsLen, startTimer]);
 
-  const goTo = (i) => { setCurrent(i); setBgLoaded(false); startTimer(); };
+  const goTo = (i) => { setCurrent(i); startTimer(); };  // FIX: no flicker
   const onTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
   const onTouchEnd = (e) => {
     if (touchStartX.current === null) return;
@@ -1184,7 +1189,7 @@ function DetailModal({ file, onClose }) {
             </div>
 
             {posterData?.plot && (
-              <p style={{ fontSize: 13, color: "#555", lineHeight: 1.75, marginBottom: 22, padding: "14px 16px", background: "rgba(255,255,255,0.02)", borderRadius: 14, border: "1px solid rgba(255,255,255,0.04)" }}>
+              <p style={{ fontSize: 13, color: "#999", lineHeight: 1.75, marginBottom: 22, padding: "14px 16px", background: "rgba(255,255,255,0.02)", borderRadius: 14, border: "1px solid rgba(255,255,255,0.04)" }}>
                 {posterData.plot}
               </p>
             )}
@@ -1326,7 +1331,7 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
       hasMoreRef.current = more;
       setInitialLoading(false);
     });
-  }, [category]);
+  }, [category, initialItems]);  // FIX: initialItems dependency add kiya
 
   const loadMore = useCallback(async () => {
     if (loadingMoreRef.current || !hasMoreRef.current || !category) return;
@@ -1467,10 +1472,12 @@ function WatchlistTab({ onItemClick }) {
   useEffect(() => {
     const refresh = () => setItems(getWatchlist());
     window.addEventListener("storage", refresh);
-    // Also refresh when tab becomes visible (user switches back)
+    // FIX: same-tab updates ke liye custom event
+    window.addEventListener("watchlist-update", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {
       window.removeEventListener("storage", refresh);
+      window.removeEventListener("watchlist-update", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
   }, []);
@@ -1572,8 +1579,10 @@ function useVoiceSearch(onResult, activeLanguage = "All") {
   }, [onResult, activeLanguage]);
 
   const stop = useCallback(() => {
-    recognitionRef.current?.stop();
+    try { recognitionRef.current?.stop(); } catch {}
+    // FIX: force listening false immediately — onend might already have fired
     setListening(false);
+    recognitionRef.current = null;
   }, []);
 
   return { listening, start, stop };
@@ -1746,16 +1755,20 @@ function App() {
     return () => { clearTimeout(wakingTimer); clearTimeout(errorTimer); };
   }, [retryKey]);
 
-  // FIX: Android hardware back button
+  // FIX: Android hardware back button — pushState sirf once mount pe
+  useEffect(() => {
+    window.history.pushState({ page: "app" }, "");
+  }, []);
+
   useEffect(() => {
     const handlePopState = () => {
+      window.history.pushState({ page: "app" }, "");
       if (selected) { setSelected(null); return; }
       if (categoryPage) { setCategoryPage(null); return; }
       if (tab === "search") { setTab("home"); setQuery(""); setFiles([]); return; }
       if (tab !== "home") { setTab("home"); return; }
     };
     window.addEventListener("popstate", handlePopState);
-    window.history.pushState({ page: "app" }, "");
     return () => window.removeEventListener("popstate", handlePopState);
   }, [selected, categoryPage, tab]);
 
@@ -1864,7 +1877,13 @@ function App() {
               </button>
             )}
             {tab === "search" && (
-              <span style={{ fontSize: 17, fontWeight: 900, fontFamily: "'Bebas Neue',sans-serif", letterSpacing: 2, color: "#f39c12" }}>SEARCH</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {loading && (
+                  // FIX: search loading feedback in header
+                  <div style={{ width: 14, height: 14, borderRadius: "50%", border: "2px solid rgba(243,156,18,0.3)", borderTopColor: "#f39c12", animation: "spin 0.7s linear infinite" }} />
+                )}
+                <span style={{ fontSize: 17, fontWeight: 900, fontFamily: "'Bebas Neue',sans-serif", letterSpacing: 2, color: "#f39c12" }}>SEARCH</span>
+              </div>
             )}
           </div>
         </div>
