@@ -22,8 +22,7 @@ In Railway dashboard → Variables, add these:
 | `API_ID` | Your Telegram API ID (from my.telegram.org) |
 | `API_HASH` | Your Telegram API Hash |
 | `BOT_TOKEN` | Your Bot Token from @BotFather |
-| `DATABASE_URI` | MongoDB URI (Primary) |
-| `DATABASE_URI2` | MongoDB URI (Secondary) |
+| `DATABASE_URI` | MongoDB URI
 | `DATABASE_NAME` | MongoDB database name |
 | `LOG_CHANNEL` | Your log channel ID (e.g. -1001234567890) |
 | `ADMINS` | Your Telegram user ID |
