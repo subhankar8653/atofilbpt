@@ -7,484 +7,805 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdn.plyr.io/3.6.12/plyr.css" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
     :root {
-      --orange: #f39c12;
-      --red: #e74c3c;
-      --bg: #0a0a0a;
-      --surface: #111111;
-      --surface2: #181818;
-      --border: rgba(255,255,255,0.06);
-      --text: #e8e8e8;
-      --muted: #555;
-      --radius: 18px;
-      --grad: linear-gradient(135deg, #f39c12, #e74c3c);
+      --orange: #f39c12; --red: #e74c3c;
+      --bg: #0a0a0a; --surface: #111; --surface2: #181818;
+      --border: rgba(255,255,255,0.07); --text: #e8e8e8; --muted: #555;
+      --radius: 16px; --grad: linear-gradient(135deg,#f39c12,#e74c3c);
     }
-
     html { scroll-behavior: smooth; }
-
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: 'DM Sans', sans-serif;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      -webkit-font-smoothing: antialiased;
-    }
-
-    /* ── Scrollbar ── */
-    ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-track { background: var(--bg); }
-    ::-webkit-scrollbar-thumb { background: rgba(243,156,18,0.3); border-radius: 4px; }
+    body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; -webkit-font-smoothing: antialiased; }
+    ::-webkit-scrollbar { width: 3px; } ::-webkit-scrollbar-track { background: var(--bg); } ::-webkit-scrollbar-thumb { background: rgba(243,156,18,.3); border-radius: 4px; }
 
     /* ── Header ── */
-    .header {
-      width: 100%;
-      max-width: 480px;
-      padding: 14px 20px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      background: rgba(10,10,10,0.92);
-      backdrop-filter: blur(20px);
-      border-bottom: 1px solid var(--border);
-    }
+    .header { width:100%; max-width:520px; padding:12px 18px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; background:rgba(10,10,10,.93); backdrop-filter:blur(20px); border-bottom:1px solid var(--border); }
+    .logo { font-size:19px; font-weight:900; letter-spacing:2px; }
+    .logo span:first-child { color:var(--orange); } .logo span:last-child { color:rgba(255,255,255,.88); }
+    .header-badge { font-size:10px; font-weight:700; color:var(--orange); background:rgba(243,156,18,.1); border:1px solid rgba(243,156,18,.25); border-radius:20px; padding:4px 10px; letter-spacing:1px; }
 
-    .logo {
-      font-size: 20px;
-      font-weight: 900;
-      letter-spacing: 2px;
-      line-height: 1;
-    }
-    .logo span:first-child { color: var(--orange); }
-    .logo span:last-child { color: rgba(255,255,255,0.88); }
+    /* ── Video wrapper ── */
+    .video-wrapper { width:100%; max-width:520px; background:#000; position:relative; user-select:none; }
+    video { width:100%; display:block; max-height:300px; background:#000; }
 
-    .header-badge {
-      font-size: 10px;
-      font-weight: 700;
-      color: var(--orange);
-      background: rgba(243,156,18,0.1);
-      border: 1px solid rgba(243,156,18,0.25);
-      border-radius: 20px;
-      padding: 4px 10px;
-      letter-spacing: 1px;
-    }
+    /* ── Custom controls ── */
+    .controls { position:absolute; bottom:0; left:0; right:0; background:linear-gradient(transparent,rgba(0,0,0,.92)); padding:8px 14px 12px; opacity:0; transition:opacity .25s; }
+    .video-wrapper:hover .controls, .video-wrapper.show-ctrl .controls { opacity:1; }
+    .progress-wrap { position:relative; height:4px; background:rgba(255,255,255,.2); border-radius:4px; cursor:pointer; margin-bottom:10px; transition:height .15s; }
+    .progress-wrap:hover { height:6px; }
+    .progress-buf { position:absolute; left:0; top:0; height:100%; background:rgba(255,255,255,.25); border-radius:4px; pointer-events:none; }
+    .progress-fill { position:absolute; left:0; top:0; height:100%; background:var(--grad); border-radius:4px; pointer-events:none; }
+    .progress-thumb { position:absolute; top:50%; width:14px; height:14px; background:#fff; border-radius:50%; transform:translate(-50%,-50%); pointer-events:none; box-shadow:0 0 6px rgba(0,0,0,.5); opacity:0; transition:opacity .15s; }
+    .progress-wrap:hover .progress-thumb { opacity:1; }
+    .ctrl-row { display:flex; align-items:center; gap:4px; }
+    .ctrl-btn { background:none; border:none; color:#fff; cursor:pointer; padding:5px; border-radius:8px; display:flex; align-items:center; justify-content:center; transition:background .15s; -webkit-tap-highlight-color:transparent; }
+    .ctrl-btn:hover { background:rgba(255,255,255,.1); }
+    .ctrl-btn svg { display:block; }
+    .time-display { font-size:11px; font-weight:700; color:#ccc; letter-spacing:.3px; margin:0 4px; white-space:nowrap; }
+    .ctrl-spacer { flex:1; }
+    .volume-wrap { display:flex; align-items:center; gap:6px; }
+    .volume-slider { -webkit-appearance:none; appearance:none; width:70px; height:3px; background:rgba(255,255,255,.3); border-radius:3px; outline:none; cursor:pointer; }
+    .volume-slider::-webkit-slider-thumb { -webkit-appearance:none; width:12px; height:12px; background:#fff; border-radius:50%; cursor:pointer; }
+    .quality-btn { font-size:10px; font-weight:800; padding:3px 8px; border-radius:6px; background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.2); color:#fff; cursor:pointer; letter-spacing:.5px; }
 
-    /* ── Main wrapper ── */
-    .main {
-      width: 100%;
-      max-width: 480px;
-      padding: 0 0 80px;
-      animation: fadeUp 0.4s ease both;
-    }
+    /* ── Skip overlay (YouTube style) ── */
+    .skip-anim { position:absolute; top:50%; transform:translateY(-50%); pointer-events:none; display:flex; flex-direction:column; align-items:center; gap:4px; opacity:0; transition:opacity .2s; }
+    .skip-anim.left { left:14%; }
+    .skip-anim.right { right:14%; }
+    .skip-anim.show { opacity:1; }
+    .skip-circle { width:64px; height:64px; border-radius:50%; background:rgba(255,255,255,.18); backdrop-filter:blur(4px); display:flex; align-items:center; justify-content:center; }
+    .skip-label { font-size:10px; font-weight:700; color:#fff; letter-spacing:.5px; }
+    .double-tap-zone { position:absolute; top:0; bottom:56px; width:38%; cursor:pointer; }
+    .double-tap-zone.left { left:0; }
+    .double-tap-zone.right { right:0; }
 
-    /* ── Video Player ── */
-    .player-wrap {
-      width: 100%;
-      background: #000;
-      position: relative;
-      overflow: hidden;
-    }
+    /* ── Play overlay ── */
+    .play-overlay { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:64px; height:64px; border-radius:50%; background:rgba(0,0,0,.55); backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; pointer-events:none; transition:opacity .2s; }
+    .play-overlay.hide { opacity:0; }
 
-    .plyr {
-      --plyr-color-main: #f39c12;
-      --plyr-video-control-background-hover: rgba(243,156,18,0.8);
-      --plyr-range-fill-background: var(--orange);
-    }
+    /* ── Panels ── */
+    .main { width:100%; max-width:520px; padding:0 0 90px; }
+    .content { padding:14px 16px 0; }
+    .file-title { font-size:14px; font-weight:800; color:var(--text); line-height:1.5; margin-bottom:8px; word-break:break-word; }
+    .meta-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+    .badge { font-size:10px; font-weight:800; padding:3px 9px; border-radius:7px; }
+    .badge-size { background:rgba(255,255,255,.05); color:var(--muted); border:1px solid var(--border); }
+    .badge-q { color:#fff; }
+    .badge-q.q2160 { background:#e8b84b; color:#111; } .badge-q.q1080 { background:#c0392b; } .badge-q.q720 { background:#e67e22; } .badge-q.q480 { background:#27ae60; } .badge-q.q360,.badge-q.q240 { background:#555; }
 
-    /* ── Content area ── */
-    .content {
-      padding: 20px 16px 0;
-    }
+    /* ── Like/Dislike row ── */
+    .reaction-row { display:flex; align-items:center; gap:10px; margin-bottom:16px; }
+    .react-btn { display:flex; align-items:center; gap:6px; padding:8px 16px; border-radius:50px; background:var(--surface2); border:1px solid var(--border); color:#aaa; font-size:12px; font-weight:700; cursor:pointer; transition:all .2s; -webkit-tap-highlight-color:transparent; }
+    .react-btn:hover { background:rgba(255,255,255,.07); }
+    .react-btn.active-like { background:rgba(243,156,18,.12); border-color:rgba(243,156,18,.35); color:var(--orange); }
+    .react-btn.active-dislike { background:rgba(231,76,60,.1); border-color:rgba(231,76,60,.3); color:#e74c3c; }
+    .react-btn.active-save { background:rgba(99,102,241,.12); border-color:rgba(99,102,241,.35); color:#818cf8; }
+    .react-btn a { color:inherit; text-decoration:none; }
+    .react-divider { width:1px; height:28px; background:var(--border); }
 
-    /* ── File title ── */
-    .file-title {
-      font-size: 15px;
-      font-weight: 700;
-      color: var(--text);
-      line-height: 1.5;
-      margin-bottom: 6px;
-      word-break: break-word;
-    }
+    /* ── Section labels ── */
+    .sec-label { font-size:10px; font-weight:700; color:#3a3a3a; letter-spacing:1.5px; margin-bottom:10px; }
 
-    .file-meta {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-      margin-bottom: 20px;
-    }
-
-    .badge {
-      font-size: 10px;
-      font-weight: 800;
-      padding: 3px 9px;
-      border-radius: 7px;
-      letter-spacing: 0.3px;
-    }
-    .badge-size {
-      background: rgba(255,255,255,0.05);
-      color: var(--muted);
-      border: 1px solid var(--border);
-    }
-    .badge-quality {
-      background: #c0392b;
-      color: #fff;
-    }
-    .badge-quality.q2160 { background: #e8b84b; color: #111; }
-    .badge-quality.q1080 { background: #c0392b; }
-    .badge-quality.q720  { background: #e67e22; }
-    .badge-quality.q480  { background: #27ae60; }
-    .badge-quality.q360  { background: #555; }
-
-    /* ── Section label ── */
-    .section-label {
-      font-size: 10px;
-      font-weight: 700;
-      color: #3a3a3a;
-      letter-spacing: 1.5px;
-      margin-bottom: 10px;
-    }
-
-    /* ── Player buttons row ── */
-    .player-btns {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      margin-bottom: 10px;
-    }
-    .player-btns .btn-playit {
-      grid-column: 1 / -1;
-    }
-
-    .btn {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      padding: 13px 16px;
-      border-radius: 14px;
-      font-family: 'DM Sans', sans-serif;
-      font-size: 12px;
-      font-weight: 800;
-      letter-spacing: 0.5px;
-      text-transform: uppercase;
-      cursor: pointer;
-      border: none;
-      text-decoration: none;
-      color: #fff;
-      transition: transform 0.18s cubic-bezier(.34,1.56,.64,1), box-shadow 0.18s, opacity 0.18s;
-      -webkit-tap-highlight-color: transparent;
-      position: relative;
-      overflow: hidden;
-    }
-    .btn:active { transform: scale(0.97); opacity: 0.88; }
-
-    .btn-mx     { background: linear-gradient(135deg, #1a73e8, #0d47a1); }
-    .btn-vlc    { background: linear-gradient(135deg, #e67e22, #d35400); }
-    .btn-playit { background: linear-gradient(135deg, #8e44ad, #6c3483); }
+    /* ── Quality/Language switcher ── */
+    .variant-section { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:14px 16px; margin-bottom:14px; }
+    .variant-title { font-size:11px; font-weight:800; color:var(--orange); letter-spacing:1px; margin-bottom:12px; display:flex; align-items:center; gap:6px; }
+    .variant-chips { display:flex; flex-wrap:wrap; gap:8px; }
+    .chip { padding:6px 14px; border-radius:50px; font-size:11px; font-weight:700; cursor:pointer; transition:all .2s; border:1px solid var(--border); background:rgba(255,255,255,.04); color:#777; -webkit-tap-highlight-color:transparent; }
+    .chip:hover { background:rgba(255,255,255,.07); color:#aaa; }
+    .chip.active { background:var(--grad); border-color:transparent; color:#fff; box-shadow:0 3px 12px rgba(243,156,18,.3); }
+    .chip.loading { opacity:.5; pointer-events:none; }
+    .empty-chips { font-size:11px; color:#3a3a3a; font-style:italic; }
 
     /* ── Action buttons ── */
-    .action-btns {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      margin-bottom: 20px;
-    }
+    .action-btns { display:flex; flex-direction:column; gap:10px; margin-bottom:16px; }
+    .btn { display:flex; align-items:center; justify-content:center; gap:8px; padding:13px 16px; border-radius:14px; font-family:'DM Sans',sans-serif; font-size:12px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; cursor:pointer; border:none; text-decoration:none; color:#fff; transition:transform .18s cubic-bezier(.34,1.56,.64,1),opacity .18s; -webkit-tap-highlight-color:transparent; }
+    .btn:active { transform:scale(.97); opacity:.88; }
+    .btn-mx { background:linear-gradient(135deg,#1a73e8,#0d47a1); }
+    .btn-vlc { background:linear-gradient(135deg,#e67e22,#d35400); }
+    .btn-playit { background:linear-gradient(135deg,#8e44ad,#6c3483); }
+    .btn-download { background:linear-gradient(135deg,#27ae60,#1e8449); box-shadow:0 5px 18px rgba(39,174,96,.25); }
+    .btn-telegram { background:linear-gradient(135deg,#229ED9,#1a7aab); box-shadow:0 5px 18px rgba(34,158,217,.2); }
+    .btn-share { background:rgba(255,255,255,.04); border:1px solid var(--border); color:var(--muted); }
 
-    .btn-download {
-      background: linear-gradient(135deg, #27ae60, #1e8449);
-      box-shadow: 0 6px 20px rgba(39,174,96,0.25);
-    }
-    .btn-telegram {
-      background: linear-gradient(135deg, #229ED9, #1a7aab);
-      box-shadow: 0 6px 20px rgba(34,158,217,0.2);
-    }
-    .btn-share {
-      background: rgba(255,255,255,0.04);
-      border: 1px solid var(--border);
-      color: var(--muted);
-    }
+    /* ── Comments ── */
+    .comments-section { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:14px 16px; margin-bottom:14px; }
+    .comments-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+    .comments-title { font-size:13px; font-weight:800; color:var(--text); }
+    .comments-count { font-size:11px; color:var(--muted); background:rgba(255,255,255,.05); padding:3px 10px; border-radius:20px; }
+    .comment-form { display:flex; gap:10px; margin-bottom:16px; align-items:flex-start; }
+    .comment-avatar { width:32px; height:32px; border-radius:50%; background:var(--grad); display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:800; color:#fff; flex-shrink:0; }
+    .comment-input { flex:1; background:rgba(255,255,255,.04); border:1px solid var(--border); border-radius:12px; padding:10px 14px; color:var(--text); font-family:'DM Sans',sans-serif; font-size:12px; resize:none; outline:none; transition:border .2s; min-height:42px; }
+    .comment-input:focus { border-color:rgba(243,156,18,.4); min-height:72px; }
+    .comment-submit { margin-top:6px; padding:8px 16px; border-radius:10px; background:var(--grad); border:none; color:#fff; font-weight:800; font-size:11px; cursor:pointer; transition:opacity .2s; }
+    .comment-submit:hover { opacity:.88; }
+    .comment-item { display:flex; gap:10px; padding:10px 0; border-bottom:1px solid rgba(255,255,255,.04); }
+    .comment-item:last-child { border-bottom:none; padding-bottom:0; }
+    .comment-body { flex:1; }
+    .comment-name { font-size:11px; font-weight:700; color:var(--orange); margin-bottom:3px; }
+    .comment-text { font-size:12px; color:#aaa; line-height:1.6; }
+    .comment-time { font-size:10px; color:#333; margin-top:4px; }
+    .comment-react { display:flex; align-items:center; gap:8px; margin-top:6px; }
+    .c-react-btn { background:none; border:none; color:#444; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:4px; transition:color .2s; }
+    .c-react-btn:hover { color:#888; }
+    .no-comments { text-align:center; color:#2a2a2a; font-size:12px; padding:20px 0; }
 
-    .btn svg { flex-shrink: 0; }
-
-    /* ── File details card ── */
-    .file-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 16px;
-      margin-bottom: 16px;
-    }
-
-    .file-card-title {
-      font-size: 11px;
-      font-weight: 800;
-      color: var(--orange);
-      letter-spacing: 1px;
-      margin-bottom: 14px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .file-card-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 10px;
-      padding: 9px 0;
-      border-bottom: 1px solid rgba(255,255,255,0.04);
-    }
-    .file-card-row:last-child { border-bottom: none; padding-bottom: 0; }
-
-    .file-card-label {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--muted);
-      flex-shrink: 0;
-    }
-    .file-card-value {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--text);
-      text-align: right;
-      word-break: break-all;
-      font-family: monospace;
-    }
+    /* ── File card ── */
+    .file-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:14px 16px; margin-bottom:14px; }
+    .file-card-title { font-size:11px; font-weight:800; color:var(--orange); letter-spacing:1px; margin-bottom:12px; display:flex; align-items:center; gap:6px; }
+    .file-card-row { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; padding:8px 0; border-bottom:1px solid rgba(255,255,255,.04); }
+    .file-card-row:last-child { border-bottom:none; padding-bottom:0; }
+    .fcl { font-size:11px; font-weight:600; color:var(--muted); flex-shrink:0; }
+    .fcv { font-size:11px; font-weight:600; color:var(--text); text-align:right; word-break:break-all; font-family:monospace; }
 
     /* ── Footer ── */
-    .footer {
-      width: 100%;
-      max-width: 480px;
-      text-align: center;
-      padding: 14px 16px 20px;
-      border-top: 1px solid var(--border);
-      font-size: 10px;
-      color: #2a2a2a;
-      line-height: 1.7;
-    }
-    .footer a { color: #333; text-decoration: none; }
+    .footer { width:100%; max-width:520px; text-align:center; padding:12px 16px 20px; border-top:1px solid var(--border); font-size:10px; color:#2a2a2a; line-height:1.7; }
+    .footer a { color:#333; text-decoration:none; }
 
     /* ── Toast ── */
-    .toast {
-      position: fixed;
-      bottom: 24px;
-      left: 50%;
-      transform: translateX(-50%) translateY(12px);
-      background: #1e1e1e;
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 14px;
-      padding: 11px 20px;
-      font-size: 13px;
-      font-weight: 600;
-      color: #eee;
-      z-index: 9999;
-      white-space: nowrap;
-      opacity: 0;
-      transition: all 0.25s ease;
-      box-shadow: 0 8px 28px rgba(0,0,0,0.7);
-      pointer-events: none;
-    }
-    .toast.show {
-      opacity: 1;
-      transform: translateX(-50%) translateY(0);
-    }
+    .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(12px); background:#1e1e1e; border:1px solid rgba(255,255,255,.1); border-radius:14px; padding:10px 20px; font-size:13px; font-weight:600; color:#eee; z-index:9999; white-space:nowrap; opacity:0; transition:all .25s; box-shadow:0 8px 28px rgba(0,0,0,.7); pointer-events:none; }
+    .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
 
-    /* ── Animations ── */
-    @keyframes fadeUp {
-      from { opacity: 0; transform: translateY(14px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    /* ── Loading spinner ── */
+    .spinner { width:16px; height:16px; border:2px solid rgba(255,255,255,.2); border-top-color:#fff; border-radius:50%; animation:spin .7s linear infinite; }
+
+    @keyframes spin { to { transform:rotate(360deg); } }
+    @keyframes fadeUp { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes pulse { 0%,100% { opacity:.4; } 50% { opacity:.8; } }
   </style>
 </head>
 <body>
 
-  <!-- Header -->
-  <header class="header">
-    <div class="logo">
-      <span>SUHANI</span><span> STREAM</span>
+<header class="header">
+  <div class="logo"><span>SUHANI</span><span> STREAM</span></div>
+  <div class="header-badge">🎬 WATCH ONLINE</div>
+</header>
+
+<main class="main" style="animation:fadeUp .4s ease both">
+
+  <!-- ═══════════════════ VIDEO PLAYER ═══════════════════ -->
+  <div class="video-wrapper" id="vw">
+
+    <!-- Double-tap zones -->
+    <div class="double-tap-zone left"  id="tapL"></div>
+    <div class="double-tap-zone right" id="tapR"></div>
+
+    <!-- Skip animations -->
+    <div class="skip-anim left" id="skipAnimL">
+      <div class="skip-circle">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"/></svg>
+      </div>
+      <span class="skip-label">- 10 sec</span>
     </div>
-    <div class="header-badge">🎬 WATCH ONLINE</div>
-  </header>
-
-  <!-- Main -->
-  <main class="main">
-
-    <!-- Video Player -->
-    <div class="player-wrap">
-      <video id="player" src="{{ file_url }}" playsinline>
-        Your browser does not support the video tag.
-      </video>
+    <div class="skip-anim right" id="skipAnimR">
+      <div class="skip-circle">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>
+      </div>
+      <span class="skip-label">+ 10 sec</span>
     </div>
 
-    <!-- Content -->
-    <div class="content">
-
-      <!-- Title & Meta -->
-      <div style="margin-bottom:18px; margin-top:16px;">
-        <div class="file-title" id="fileTitle">{{ file_name }}</div>
-        <div class="file-meta" id="fileMeta">
-          <span class="badge badge-size">💾 {{ file_size }}</span>
-        </div>
-      </div>
-
-      <!-- External Players -->
-      <div class="section-label">OPEN IN APP</div>
-      <div class="player-btns" style="margin-bottom:16px;">
-        <button class="btn btn-mx" onclick="mx_player()">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-          MX Player
-        </button>
-        <button class="btn btn-vlc" onclick="vlc_player()">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-          VLC Player
-        </button>
-        <button class="btn btn-playit btn-playit" onclick="playit_player()">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-          PlayIt Player
-        </button>
-      </div>
-
-      <!-- Actions -->
-      <div class="section-label">ACTIONS</div>
-      <div class="action-btns">
-        <button class="btn btn-download" onclick="streamDownload()">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-          </svg>
-          Direct Download
-        </button>
-        <button class="btn btn-telegram" onclick="showLinkModal('{{ tg_button }}')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-2.03 9.571c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.893.65z"/>
-          </svg>
-          Get File in Telegram
-        </button>
-        <button class="btn btn-share" onclick="shareButton()">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-            <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-          </svg>
-          Share with Friends
-        </button>
-      </div>
-
-      <!-- File Details -->
-      <div class="section-label">FILE DETAILS</div>
-      <div class="file-card">
-        <div class="file-card-title">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          INFO
-        </div>
-        <div class="file-card-row">
-          <span class="file-card-label">Filename</span>
-          <span class="file-card-value">{{ file_name }}</span>
-        </div>
-        <div class="file-card-row">
-          <span class="file-card-label">Size</span>
-          <span class="file-card-value">{{ file_size }}</span>
-        </div>
-      </div>
-
-      <!-- Disclaimer -->
-      <div style="text-align:center; font-size:10px; color:#2a2a2a; line-height:1.7; margin-bottom:8px;">
-        {{ disclaimer }} &nbsp;·&nbsp; <a href="{{ report_link }}" style="color:#333; text-decoration:none;">Report Issue</a>
-      </div>
-
+    <!-- Play/Pause overlay -->
+    <div class="play-overlay hide" id="playOverlay">
+      <svg id="playOverlayIcon" width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
     </div>
-  </main>
 
-  <!-- Footer -->
-  <footer class="footer">
-    <p>© 2025 Suhani Stream · All contents publicly available on Telegram</p>
-  </footer>
+    <video id="vid" src="{{ file_url }}" playsinline preload="metadata"></video>
 
-  <!-- Toast -->
-  <div class="toast" id="toast"></div>
+    <!-- Custom Controls -->
+    <div class="controls" id="ctrlBar">
+      <!-- Progress -->
+      <div class="progress-wrap" id="progWrap">
+        <div class="progress-buf" id="progBuf"></div>
+        <div class="progress-fill" id="progFill"></div>
+        <div class="progress-thumb" id="progThumb"></div>
+      </div>
 
-  <!-- Scripts -->
-  <script src="https://cdn.plyr.io/3.6.12/plyr.js"></script>
-  <script>
-    // ── Plyr init ──────────────────────────────────────────
-    document.addEventListener("DOMContentLoaded", () => {
-      const player = new Plyr("#player", {
-        controls: ['play-large','play','progress','current-time','mute','volume','settings','pip','airplay','fullscreen'],
-        settings: ['quality','speed'],
-      });
+      <!-- Buttons row -->
+      <div class="ctrl-row">
+        <!-- Play/Pause -->
+        <button class="ctrl-btn" id="playBtn" onclick="togglePlay()">
+          <svg id="playIcon" width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+
+        <!-- Skip back 10s -->
+        <button class="ctrl-btn" onclick="skipSec(-10)" title="-10s">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/><text x="8.5" y="16" font-size="5.5" fill="white" font-weight="bold">10</text></svg>
+        </button>
+
+        <!-- Skip forward 10s -->
+        <button class="ctrl-btn" onclick="skipSec(10)" title="+10s">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M12.01 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/><text x="8.5" y="16" font-size="5.5" fill="white" font-weight="bold">10</text></svg>
+        </button>
+
+        <!-- Time -->
+        <span class="time-display" id="timeDisplay">0:00 / 0:00</span>
+        <div class="ctrl-spacer"></div>
+
+        <!-- Volume -->
+        <div class="volume-wrap">
+          <button class="ctrl-btn" id="muteBtn" onclick="toggleMute()">
+            <svg id="volIcon" width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
+          </button>
+          <input class="volume-slider" id="volSlider" type="range" min="0" max="1" step="0.05" value="1" oninput="setVolume(this.value)">
+        </div>
+
+        <!-- Playback speed -->
+        <button class="ctrl-btn quality-btn" id="speedBtn" onclick="cycleSpeed()" title="Speed">1x</button>
+
+        <!-- Fullscreen -->
+        <button class="ctrl-btn" onclick="toggleFS()">
+          <svg id="fsIcon" width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ CONTENT ═══════════════════ -->
+  <div class="content">
+
+    <!-- Title & meta -->
+    <div style="margin:14px 0 4px">
+      <div class="file-title">{{ file_name }}</div>
+      <div class="meta-row" id="metaRow">
+        <span class="badge badge-size">💾 {{ file_size }}</span>
+      </div>
+    </div>
+
+    <!-- Like / Dislike / Share -->
+    <div class="reaction-row">
+      <!-- Like -->
+      <button class="react-btn" id="likeBtn" onclick="react('like')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
+        <span id="likeCount">0</span>
+      </button>
+      <div class="react-divider"></div>
+      <!-- Dislike -->
+      <button class="react-btn" id="dislikeBtn" onclick="react('dislike')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z"/></svg>
+        <span id="dislikeCount">0</span>
+      </button>
+      <div class="react-divider"></div>
+      <!-- Download -->
+      <button class="react-btn" onclick="dlFile()" title="Download">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      </button>
+      <!-- Share -->
+      <button class="react-btn" onclick="shareIt()" title="Share">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+      </button>
+      <!-- Save / Watchlist -->
+      <button class="react-btn" id="saveBtn" onclick="toggleSave()" title="Save">
+        <svg id="saveIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+      </button>
+      <!-- Telegram -->
+      <a href="{{ tg_button }}" target="_blank" class="react-btn" title="Telegram">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-2.03 9.571c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.893.65z"/></svg>
+      </a>
+    </div>
+
+    <!-- Quality variants -->
+    <div class="variant-section" id="qualSection" style="display:none">
+      <div class="variant-title">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        QUALITY
+      </div>
+      <div class="variant-chips" id="qualChips"></div>
+    </div>
+
+    <!-- Language variants -->
+    <div class="variant-section" id="langSection" style="display:none">
+      <div class="variant-title">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        LANGUAGE
+      </div>
+      <div class="variant-chips" id="langChips"></div>
+    </div>
+
+    <!-- External Players -->
+    <div class="sec-label" style="margin-top:4px">OPEN IN APP</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+      <button class="btn btn-mx"     onclick="openPlayer('mx')">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> MX Player
+      </button>
+      <button class="btn btn-vlc"    onclick="openPlayer('vlc')">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> VLC Player
+      </button>
+      <button class="btn btn-playit" onclick="openPlayer('playit')" style="grid-column:1/-1">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> PlayIt Player
+      </button>
+    </div>
+
+    <!-- Comments -->
+    <div class="sec-label">COMMENTS</div>
+    <div class="comments-section">
+      <div class="comments-header">
+        <div class="comments-title">💬 Comments</div>
+        <div class="comments-count" id="cmtCount">0 comments</div>
+      </div>
+      <div class="comment-form">
+        <div class="comment-avatar" id="myAvatar">?</div>
+        <div style="flex:1">
+          <textarea class="comment-input" id="cmtInput" placeholder="Add a comment..." rows="1"></textarea>
+          <div style="display:flex;justify-content:flex-end;margin-top:6px;gap:8px" id="cmtActions" style="display:none">
+            <button class="comment-submit" style="background:rgba(255,255,255,.07);color:#777" onclick="cancelComment()">Cancel</button>
+            <button class="comment-submit" id="cmtSubmit" onclick="postComment()">Post</button>
+          </div>
+        </div>
+      </div>
+      <div id="cmtList"><div class="no-comments">Be the first to comment!</div></div>
+    </div>
+
+    <!-- File details -->
+    <div class="sec-label">FILE DETAILS</div>
+    <div class="file-card">
+      <div class="file-card-title">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> INFO
+      </div>
+      <div class="file-card-row"><span class="fcl">Filename</span><span class="fcv">{{ file_name }}</span></div>
+      <div class="file-card-row"><span class="fcl">Size</span><span class="fcv">{{ file_size }}</span></div>
+      <div class="file-card-row"><span class="fcl">Unique ID</span><span class="fcv">{{ file_unique_id }}</span></div>
+    </div>
+
+    <div style="text-align:center;font-size:10px;color:#222;line-height:1.7;margin-bottom:8px">
+      {{ disclaimer }} &nbsp;·&nbsp; <a href="{{ report_link }}" style="color:#333;text-decoration:none">Report Issue</a>
+    </div>
+  </div>
+</main>
+
+<footer class="footer">
+  <p>© 2025 Suhani Stream · All contents publicly available on Telegram</p>
+</footer>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════
+const FILE_NAME    = "{{ file_name }}";
+const FILE_URL     = "{{ file_url }}";
+const DOWNLOAD_URL = "{{ download_url }}";
+const FILE_UID     = "{{ file_unique_id }}";
+// Railway API base (same origin as stream URL)
+const API_BASE     = FILE_URL.split("/").slice(0,3).join("/");
+
+// ═══════════════════════════════════════════════
+// STORAGE HELPERS (per-file, using unique_id)
+// ═══════════════════════════════════════════════
+const SK = (k) => `sf_${FILE_UID}_${k}`;
+const ls = { get:(k,d)=>{ try{const v=localStorage.getItem(SK(k));return v!==null?JSON.parse(v):d;}catch{return d;} }, set:(k,v)=>{ try{localStorage.setItem(SK(k),JSON.stringify(v));}catch{} } };
+
+// ═══════════════════════════════════════════════
+// VIDEO PLAYER
+// ═══════════════════════════════════════════════
+const vid   = document.getElementById("vid");
+const vw    = document.getElementById("vw");
+const progFill  = document.getElementById("progFill");
+const progBuf   = document.getElementById("progBuf");
+const progThumb = document.getElementById("progThumb");
+const progWrap  = document.getElementById("progWrap");
+const playIcon  = document.getElementById("playIcon");
+const playOverlay = document.getElementById("playOverlay");
+const playOverlayIcon = document.getElementById("playOverlayIcon");
+const timeDisplay = document.getElementById("timeDisplay");
+const volSlider = document.getElementById("volSlider");
+const volIcon   = document.getElementById("volIcon");
+const speedBtn  = document.getElementById("speedBtn");
+
+const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+let speedIdx = 2;
+let ctrlTimer = null;
+let isDragging = false;
+
+// Restore position
+vid.addEventListener("loadedmetadata", () => {
+  const saved = ls.get("pos", 0);
+  if (saved > 5) vid.currentTime = saved;
+  updateTime();
+});
+
+// Save position every 5s
+setInterval(() => { if (!vid.paused && vid.currentTime > 0) ls.set("pos", vid.currentTime); }, 5000);
+
+function fmtTime(s) {
+  s = Math.floor(s||0);
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+  return h ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}` : `${m}:${String(sec).padStart(2,'0')}`;
+}
+
+function updateTime() {
+  const pct = vid.duration ? (vid.currentTime/vid.duration)*100 : 0;
+  progFill.style.width  = pct + "%";
+  progThumb.style.left  = pct + "%";
+  timeDisplay.textContent = `${fmtTime(vid.currentTime)} / ${fmtTime(vid.duration)}`;
+}
+
+vid.addEventListener("timeupdate", updateTime);
+vid.addEventListener("progress", () => {
+  if (vid.buffered.length) {
+    progBuf.style.width = (vid.buffered.end(vid.buffered.length-1)/vid.duration*100)+"%";
+  }
+});
+
+// Play/Pause state
+vid.addEventListener("play",  () => {
+  playIcon.innerHTML = `<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>`;
+  playOverlayIcon.innerHTML = `<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>`;
+  flashOverlay();
+});
+vid.addEventListener("pause", () => {
+  playIcon.innerHTML = `<path d="M8 5v14l11-7z"/>`;
+  playOverlayIcon.innerHTML = `<path d="M8 5v14l11-7z"/>`;
+  flashOverlay();
+});
+
+function flashOverlay() {
+  playOverlay.classList.remove("hide");
+  clearTimeout(window._ovTimer);
+  window._ovTimer = setTimeout(() => playOverlay.classList.add("hide"), 600);
+}
+
+function showCtrls() {
+  vw.classList.add("show-ctrl");
+  clearTimeout(ctrlTimer);
+  ctrlTimer = setTimeout(() => { if (!vid.paused) vw.classList.remove("show-ctrl"); }, 3000);
+}
+
+vw.addEventListener("click", (e) => {
+  if (e.target.closest(".double-tap-zone") || e.target.closest(".ctrl-btn") || e.target.closest(".controls")) return;
+  showCtrls();
+  togglePlay();
+});
+vw.addEventListener("mousemove", showCtrls);
+vw.addEventListener("touchstart", showCtrls, {passive:true});
+
+function togglePlay() {
+  vid.paused ? vid.play() : vid.pause();
+}
+
+// Skip ±10s
+function skipSec(s) {
+  vid.currentTime = Math.max(0, Math.min(vid.duration||0, vid.currentTime + s));
+  showSkipAnim(s < 0 ? "L" : "R");
+  showToast(s < 0 ? "⏪ -10 seconds" : "⏩ +10 seconds");
+}
+
+// Double tap to skip
+let tapTimers = { L:null, R:null };
+function setupDoubleTap(el, side) {
+  el.addEventListener("click", () => {
+    if (tapTimers[side]) {
+      clearTimeout(tapTimers[side]);
+      tapTimers[side] = null;
+      skipSec(side === "L" ? -10 : 10);
+    } else {
+      tapTimers[side] = setTimeout(() => { tapTimers[side] = null; showCtrls(); togglePlay(); }, 280);
+    }
+  });
+}
+setupDoubleTap(document.getElementById("tapL"), "L");
+setupDoubleTap(document.getElementById("tapR"), "R");
+
+function showSkipAnim(side) {
+  const el = document.getElementById("skipAnim" + side);
+  el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 700);
+}
+
+// Progress bar drag
+function seekTo(e) {
+  const rect = progWrap.getBoundingClientRect();
+  const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+  const pct = Math.max(0, Math.min(1, x / rect.width));
+  vid.currentTime = pct * (vid.duration || 0);
+}
+progWrap.addEventListener("mousedown",  (e) => { isDragging=true; seekTo(e); });
+progWrap.addEventListener("touchstart", (e) => { isDragging=true; seekTo(e); }, {passive:true});
+document.addEventListener("mousemove",  (e) => { if(isDragging) seekTo(e); });
+document.addEventListener("touchmove",  (e) => { if(isDragging) seekTo(e); }, {passive:true});
+document.addEventListener("mouseup",    ()  => isDragging=false);
+document.addEventListener("touchend",   ()  => isDragging=false);
+
+// Volume
+function setVolume(v) { vid.volume = v; vid.muted = (v==0); updateVolIcon(v); }
+function toggleMute() {
+  vid.muted = !vid.muted;
+  volSlider.value = vid.muted ? 0 : vid.volume;
+  updateVolIcon(vid.muted ? 0 : vid.volume);
+}
+function updateVolIcon(v) {
+  const paths = v==0
+    ? `<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>`
+    : v < 0.5
+    ? `<path d="M18.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z"/>`
+    : `<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>`;
+  volIcon.innerHTML = paths;
+}
+
+// Speed
+function cycleSpeed() {
+  speedIdx = (speedIdx+1) % SPEEDS.length;
+  vid.playbackRate = SPEEDS[speedIdx];
+  speedBtn.textContent = SPEEDS[speedIdx]+"x";
+  showToast("▶ Speed: "+SPEEDS[speedIdx]+"x");
+}
+
+// Fullscreen
+function toggleFS() {
+  if (!document.fullscreenElement) {
+    vw.requestFullscreen?.() || vw.webkitRequestFullscreen?.();
+  } else {
+    document.exitFullscreen?.() || document.webkitExitFullscreen?.();
+  }
+}
+
+// Keyboard shortcuts
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "TEXTAREA") return;
+  if (e.code === "Space") { e.preventDefault(); togglePlay(); }
+  if (e.code === "ArrowLeft")  skipSec(-10);
+  if (e.code === "ArrowRight") skipSec(10);
+});
+
+// ═══════════════════════════════════════════════
+// QUALITY BADGE DETECTION
+// ═══════════════════════════════════════════════
+(function() {
+  const m = FILE_NAME.match(/\b(2160p|4K|1080p|720p|480p|360p|240p)\b/i);
+  if (!m) return;
+  const q = m[1].toUpperCase().replace("4K","2160P");
+  const cls = q.includes("2160") ? "q2160" : q.includes("1080") ? "q1080" : q.includes("720") ? "q720" : q.includes("480") ? "q480" : "q360";
+  const b = document.createElement("span");
+  b.className = `badge badge-q ${cls}`;
+  b.textContent = q;
+  document.getElementById("metaRow").prepend(b);
+})();
+
+// ═══════════════════════════════════════════════
+// QUALITY & LANGUAGE VARIANTS (from Railway API)
+// ═══════════════════════════════════════════════
+function extractMovieTitle(name) {
+  name = name.replace(/\.(mkv|mp4|avi|mov|webm|flv)$/i,"").replace(/[._]/g," ");
+  name = name.replace(/\b(2160p|4K|1080p|720p|480p|360p|240p|HEVC|x265|x264|WEB|BluRay|HDRip|DVDRip|HDTV|AMZN|NF|WEBRip|10Bit|IMAX|HQ)\b.*/i,"");
+  return name.replace(/\s+/g," ").trim();
+}
+
+const LANGS = ["Hindi","English","Tamil","Telugu","Malayalam","Kannada","Bengali","Punjabi"];
+const QUALS = ["2160p","1080p","720p","480p","360p","240p"];
+
+function detectLang(name) { return LANGS.find(l => new RegExp(`\\b${l}\\b`,"i").test(name)) || null; }
+function detectQual(name) { return QUALS.find(q => new RegExp(`\\b${q}\\b`,"i").test(name)) || null; }
+
+async function loadVariants() {
+  const title = extractMovieTitle(FILE_NAME);
+  if (!title) return;
+  try {
+    const res = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(title)}&limit=50`);
+    const data = await res.json();
+    if (!data.files || !data.files.length) return;
+
+    const curQ = detectQual(FILE_NAME);
+    const curL = detectLang(FILE_NAME);
+
+    // Group by quality and language
+    const qualMap = {}, langMap = {};
+    data.files.forEach(f => {
+      const q = detectQual(f.file_name);
+      const l = detectLang(f.file_name);
+      if (q) { if (!qualMap[q]) qualMap[q] = f; }
+      if (l) { if (!langMap[l]) langMap[l] = f; }
     });
 
-    // ── Quality badge auto-detect ──────────────────────────
-    (function () {
-      const name = "{{ file_name }}";
-      const metaEl = document.getElementById("fileMeta");
-      const m = name.match(/\b(2160p|1080p|720p|480p|360p|240p)\b/i);
-      if (m) {
-        const q = m[1].toUpperCase();
-        const cls = q.includes("2160") ? "q2160" : q.includes("1080") ? "q1080" : q.includes("720") ? "q720" : q.includes("480") ? "q480" : "q360";
-        const badge = document.createElement("span");
-        badge.className = `badge badge-quality ${cls}`;
-        badge.textContent = q;
-        metaEl.prepend(badge);
-      }
-    })();
-
-    // ── External players ───────────────────────────────────
-    function mx_player() {
-      let c = "{{ file_url }}".replace(/^https?:\/\//, '');
-      window.location.href = `intent://${c}#Intent;package=com.mxtech.videoplayer.ad;type=video/*;scheme=https;end`;
-    }
-    function vlc_player() {
-      let c = "{{ file_url }}".replace(/^https?:\/\//, '');
-      window.location.href = `intent://${c}#Intent;package=org.videolan.vlc;type=video/*;scheme=https;end`;
-    }
-    function playit_player() {
-      let c = "{{ file_url }}".replace(/^https?:\/\//, '');
-      window.location.href = `intent://${c}#Intent;package=com.playit.videoplayer;type=video/*;scheme=https;end`;
+    // Quality chips
+    const quals = Object.keys(qualMap).sort((a,b) => QUALS.indexOf(a)-QUALS.indexOf(b));
+    if (quals.length > 1) {
+      const qSec  = document.getElementById("qualSection");
+      const qChips = document.getElementById("qualChips");
+      qSec.style.display = "block";
+      quals.forEach(q => {
+        const c = document.createElement("button");
+        c.className = "chip" + (q===curQ ? " active" : "");
+        c.textContent = q;
+        c.onclick = () => switchVariant(qualMap[q].file_id, c, "qual");
+        qChips.appendChild(c);
+      });
     }
 
-    // ── Download ───────────────────────────────────────────
-    function streamDownload() {
-      const a = document.createElement("a");
-      a.href = "{{ download_url }}";
-      a.download = "{{ file_name }}";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+    // Language chips
+    const langs = Object.keys(langMap);
+    if (langs.length > 1) {
+      const lSec   = document.getElementById("langSection");
+      const lChips = document.getElementById("langChips");
+      lSec.style.display = "block";
+      langs.forEach(l => {
+        const c = document.createElement("button");
+        c.className = "chip" + (l===curL ? " active" : "");
+        c.textContent = l;
+        c.onclick = () => switchVariant(langMap[l].file_id, c, "lang");
+        lChips.appendChild(c);
+      });
     }
+  } catch(e) { console.error("Variants load failed:", e); }
+}
 
-    // ── Telegram link ──────────────────────────────────────
-    function showLinkModal(url) {
-      if (url) window.open(url, "_blank");
-    }
+async function switchVariant(fileId, chipEl, type) {
+  // Mark chip loading
+  document.querySelectorAll(`#${type==="qual"?"qualChips":"langChips"} .chip`).forEach(c => { c.classList.remove("active"); c.classList.add("loading"); });
+  chipEl.classList.remove("loading");
+  chipEl.classList.add("active");
 
-    // ── Share ──────────────────────────────────────────────
-    function shareButton() {
-      if (navigator.share) {
-        navigator.share({ title: "{{ file_name }}", text: "Watch on Suhani Stream", url: window.location.href });
-      } else {
-        navigator.clipboard?.writeText(window.location.href)
-          .then(() => showToast("✅ Link copied!"))
-          .catch(() => showToast("❌ Copy failed"));
-      }
+  try {
+    // Get watch link from Railway
+    const res  = await fetch(`${API_BASE}/api/get-links?file_id=${encodeURIComponent(fileId)}`);
+    const data = await res.json();
+    if (data.watch_url) {
+      // Navigate to new watch page
+      window.location.href = data.watch_url;
+    } else {
+      showToast("❌ Link generate nahi hua");
+      document.querySelectorAll(`#${type==="qual"?"qualChips":"langChips"} .chip`).forEach(c => c.classList.remove("loading"));
     }
+  } catch(e) {
+    showToast("❌ Server error");
+    document.querySelectorAll(`#${type==="qual"?"qualChips":"langChips"} .chip`).forEach(c => c.classList.remove("loading"));
+  }
+}
 
-    // ── Toast ──────────────────────────────────────────────
-    function showToast(msg) {
-      const t = document.getElementById("toast");
-      t.textContent = msg;
-      t.classList.add("show");
-      setTimeout(() => t.classList.remove("show"), 2200);
-    }
-  </script>
+loadVariants();
+
+// ═══════════════════════════════════════════════
+// SAVE / WATCHLIST
+// ═══════════════════════════════════════════════
+let saved = ls.get("saved", false);
+
+function renderSave() {
+  const btn  = document.getElementById("saveBtn");
+  const icon = document.getElementById("saveIcon");
+  if (saved) {
+    btn.classList.add("active-save");
+    icon.setAttribute("fill", "#818cf8");
+    icon.setAttribute("stroke", "#818cf8");
+  } else {
+    btn.classList.remove("active-save");
+    icon.setAttribute("fill", "none");
+    icon.setAttribute("stroke", "currentColor");
+  }
+}
+
+function toggleSave() {
+  saved = !saved;
+  ls.set("saved", saved);
+  renderSave();
+  showToast(saved ? "🔖 Saved!" : "🗑️ Removed from saved");
+}
+
+renderSave();
+
+// ═══════════════════════════════════════════════
+// LIKE / DISLIKE
+// ═══════════════════════════════════════════════
+let reactions = ls.get("reactions", { likes:0, dislikes:0, mine:null });
+
+function renderReactions() {
+  document.getElementById("likeCount").textContent    = reactions.likes;
+  document.getElementById("dislikeCount").textContent = reactions.dislikes;
+  document.getElementById("likeBtn").classList.toggle("active-like",    reactions.mine==="like");
+  document.getElementById("dislikeBtn").classList.toggle("active-dislike", reactions.mine==="dislike");
+}
+
+function react(type) {
+  if (reactions.mine === type) {
+    reactions[type+"s"]--;
+    reactions.mine = null;
+  } else {
+    if (reactions.mine) reactions[reactions.mine+"s"]--;
+    reactions[type+"s"]++;
+    reactions.mine = type;
+  }
+  ls.set("reactions", reactions);
+  renderReactions();
+  showToast(reactions.mine === "like" ? "👍 Liked!" : reactions.mine === "dislike" ? "👎 Disliked!" : "Reaction removed");
+}
+
+renderReactions();
+
+// ═══════════════════════════════════════════════
+// COMMENTS (localStorage per file)
+// ═══════════════════════════════════════════════
+const NICKNAMES = ["CinemaFan","MovieBuff","StreamKing","FilmLover","NightWatch","CoolViewer","HindiFilms","StarWatcher"];
+let myNick = ls.get("nick", null);
+if (!myNick) { myNick = NICKNAMES[Math.floor(Math.random()*NICKNAMES.length)] + Math.floor(Math.random()*99+1); ls.set("nick", myNick); }
+document.getElementById("myAvatar").textContent = myNick[0].toUpperCase();
+
+let comments = ls.get("comments", []);
+
+function renderComments() {
+  const list = document.getElementById("cmtList");
+  const cnt  = document.getElementById("cmtCount");
+  cnt.textContent = comments.length + " comment" + (comments.length!==1?"s":"");
+  if (!comments.length) { list.innerHTML = `<div class="no-comments">Be the first to comment!</div>`; return; }
+  list.innerHTML = comments.slice().reverse().map((c,i) => `
+    <div class="comment-item">
+      <div class="comment-avatar" style="background:hsl(${c.hue},55%,35%);font-size:13px;font-weight:800;color:#fff;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0">${c.name[0].toUpperCase()}</div>
+      <div class="comment-body">
+        <div class="comment-name">${escHtml(c.name)}</div>
+        <div class="comment-text">${escHtml(c.text)}</div>
+        <div class="comment-time">${relTime(c.ts)}</div>
+        <div class="comment-react">
+          <button class="c-react-btn" onclick="cLike(${comments.length-1-i})">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
+            ${c.likes||0}
+          </button>
+        </div>
+      </div>
+    </div>`).join("");
+}
+
+function escHtml(s) { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function relTime(ts) {
+  const d = Date.now()-ts, s=Math.floor(d/1000), m=Math.floor(s/60), h=Math.floor(m/60), day=Math.floor(h/24);
+  return s<60?"just now":m<60?m+"m ago":h<24?h+"h ago":day+"d ago";
+}
+
+function cLike(idx) {
+  comments[idx].likes = (comments[idx].likes||0)+1;
+  ls.set("comments", comments);
+  renderComments();
+}
+
+// Comment form
+const cmtInput = document.getElementById("cmtInput");
+const cmtActions = document.getElementById("cmtActions");
+cmtInput.addEventListener("focus", () => { cmtActions.style.display = "flex"; });
+function cancelComment() { cmtInput.value = ""; cmtActions.style.display = "none"; cmtInput.blur(); }
+function postComment() {
+  const text = cmtInput.value.trim();
+  if (!text) return;
+  const hue = [...myNick].reduce((a,c)=>a+c.charCodeAt(0),0) % 360;
+  comments.push({ name:myNick, text, ts:Date.now(), likes:0, hue });
+  ls.set("comments", comments);
+  renderComments();
+  cancelComment();
+  showToast("✅ Comment posted!");
+}
+
+renderComments();
+
+// ═══════════════════════════════════════════════
+// ACTION BUTTONS
+// ═══════════════════════════════════════════════
+function dlFile() {
+  const a = document.createElement("a");
+  a.href = DOWNLOAD_URL; a.download = FILE_NAME;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+function openPlayer(type) {
+  const url = FILE_URL.replace(/^https?:\/\//,"");
+  const pkgs = { mx:"com.mxtech.videoplayer.ad", vlc:"org.videolan.vlc", playit:"com.playit.videoplayer" };
+  window.location.href = `intent://${url}#Intent;package=${pkgs[type]};type=video/*;scheme=https;end`;
+}
+
+function shareIt() {
+  if (navigator.share) {
+    navigator.share({ title: FILE_NAME, url: window.location.href }).catch(()=>{});
+  } else {
+    navigator.clipboard?.writeText(window.location.href)
+      .then(()=>showToast("✅ Link copied!"))
+      .catch(()=>showToast("❌ Copy failed"));
+  }
+}
+
+// ═══════════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════════
+let _toastTimer;
+function showToast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(()=>t.classList.remove("show"), 2200);
+}
+</script>
 </body>
 </html>
