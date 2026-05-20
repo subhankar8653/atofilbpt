@@ -30,7 +30,7 @@ class ErrorBoundary extends Component {
 const BOT_USERNAME = import.meta.env.VITE_BOT_USERNAME || "My_Suhani_bot";
 
 // FIX: https:// ensure karo API_BASE mein
-const _RAW_API_BASE = import.meta.env.VITE_API_BASE || "worker-production-58e0.up.railway.app";
+const _RAW_API_BASE = import.meta.env.VITE_API_BASE || "atofilbpt-production.up.railway.app";
 const API_BASE = _RAW_API_BASE.startsWith("http") ? _RAW_API_BASE : `https://${_RAW_API_BASE}`;
 
 // ── Multiple TMDB API Keys (rotation for rate limit bypass) ──────────
