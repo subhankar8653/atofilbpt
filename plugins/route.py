@@ -14,6 +14,7 @@ from LucyBot.util.custom_dl import ByteStreamer
 from LucyBot.util.time_format import get_readable_time
 from LucyBot.util.render_template import render_page
 from database.ia_filterdb import get_search_results
+from database.poster_cache_db import get_cached_poster, save_poster_cache, get_cache_stats, ensure_index
 from info import *
 
 
@@ -25,7 +26,7 @@ async def cors_middleware(request, handler):
     if request.method == "OPTIONS":
         return web.Response(headers={
             "Access-Control-Allow-Origin":  "*",
-            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type",
         })
     response = await handler(request)
@@ -195,6 +196,80 @@ async def api_poster_handler(request: web.Request):
     except Exception as e:
         logging.error(f"Poster API error: {e}")
         return web.json_response({"poster": None})
+
+
+# ── /api/poster-cache GET — MongoDB se cached poster check karo ──────────────
+@routes.get("/api/poster-cache")
+async def api_poster_cache_get(request: web.Request):
+    """
+    Pehle MongoDB check karo — agar cached hai toh TMDB call mat karo.
+    Usage: /api/poster-cache?title=Inception&year=2010
+    """
+    try:
+        title = request.rel_url.query.get("title", "").strip()
+        year  = request.rel_url.query.get("year",  "").strip() or None
+        if not title:
+            return web.json_response({"cached": False, "data": None}, status=400)
+
+        data = await get_cached_poster(title, year)
+        if data:
+            return web.json_response({"cached": True, "data": data})
+        return web.json_response({"cached": False, "data": None})
+
+    except Exception as e:
+        logging.error(f"poster-cache GET error: {e}")
+        return web.json_response({"cached": False, "data": None}, status=500)
+
+
+# ── /api/poster-cache POST — TMDB result save karo + log channel pe bhejo ────
+@routes.post("/api/poster-cache")
+async def api_poster_cache_post(request: web.Request):
+    """
+    Frontend TMDB se fetch karne ke baad yahan bheje —
+    MongoDB mein save hoga aur LOG_CHANNEL pe message jayega.
+    Body: { title, year, tmdb_data: { poster, posterMd, rating, ... } }
+    """
+    try:
+        body = await request.json()
+        title     = (body.get("title") or "").strip()
+        year      = str(body.get("year") or "").strip() or None
+        tmdb_data = body.get("tmdb_data") or {}
+
+        if not title or not tmdb_data.get("poster"):
+            return web.json_response({"saved": False, "reason": "title/poster missing"}, status=400)
+
+        # 1. MongoDB mein save karo
+        saved = await save_poster_cache(title, year, tmdb_data)
+
+        # 2. LOG_CHANNEL pe message bhejo (sirf agar save hua)
+        if saved:
+            try:
+                rating   = tmdb_data.get("rating") or "N/A"
+                mtype    = tmdb_data.get("type", "movie").capitalize()
+                year_str = tmdb_data.get("year") or year or "?"
+                poster   = tmdb_data.get("poster") or ""
+                stats    = await get_cache_stats()
+                total    = stats.get("total_cached", "?")
+
+                msg = (
+                    f"🎬 **Poster Cached!**\n\n"
+                    f"**Title:** {title}\n"
+                    f"**Year:** {year_str}\n"
+                    f"**Type:** {mtype}\n"
+                    f"**Rating:** ⭐ {rating}\n"
+                    f"**Poster:** [Link]({poster})\n\n"
+                    f"📦 **Total Cached:** {total}"
+                )
+                await Codeflix.send_message(LOG_CHANNEL, msg, disable_web_page_preview=False)
+            except Exception as log_err:
+                logging.warning(f"Log channel send failed (ignored): {log_err}")
+
+        return web.json_response({"saved": saved})
+
+    except Exception as e:
+        logging.error(f"poster-cache POST error: {e}")
+        return web.json_response({"saved": False}, status=500)
+
 
 
 # ── /api/trending — trending/latest files fetch karna ────────────────────────
