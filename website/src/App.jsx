@@ -1291,13 +1291,29 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
 
   useEffect(() => {
     if (!category) return;
-    setInitialLoading(true);
-    setHasMore(true);
-    hasMoreRef.current = true;
     pageRef.current = 1;
     dbPageRef.current = 1;
     seenTitlesRef.current = new Set();
     seenIdsRef.current = new Set();
+
+    // ✅ Agar initialItems hain (home se "See All" click hua) toh seedha use karo
+    // Fresh fetch mat karo — posters already loaded hain!
+    if (initialItems && initialItems.length > 0) {
+      initialItems.forEach(x => {
+        seenIdsRef.current.add(String(x.id));
+        seenTitlesRef.current.add((x.title || "").toLowerCase().replace(/\s+/g, ""));
+      });
+      setItems(initialItems);
+      setHasMore(initialItems.length >= 8);
+      hasMoreRef.current = initialItems.length >= 8;
+      setInitialLoading(false);
+      return;
+    }
+
+    // Sirf tab fresh fetch karo jab direct open ho (no initialItems)
+    setInitialLoading(true);
+    setHasMore(true);
+    hasMoreRef.current = true;
 
     fetchDBCategory(category, PAGE_SIZE, 0).then(({ items: fresh, rawApiCount }) => {
       fresh.forEach(x => {
