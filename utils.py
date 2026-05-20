@@ -249,7 +249,7 @@ async def broadcast_messages(user_id, message):
             pass
         return True, "Success"
     except FloodWait as e:
-        await asyncio.sleep(e.x)
+        await asyncio.sleep(e.value)
         return await broadcast_messages(user_id, message)
     except InputUserDeactivated:
         await db.delete_user(int(user_id))
@@ -274,7 +274,7 @@ async def broadcast_messages_group(chat_id, message):
             pass
         return True, "Success"
     except FloodWait as e:
-        await asyncio.sleep(e.x)
+        await asyncio.sleep(e.value)
         return await broadcast_messages_group(chat_id, message)
     except Exception as e:
         return False, "Error"
