@@ -246,6 +246,52 @@
     @keyframes spin { to { transform:rotate(360deg); } }
     @keyframes fadeUp { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:translateY(0); } }
     @keyframes pulse { 0%,100% { opacity:.4; } 50% { opacity:.8; } }
+
+    /* ── Lock Button ── */
+    .lock-btn {
+      position:absolute;
+      bottom:60px; right:10px;
+      width:38px; height:38px;
+      border-radius:50%;
+      background:rgba(0,0,0,.6);
+      border:1.5px solid rgba(255,255,255,.25);
+      color:#fff;
+      display:flex; align-items:center; justify-content:center;
+      cursor:pointer;
+      z-index:25;
+      opacity:0;
+      transition:opacity .25s;
+      -webkit-tap-highlight-color:transparent;
+      backdrop-filter:blur(4px);
+    }
+    .video-wrapper.show-ctrl .lock-btn { opacity:1; }
+
+    /* Locked state: chhota lock icon side mein */
+    .lock-icon-small {
+      position:absolute;
+      left:10px; top:50%;
+      transform:translateY(-50%);
+      width:36px; height:36px;
+      border-radius:50%;
+      background:rgba(0,0,0,.65);
+      border:1.5px solid rgba(255,255,255,.3);
+      color:#fff;
+      display:none;
+      align-items:center; justify-content:center;
+      cursor:pointer;
+      z-index:100;
+      -webkit-tap-highlight-color:transparent;
+      backdrop-filter:blur(4px);
+      animation:fadeUp .3s ease;
+    }
+    .video-wrapper.locked .lock-icon-small { display:flex; }
+
+    /* Locked state: saari UI hide */
+    .video-wrapper.locked .yt-overlay { display:none !important; }
+    .video-wrapper.locked .lock-btn { display:none !important; }
+    .video-wrapper.locked .tap-zone { pointer-events:none !important; }
+    .video-wrapper.locked .buf-spinner { display:none !important; }
+    .video-wrapper.locked .skip-anim { display:none !important; }
   </style>
 </head>
 <body>
@@ -282,6 +328,16 @@
     <div class="tap-zone tap-left"  id="tapL"></div>
     <div class="tap-zone tap-center" id="tapC"></div>
     <div class="tap-zone tap-right" id="tapR"></div>
+
+    <!-- Lock Button (normal mode mein dikhega) -->
+    <button class="lock-btn" id="lockBtn" onclick="lockScreen()" title="Lock Screen">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
+    </button>
+
+    <!-- Chhota lock icon (locked state mein sirf yahi dikhega) -->
+    <div class="lock-icon-small" id="lockIconSmall" onclick="unlockScreen()" title="Unlock">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M12 1C8.676 1 6 3.676 6 7v1H4v15h16V8h-2V7c0-3.324-2.676-6-6-6zm0 2c2.276 0 4 1.724 4 4v1H8V7c0-2.276 1.724-4 4-4zm0 9c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2z"/></svg>
+    </div>
 
     <video id="vid" src="{{ file_url }}" playsinline preload="none"></video>
 
@@ -878,7 +934,13 @@ ytProg.addEventListener("touchstart", (e) => {
   isDragging = true;
   ytProg.classList.add("dragging");
   e.preventDefault(); // scroll rok do, drag enable karo
-  seekTo(e);
+  // Note: touchstart pe seekTo mat karo — sirf drag start karo
+  // Actual seek touchmove pe hoga (finger move hone pe)
+  // Isse ek tap mein last tak jaane ki problem fix hogi
+  const touch = e.touches[0];
+  const pct = getSeekPct(e);
+  _dragPct = pct;
+  updateSeekVisual(pct); // visual update karo position ke liye
 }, { passive: false });
 
 document.addEventListener("mousemove", (e) => {
@@ -888,6 +950,7 @@ document.addEventListener("mousemove", (e) => {
 document.addEventListener("touchmove", (e) => {
   if (isDragging) {
     e.preventDefault(); // page scroll nahi hoga drag ke dauran
+    _touchMoved = true; // finger move hui — yeh drag hai, tap nahi
     seekTo(e);
   }
 }, { passive: false });
@@ -900,11 +963,30 @@ document.addEventListener("mouseup", () => {
   }
 });
 
+// Touch tracking — drag hua hai ya sirf tap?
+let _touchStartX = -1;
+let _touchMoved = false;
+
+document.addEventListener("touchstart", (e) => {
+  if (isDragging) {
+    _touchStartX = e.touches[0].clientX;
+    _touchMoved = false;
+  }
+}, { passive: true });
+
 document.addEventListener("touchend", () => {
   if (isDragging) {
     isDragging = false;
     ytProg.classList.remove("dragging");
-    commitSeek(); // release pe actual seek karo
+    if (_touchMoved) {
+      commitSeek(); // sirf tab seek karo jab finger actually move hui ho
+    } else {
+      // Sirf tap tha — drag nahi — seek nahi karo, visual reset karo
+      _dragPct = -1;
+      updateTime(); // original position pe wapas
+    }
+    _touchMoved = false;
+    _touchStartX = -1;
   }
 });
 
@@ -912,7 +994,10 @@ document.addEventListener("touchcancel", () => {
   if (isDragging) {
     isDragging = false;
     ytProg.classList.remove("dragging");
-    commitSeek();
+    _dragPct = -1;
+    _touchMoved = false;
+    _touchStartX = -1;
+    updateTime(); // position reset
   }
 });
 
@@ -997,6 +1082,118 @@ document.addEventListener("keydown", (e)=>{
   if(e.code==="ArrowLeft")  skipSec(-10);
   if(e.code==="ArrowRight") skipSec(10);
 });
+
+// ═══════════════════════════════════════════════
+// LOCK SCREEN (MX Player style)
+// ═══════════════════════════════════════════════
+let _isLocked = false;
+
+function lockScreen() {
+  _isLocked = true;
+  vw.classList.add("locked");
+  vw.classList.remove("show-ctrl");
+  clearTimeout(ctrlTimer);
+  showToast("🔒 Screen Locked");
+
+  // Locked tap zones enable karo (double-tap skip + hold 2x)
+  enableLockedTapZones();
+}
+
+function unlockScreen() {
+  _isLocked = false;
+  vw.classList.remove("locked");
+  showToast("🔓 Screen Unlocked");
+  showCtrls(2000);
+
+  // Locked tap zones disable karo
+  disableLockedTapZones();
+}
+
+// ── Locked state: double-tap skip + hold 2x ────
+let _lockTapTimerL = null, _lockTapTimerR = null;
+let _lockHoldTimer = null, _lockHoldActive = false, _lockSpeedBefore = 1;
+
+function _lockDoubleTapLeft() {
+  if (_lockTapTimerL) {
+    clearTimeout(_lockTapTimerL);
+    _lockTapTimerL = null;
+    skipSec(-10);
+  } else {
+    _lockTapTimerL = setTimeout(() => {
+      _lockTapTimerL = null;
+      // Single tap — kuch nahi karo locked mein
+    }, 280);
+  }
+}
+
+function _lockDoubleTapRight() {
+  if (_lockTapTimerR) {
+    clearTimeout(_lockTapTimerR);
+    _lockTapTimerR = null;
+    skipSec(10);
+  } else {
+    _lockTapTimerR = setTimeout(() => {
+      _lockTapTimerR = null;
+      // Single tap — kuch nahi
+    }, 280);
+  }
+}
+
+// Locked hold anywhere = 2x speed
+const _lockOverlay = document.createElement("div");
+_lockOverlay.style.cssText = "position:absolute;inset:0;z-index:50;display:none;";
+
+function enableLockedTapZones() {
+  _lockOverlay.style.display = "block";
+}
+function disableLockedTapZones() {
+  _lockOverlay.style.display = "none";
+  clearTimeout(_lockHoldTimer);
+  if (_lockHoldActive) {
+    _lockHoldActive = false;
+    vid.playbackRate = _lockSpeedBefore;
+    document.getElementById("speedBadge").classList.remove("show");
+  }
+}
+
+function _lockStartHold(e) {
+  const rect = vw.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const xPct = (clientX - rect.left) / rect.width;
+
+  // Left half pe double-tap check
+  if (xPct < 0.5) {
+    _lockDoubleTapLeft();
+  } else {
+    _lockDoubleTapRight();
+  }
+
+  // Hold for 2x speed
+  _lockHoldTimer = setTimeout(() => {
+    _lockHoldActive = true;
+    _lockSpeedBefore = vid.playbackRate;
+    vid.playbackRate = 2;
+    document.getElementById("speedBadge").classList.add("show");
+  }, 400);
+}
+
+function _lockEndHold() {
+  clearTimeout(_lockHoldTimer);
+  if (_lockHoldActive) {
+    _lockHoldActive = false;
+    vid.playbackRate = _lockSpeedBefore;
+    document.getElementById("speedBadge").classList.remove("show");
+  }
+}
+
+_lockOverlay.addEventListener("touchstart", _lockStartHold, {passive:true});
+_lockOverlay.addEventListener("touchend",   _lockEndHold);
+_lockOverlay.addEventListener("touchcancel",_lockEndHold);
+_lockOverlay.addEventListener("mousedown",  _lockStartHold);
+_lockOverlay.addEventListener("mouseup",    _lockEndHold);
+_lockOverlay.addEventListener("mouseleave", _lockEndHold);
+
+vw.appendChild(_lockOverlay);
 
 // ═══════════════════════════════════════════════
 // QUALITY BADGE DETECTION
