@@ -97,6 +97,21 @@
     body.cinema-mode .cinema-bar {
       display:block !important;
     }
+    /* Cinema exit hint */
+    .cinema-hint {
+      display:none;
+      position:absolute;
+      top:12px; left:50%;
+      transform:translateX(-50%);
+      background:rgba(0,0,0,.72);
+      color:rgba(255,255,255,.7);
+      font-size:10px; font-weight:700;
+      padding:5px 14px; border-radius:20px;
+      letter-spacing:.5px; white-space:nowrap;
+      z-index:100001; pointer-events:none;
+      animation:fadeUp .4s ease both;
+    }
+    body.cinema-mode .cinema-hint { display:block !important; }
 
     .cinema-bar {
       display:none;
@@ -261,6 +276,8 @@
     <div class="cinema-bar" id="cinemaBar">
       <div class="cinema-bar-fill" id="cinemaBarFill"></div>
     </div>
+    <!-- Cinema mode: tap to exit hint -->
+    <div class="cinema-hint" id="cinemaHint">👆 Tap karein normal mode ke liye</div>
 
     <!-- YouTube-style full overlay -->
     <div class="yt-overlay" id="ytOverlay">
@@ -418,11 +435,14 @@
         <div class="comments-title">💬 Comments</div>
         <div class="comments-count" id="cmtCount">0 comments</div>
       </div>
+      <div style="font-size:10px;color:#444;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:7px 10px;margin-bottom:12px;line-height:1.6;">
+        ⚠️ Comments sirf is device pe save hote hain — doosre users ko nahi dikhenge.
+      </div>
       <div class="comment-form">
         <div class="comment-avatar" id="myAvatar">?</div>
         <div style="flex:1">
           <textarea class="comment-input" id="cmtInput" placeholder="Add a comment..." rows="1"></textarea>
-          <div style="display:flex;justify-content:flex-end;margin-top:6px;gap:8px" id="cmtActions" style="display:none">
+          <div style="display:none;justify-content:flex-end;margin-top:6px;gap:8px" id="cmtActions">
             <button class="comment-submit" style="background:rgba(255,255,255,.07);color:#777" onclick="cancelComment()">Cancel</button>
             <button class="comment-submit" id="cmtSubmit" onclick="postComment()">Post</button>
           </div>
@@ -462,8 +482,15 @@ const FILE_NAME    = "{{ file_name }}";
 const FILE_URL     = "{{ file_url }}";
 const DOWNLOAD_URL = "{{ download_url }}";
 const FILE_UID     = "{{ file_unique_id }}";
-// Railway API base (same origin as stream URL)
-const API_BASE     = FILE_URL.split("/").slice(0,3).join("/");
+// Railway API base — extracted safely from FILE_URL
+const API_BASE = (() => {
+  try {
+    const u = new URL(FILE_URL);
+    return u.origin; // e.g. https://myapp.railway.app
+  } catch {
+    return FILE_URL.split("/").slice(0,3).join("/");
+  }
+})();
 
 // ═══════════════════════════════════════════════
 // STORAGE HELPERS (per-file, using unique_id)
@@ -493,19 +520,37 @@ let isDragging = false;
 let _cinemaMode = false;
 
 // ── Autoplay ────────────────────────────────────
+let _isAutoplay = true; // pehli baar autoplay pe controls mat dikho
+
 function tryAutoplay() {
   vid.muted = true;
   const p = vid.play();
   if (p !== undefined) {
-    p.then(() => { vid.muted = false; updateVolIcon(1); })
-     .catch(() => { bufSpinner.classList.remove("show"); showTapToPlay(); });
+    p.then(() => {
+      vid.muted = false;
+      updateVolIcon(1);
+      // Autoplay success — controls mat dikho, video silently start ho
+      hideCtrls();
+    }).catch(() => {
+      _isAutoplay = false;
+      bufSpinner.classList.remove("show");
+      showTapToPlay();
+    });
   }
 }
 function showTapToPlay() {
   const t = document.createElement("div");
   t.style.cssText = "position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#000;cursor:pointer;z-index:15;";
   t.innerHTML = `<div style="width:72px;height:72px;border-radius:50%;background:rgba(243,156,18,.92);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 28px rgba(0,0,0,.7);"><svg width="30" height="30" viewBox="0 0 24 24" fill="white" style="margin-left:4px"><path d="M8 5v14l11-7z"/></svg></div><div style="margin-top:12px;font-size:11px;color:#888;font-weight:600;letter-spacing:.5px;">TAP TO PLAY</div>`;
-  t.onclick = () => { t.remove(); bufSpinner.classList.add("show"); vid.muted=false; vid.play().catch(()=>bufSpinner.classList.remove("show")); };
+  t.onclick = () => {
+    t.remove();
+    _isAutoplay = false; // user ne tap kiya, ab normal controls behaviour
+    vid.muted = false;
+    const p = vid.play();
+    if (p !== undefined) {
+      p.catch(() => {});
+    }
+  };
   vw.appendChild(t);
 }
 if (document.readyState === "loading") {
@@ -521,7 +566,7 @@ vid.addEventListener("canplaythrough", () => { bufSpinner.classList.remove("show
 // ── Time & Progress ─────────────────────────────
 vid.addEventListener("loadedmetadata", () => {
   const saved = ls.get("pos", 0);
-  if (saved > 5) vid.currentTime = saved;
+  if (saved > 0) vid.currentTime = saved; // 0 se bhi restore, 5s threshold hata diya
   updateTime();
 });
 setInterval(() => { if (!vid.paused && vid.currentTime > 0) ls.set("pos", vid.currentTime); }, 5000);
@@ -549,40 +594,76 @@ vid.addEventListener("progress", () => {
 // ── Play/Pause icons ────────────────────────────
 const PLAY_PATH  = `<path d="M8 5v14l11-7z"/>`;
 const PAUSE_PATH = `<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>`;
-vid.addEventListener("play",  () => { playIcon.innerHTML=PAUSE_PATH; centerPlayIcon.innerHTML=PAUSE_PATH; showCtrls(); });
-vid.addEventListener("pause", () => { playIcon.innerHTML=PLAY_PATH;  centerPlayIcon.innerHTML=PLAY_PATH;  showCtrls(); });
-
-// ── Controls show/hide ──────────────────────────
-const CTRL_TIMEOUT = 5000; // 5 seconds
-
-function showCtrls() {
+vid.addEventListener("play",  () => {
+  playIcon.innerHTML=PAUSE_PATH;
+  centerPlayIcon.innerHTML=PAUSE_PATH;
+  if (_isAutoplay) {
+    // Pehli autoplay pe controls nahi dikhane
+    _isAutoplay = false;
+    return;
+  }
+  // User ne manually play kiya — briefly dikho phir chhupao
+  showCtrls(1500);
+});
+vid.addEventListener("pause", () => {
+  playIcon.innerHTML=PLAY_PATH;
+  centerPlayIcon.innerHTML=PLAY_PATH;
+  // Pause pe controls hamesha visible rahein (timeout nahi)
   if (_cinemaMode) return;
   vw.classList.add("show-ctrl");
   clearTimeout(ctrlTimer);
-  ctrlTimer = setTimeout(() => { if(!vid.paused) hideCtrls(); }, CTRL_TIMEOUT);
+});
+
+// ── Controls show/hide ──────────────────────────
+const CTRL_TIMEOUT = 3000; // 3 seconds (was 5)
+
+function showCtrls(customTimeout) {
+  if (_cinemaMode) return;
+  vw.classList.add("show-ctrl");
+  clearTimeout(ctrlTimer);
+  const t = customTimeout !== undefined ? customTimeout : CTRL_TIMEOUT;
+  ctrlTimer = setTimeout(() => { if(!vid.paused) hideCtrls(); }, t);
 }
 function hideCtrls() {
   vw.classList.remove("show-ctrl");
 }
 
-// Tap logic:
-// - Cinema mode mein tap → restore normal
-// - Controls visible hain aur video chal raha hai → cinema mode
-// - Controls visible nahi → controls dikhao
-// - Buttons pe tap → unka kaam
+// ── Tap / Click logic (Plyr jaisa behavior) ────
+// - Controls chhupe hain + tap → sirf controls dikhao
+// - Controls dikh rahe hain + tap → play/pause toggle + timer reset
+// - Double tap zones → skip (alag handled)
+// - Buttons → unka kaam
+// - Cinema mode → exit
+
+let _suppressNextClick = false;
+
 vw.addEventListener("click", (e) => {
   if(e.target.closest(".yt-btn,.yt-center-btn,.yt-top-btn,.yt-speed-btn,.yt-progress,.double-tap-zone")) return;
   if (_cinemaMode) { vidMinimize(); return; }
+  if (_suppressNextClick) { _suppressNextClick = false; return; }
+
   if (vw.classList.contains("show-ctrl")) {
-    // Controls dikh rahe hain — cinema mode mein jao
-    hideEverything();
+    // Controls visible hain → play/pause toggle + timer reset
+    togglePlay();
+    showCtrls();
   } else {
-    // Controls nahi dikh rahe — dikhao
+    // Controls hidden hain → sirf dikhao, play/pause nahi
     showCtrls();
   }
 });
+
 vw.addEventListener("mousemove", showCtrls);
-vw.addEventListener("touchstart", (e) => { if(!_cinemaMode) showCtrls(); }, {passive:true});
+
+vw.addEventListener("touchstart", (e) => {
+  if (_cinemaMode) return;
+  if (e.target.closest(".yt-btn,.yt-center-btn,.yt-top-btn,.yt-speed-btn,.yt-progress,.double-tap-zone")) return;
+  if (!vw.classList.contains("show-ctrl")) {
+    // Controls abhi hidden hain — sirf dikhao, click pe play/pause suppress karo
+    showCtrls();
+    _suppressNextClick = true;
+    setTimeout(() => { _suppressNextClick = false; }, 500);
+  }
+}, {passive:true});
 
 function togglePlay() {
   if (vid.paused) { bufSpinner.classList.add("show"); vid.play(); } else vid.pause();
@@ -596,6 +677,13 @@ function hideEverything() {
   clearTimeout(ctrlTimer);
   document.body.style.overflow = "hidden";
   document.body.style.background = "#000";
+  // Show exit hint, then fade it out after 3s
+  const hint = document.getElementById("cinemaHint");
+  if (hint) {
+    hint.style.opacity = "1";
+    clearTimeout(hint._timer);
+    hint._timer = setTimeout(() => { hint.style.transition = "opacity .6s"; hint.style.opacity = "0"; }, 3000);
+  }
 }
 
 function vidMinimize() {
@@ -631,14 +719,13 @@ function seekTo(e) {
   vid.currentTime = Math.max(0,Math.min(1,x/rect.width))*(vid.duration||0);
 }
 ytProg.addEventListener("mousedown",  (e)=>{ isDragging=true; ytProg.classList.add("dragging"); seekTo(e); });
-ytProg.addEventListener("touchstart", (e)=>{ isDragging=true; ytProg.classList.add("dragging"); seekTo(e); },{passive:true});
+ytProg.addEventListener("touchstart", (e)=>{ isDragging=true; ytProg.classList.add("dragging"); e.preventDefault(); seekTo(e); },{passive:false});
 document.addEventListener("mousemove", (e)=>{ if(isDragging) seekTo(e); });
 document.addEventListener("touchmove", (e)=>{ if(isDragging){e.preventDefault();seekTo(e);} },{passive:false});
 document.addEventListener("mouseup",   ()=>{ isDragging=false; ytProg.classList.remove("dragging"); });
 document.addEventListener("touchend",  ()=>{ isDragging=false; ytProg.classList.remove("dragging"); });
 
 // ── Volume / Mute ───────────────────────────────
-function setVolume(v) { vid.volume=v; vid.muted=(v==0); updateVolIcon(v); }
 function toggleMute() { vid.muted=!vid.muted; updateVolIcon(vid.muted?0:vid.volume); }
 function updateVolIcon(v) {
   volIcon.innerHTML = v==0
@@ -661,13 +748,15 @@ let _holdTimer=null, _holdActive=false, _speedBefore=1;
 const _badge = document.getElementById("speedBadge");
 function _startHold(){ _holdTimer=setTimeout(()=>{ _holdActive=true; _speedBefore=vid.playbackRate; vid.playbackRate=2; _badge.classList.add("show"); },400); }
 function _endHold(){ clearTimeout(_holdTimer); if(_holdActive){ _holdActive=false; vid.playbackRate=_speedBefore; _badge.classList.remove("show"); } }
-const tapR=document.getElementById("tapR");
-tapR.addEventListener("touchstart",_startHold,{passive:true});
-tapR.addEventListener("touchend",  _endHold);
-tapR.addEventListener("touchcancel",_endHold);
-tapR.addEventListener("mousedown", _startHold);
-tapR.addEventListener("mouseup",   _endHold);
-tapR.addEventListener("mouseleave",_endHold);
+// NOTE: tapR element already fetched via getElementById("tapR") in setupDoubleTap above.
+// Re-using same element reference to avoid double declaration.
+const _tapREl = document.getElementById("tapR");
+_tapREl.addEventListener("touchstart",_startHold,{passive:true});
+_tapREl.addEventListener("touchend",  _endHold);
+_tapREl.addEventListener("touchcancel",_endHold);
+_tapREl.addEventListener("mousedown", _startHold);
+_tapREl.addEventListener("mouseup",   _endHold);
+_tapREl.addEventListener("mouseleave",_endHold);
 
 // ── Fullscreen ──────────────────────────────────
 const FS_EXPAND = `<path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>`;
@@ -726,12 +815,6 @@ function extractMovieTitle(name) {
 
 const LANGS = ["Hindi","English","Tamil","Telugu","Malayalam","Kannada","Bengali","Punjabi","Marathi","Gujarati","Bhojpuri","Urdu"];
 const QUALS = ["2160p","4K","1080p","720p","480p","360p","240p"];
-
-// Detect ALL languages in a filename (handles Dual Audio, Multi Audio)
-function detectAllLangs(name) {
-  const found = LANGS.filter(l => new RegExp(`\\b${l}\\b`,"i").test(name));
-  return found.length ? found : null;
-}
 
 // Detect single lang (for chip label)
 function detectLang(name) {
@@ -1050,7 +1133,7 @@ async function loadVariants() {
       }
     }
 
-  } catch(e) { console.error("Variants load failed:", e); }
+  } catch(e) { console.error("Variants load failed:", e); showToast("⚠️ Quality/Language variants load nahi hue"); }
 }
 
 async function switchVariant(fileId, chipEl, chipsContainerId) {
@@ -1116,7 +1199,8 @@ function renderReactions() {
 }
 
 function react(type) {
-  if (reactions.mine === type) {
+  const wasActive = reactions.mine === type;
+  if (wasActive) {
     reactions[type+"s"]--;
     reactions.mine = null;
   } else {
@@ -1126,7 +1210,8 @@ function react(type) {
   }
   ls.set("reactions", reactions);
   renderReactions();
-  showToast(reactions.mine === "like" ? "👍 Liked!" : reactions.mine === "dislike" ? "👎 Disliked!" : "Reaction removed");
+  // wasActive check se toast sahi aayega
+  showToast(wasActive ? "Reaction removed" : type === "like" ? "👍 Liked!" : "👎 Disliked!");
 }
 
 renderReactions();
@@ -1146,7 +1231,10 @@ function renderComments() {
   const cnt  = document.getElementById("cmtCount");
   cnt.textContent = comments.length + " comment" + (comments.length!==1?"s":"");
   if (!comments.length) { list.innerHTML = `<div class="no-comments">Be the first to comment!</div>`; return; }
-  list.innerHTML = comments.slice().reverse().map((c,i) => `
+  // Reverse copy banao display ke liye, lekin original index use karo cLike ke liye
+  list.innerHTML = comments.slice().reverse().map((c, revIdx) => {
+    const origIdx = comments.length - 1 - revIdx; // actual index in original array
+    return `
     <div class="comment-item">
       <div class="comment-avatar" style="background:hsl(${c.hue},55%,35%);font-size:13px;font-weight:800;color:#fff;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0">${c.name[0].toUpperCase()}</div>
       <div class="comment-body">
@@ -1154,13 +1242,14 @@ function renderComments() {
         <div class="comment-text">${escHtml(c.text)}</div>
         <div class="comment-time">${relTime(c.ts)}</div>
         <div class="comment-react">
-          <button class="c-react-btn" onclick="cLike(${comments.length-1-i})">
+          <button class="c-react-btn" onclick="cLike(${origIdx})">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
             ${c.likes||0}
           </button>
         </div>
       </div>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 }
 
 function escHtml(s) { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
@@ -1197,9 +1286,21 @@ renderComments();
 // ACTION BUTTONS
 // ═══════════════════════════════════════════════
 function dlFile() {
-  const a = document.createElement("a");
-  a.href = DOWNLOAD_URL; a.download = FILE_NAME;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  // Try anchor download first; cross-origin URLs ignore 'download' attr,
+  // so we open in new tab as a reliable fallback.
+  try {
+    const a = document.createElement("a");
+    a.href = DOWNLOAD_URL;
+    a.download = FILE_NAME;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showToast("⬇️ Download shuru ho raha hai...");
+  } catch(e) {
+    window.open(DOWNLOAD_URL, "_blank", "noopener,noreferrer");
+  }
 }
 
 function openPlayer(type) {
