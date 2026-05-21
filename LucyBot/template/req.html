@@ -76,6 +76,11 @@
     body.fs-mode #pageContent,
     body.fs-mode footer { display:none !important; }
     body.fs-mode .main { padding:0 !important; }
+    /* In fullscreen, overlay and tap zones fill rotated wrapper fully */
+    body.fs-mode .yt-overlay { opacity:0; transition:opacity .25s; }
+    body.fs-mode .video-wrapper.show-ctrl .yt-overlay { opacity:1; pointer-events:all; }
+    /* Controls bottom bar visible in FS */
+    body.fs-mode .yt-bottom { padding-bottom: 12px; }
 
     /* ── Cinema mode (X button pressed) ── */
     body.cinema-mode .header,
@@ -596,7 +601,7 @@ vid.addEventListener("play",  () => {
 vid.addEventListener("pause", () => {
   playIcon.innerHTML=PLAY_PATH;
   if (_cinemaMode) return;
-  // On pause, show controls so user can see paused state
+  // On pause, always show controls (works in normal + fullscreen)
   vw.classList.add("show-ctrl");
   clearTimeout(ctrlTimer);
 });
@@ -609,6 +614,7 @@ function showCtrls(customTimeout) {
   vw.classList.add("show-ctrl");
   clearTimeout(ctrlTimer);
   const t = customTimeout !== undefined ? customTimeout : CTRL_TIMEOUT;
+  // Fullscreen mein bhi auto-hide karo
   ctrlTimer = setTimeout(() => { if(!vid.paused) hideCtrls(); }, t);
 }
 function hideCtrls() {
@@ -635,13 +641,11 @@ let _suppressNextClick = false;
 tapL.addEventListener("click", () => {
   if (_cinemaMode) { vidMinimize(); return; }
   if (_tapTimerL) {
-    // Double tap → -10s
     clearTimeout(_tapTimerL); _tapTimerL = null;
     skipSec(-10);
   } else {
     _tapTimerL = setTimeout(() => {
       _tapTimerL = null;
-      // Single tap: toggle controls
       vw.classList.contains("show-ctrl") ? hideCtrls() : showCtrls();
     }, 280);
   }
@@ -652,14 +656,14 @@ let _tapTimerC = null;
 tapC.addEventListener("click", (e) => {
   if (_cinemaMode) { vidMinimize(); return; }
   if (_tapTimerC) {
-    // Double tap center → play/pause
+    // Double tap → play/pause
     clearTimeout(_tapTimerC); _tapTimerC = null;
     togglePlay();
-    if (!vid.paused) showCtrls(1500);
+    showCtrls(1500);
   } else {
     _tapTimerC = setTimeout(() => {
       _tapTimerC = null;
-      // Single tap: toggle controls visibility
+      // Single tap: controls toggle (hide/show) — fullscreen mein bhi
       vw.classList.contains("show-ctrl") ? hideCtrls() : showCtrls();
     }, 280);
   }
@@ -674,7 +678,6 @@ tapR2.addEventListener("click", () => {
   } else {
     _tapTimerR = setTimeout(() => {
       _tapTimerR = null;
-      // Single tap: toggle controls
       vw.classList.contains("show-ctrl") ? hideCtrls() : showCtrls();
     }, 280);
   }
@@ -781,7 +784,7 @@ function cycleSpeed() {
   showToast("▶ Speed: "+SPEEDS[speedIdx]+"x");
 }
 
-// ── Fullscreen (CSS-based vertical — works on all mobile browsers) ──
+// ── Fullscreen — CSS rotation landscape (works on ALL mobile browsers) ──
 const FS_EXPAND = `<path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>`;
 const FS_EXIT   = `<path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>`;
 let _isFS = false;
@@ -790,39 +793,50 @@ function toggleFS() {
   _isFS = !_isFS;
   const fsIcon = document.getElementById("fsIcon");
   if (_isFS) {
-    vw.style.cssText = "position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:100vh!important;max-width:100vw!important;aspect-ratio:unset!important;z-index:999999!important;background:#000!important;";
-    vid.style.cssText = "width:100%!important;height:100%!important;object-fit:contain!important;";
+    // Portrait screen par landscape dikhane ke liye:
+    // vw ko rotate(90deg) karke screen-width = screen-height size dete hain
+    const sw = window.screen.width  || window.innerWidth;
+    const sh = window.screen.height || window.innerHeight;
+    const W  = Math.max(sw, sh); // landscape width = longer side
+    const H  = Math.min(sw, sh); // landscape height = shorter side
+
+    vw.style.cssText = [
+      "position:fixed!important",
+      "top:50%!important",
+      "left:50%!important",
+      `width:${W}px!important`,
+      `height:${H}px!important`,
+      "max-width:none!important",
+      "aspect-ratio:unset!important",
+      "transform:translate(-50%,-50%) rotate(90deg)!important",
+      "transform-origin:center center!important",
+      "z-index:999999!important",
+      "background:#000!important",
+    ].join(";");
+
+    vid.style.cssText = "width:100%!important;height:100%!important;object-fit:contain!important;position:absolute!important;inset:0!important;";
+
     document.body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
     document.body.classList.add("fs-mode");
     fsIcon.innerHTML = FS_EXIT;
-    try { vw.requestFullscreen?.() || vw.webkitRequestFullscreen?.(); } catch(e){}
-    showToast("✕ Wapas aane ke liye fullscreen button dabayein");
+
+    // Controls bhi dikhao aur phir auto-hide
+    showCtrls(2500);
   } else {
-    vw.style.cssText = "";
-    vid.style.cssText = "";
-    document.body.style.overflow = "";
-    document.documentElement.style.overflow = "";
-    document.body.classList.remove("fs-mode");
-    fsIcon.innerHTML = FS_EXPAND;
-    try { document.exitFullscreen?.() || document.webkitExitFullscreen?.(); } catch(e){}
+    _exitFS();
   }
 }
 
-// Native fullscreen exit (back button) bhi handle karo
-function _onFSChange() {
-  if (!document.fullscreenElement && !document.webkitFullscreenElement && _isFS) {
-    _isFS = false;
-    vw.style.cssText = "";
-    vid.style.cssText = "";
-    document.body.style.overflow = "";
-    document.documentElement.style.overflow = "";
-    document.body.classList.remove("fs-mode");
-    document.getElementById("fsIcon").innerHTML = FS_EXPAND;
-  }
+function _exitFS() {
+  _isFS = false;
+  vw.style.cssText = "";
+  vid.style.cssText = "";
+  document.body.style.overflow = "";
+  document.documentElement.style.overflow = "";
+  document.body.classList.remove("fs-mode");
+  document.getElementById("fsIcon").innerHTML = FS_EXPAND;
 }
-document.addEventListener("fullscreenchange", _onFSChange);
-document.addEventListener("webkitfullscreenchange", _onFSChange);
 
 // ── Keyboard shortcuts ──────────────────────────
 document.addEventListener("keydown", (e)=>{
