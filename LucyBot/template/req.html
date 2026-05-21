@@ -41,9 +41,12 @@
 
     /* Center big controls */
     .yt-center { display:flex; align-items:center; justify-content:center; gap:28px; flex:1; }
-    .yt-center-btn { background:rgba(0,0,0,.35); border:none; color:#fff; cursor:pointer; width:52px; height:52px; border-radius:50%; display:flex; align-items:center; justify-content:center; -webkit-tap-highlight-color:transparent; transition:background .15s; backdrop-filter:blur(2px); }
-    .yt-center-btn:active { background:rgba(255,255,255,.2); }
-    .yt-play-btn { width:64px; height:64px; background:rgba(0,0,0,.5); }
+
+    /* Tap zones — left 33% / center 34% / right 33% — invisible, cover full video height except bottom bar */
+    .tap-zone { position:absolute; top:0; bottom:56px; cursor:pointer; z-index:10; }
+    .tap-left   { left:0;    width:33%; }
+    .tap-center { left:33%;  width:34%; }
+    .tap-right  { right:0;   width:33%; }
 
     /* Bottom bar */
     .yt-bottom { background:linear-gradient(transparent,rgba(0,0,0,.9)); padding:0 10px 8px; }
@@ -91,7 +94,7 @@
     body.cinema-mode .buf-spinner,
     body.cinema-mode .skip-anim,
     body.cinema-mode .speed-badge,
-    body.cinema-mode .double-tap-zone { display:none !important; }
+    body.cinema-mode .tap-zone { display:none !important; }
 
     /* Show only thin red progress bar at very bottom */
     body.cinema-mode .cinema-bar {
@@ -137,10 +140,6 @@
     .skip-anim.show { opacity:1; }
     .skip-circle { width:64px; height:64px; border-radius:50%; background:rgba(255,255,255,.18); backdrop-filter:blur(4px); display:flex; align-items:center; justify-content:center; }
     .skip-label { font-size:10px; font-weight:700; color:#fff; letter-spacing:.5px; }
-    .double-tap-zone { position:absolute; top:0; bottom:56px; width:38%; cursor:pointer; z-index:10; }
-    .double-tap-zone.left { left:0; }
-    .double-tap-zone.right { right:0; }
-
     /* ── Play overlay ── */
     .play-overlay { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:64px; height:64px; border-radius:50%; background:rgba(0,0,0,.55); backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; pointer-events:none; transition:opacity .2s; }
     .play-overlay.hide { opacity:0; }
@@ -266,9 +265,10 @@
       <span class="skip-label">+ 10 sec</span>
     </div>
 
-    <!-- Double-tap zones -->
-    <div class="double-tap-zone left"  id="tapL"></div>
-    <div class="double-tap-zone right" id="tapR"></div>
+    <!-- Tap zones: left=double-tap skip back, center=play/pause, right=double-tap skip forward -->
+    <div class="tap-zone tap-left"  id="tapL"></div>
+    <div class="tap-zone tap-center" id="tapC"></div>
+    <div class="tap-zone tap-right" id="tapR"></div>
 
     <video id="vid" src="{{ file_url }}" playsinline preload="none"></video>
 
@@ -282,23 +282,11 @@
     <!-- YouTube-style full overlay -->
     <div class="yt-overlay" id="ytOverlay">
 
-      <!-- Top bar -->
-      <div class="yt-top">
-        <div style="flex:1"></div>
-      </div>
+      <!-- Top bar (empty — no buttons) -->
+      <div class="yt-top"></div>
 
-      <!-- Center big controls -->
-      <div class="yt-center">
-        <button class="yt-center-btn" onclick="skipSec(-10)" title="-10s">
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="white"><path d="M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/><text x="8.5" y="16" font-size="5.5" fill="white" font-weight="bold">10</text></svg>
-        </button>
-        <button class="yt-center-btn yt-play-btn" id="centerPlayBtn" onclick="togglePlay()">
-          <svg id="centerPlayIcon" width="32" height="32" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
-        </button>
-        <button class="yt-center-btn" onclick="skipSec(10)" title="+10s">
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="white"><path d="M12.01 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/><text x="8.5" y="16" font-size="5.5" fill="white" font-weight="bold">10</text></svg>
-        </button>
-      </div>
+      <!-- Center: NO buttons — invisible tap zones handle everything -->
+      <div class="yt-center" style="pointer-events:none"></div>
 
       <!-- Bottom bar -->
       <div class="yt-bottom">
@@ -508,7 +496,7 @@ const ytFill   = document.getElementById("ytFill");
 const ytBuf    = document.getElementById("ytBuf");
 const ytThumb  = document.getElementById("ytThumb");
 const playIcon = document.getElementById("playIcon");
-const centerPlayIcon = document.getElementById("centerPlayIcon");
+
 const volIcon  = document.getElementById("volIcon");
 const speedBtn = document.getElementById("speedBtn");
 const bufSpinner = document.getElementById("bufSpinner");
@@ -596,19 +584,11 @@ const PLAY_PATH  = `<path d="M8 5v14l11-7z"/>`;
 const PAUSE_PATH = `<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>`;
 vid.addEventListener("play",  () => {
   playIcon.innerHTML=PAUSE_PATH;
-  centerPlayIcon.innerHTML=PAUSE_PATH;
-  if (_isAutoplay) {
-    // Pehli autoplay pe controls nahi dikhane
-    _isAutoplay = false;
-    return;
-  }
-  // User ne manually play kiya — briefly dikho phir chhupao
+  if (_isAutoplay) { _isAutoplay = false; return; }
   showCtrls(1500);
 });
 vid.addEventListener("pause", () => {
   playIcon.innerHTML=PLAY_PATH;
-  centerPlayIcon.innerHTML=PLAY_PATH;
-  // Pause pe controls hamesha visible rahein (timeout nahi)
   if (_cinemaMode) return;
   vw.classList.add("show-ctrl");
   clearTimeout(ctrlTimer);
@@ -628,48 +608,108 @@ function hideCtrls() {
   vw.classList.remove("show-ctrl");
 }
 
-// ── Tap / Click logic (Plyr jaisa behavior) ────
-// - Controls chhupe hain + tap → sirf controls dikhao
-// - Controls dikh rahe hain + tap → play/pause toggle + timer reset
-// - Double tap zones → skip (alag handled)
-// - Buttons → unka kaam
-// - Cinema mode → exit
+// ═══════════════════════════════════════════════
+// TAP ZONES — Left / Center / Right
+// ═══════════════════════════════════════════════
+// Left zone:   double-tap = -10s | single-tap = controls toggle
+// Center zone: single-tap = play/pause (controls visible ho toh), else show controls
+// Right zone:  double-tap = +10s | single-tap = controls toggle
+// Any zone:    hold (400ms) on right = 2x speed
+// Page outside video: click = hide controls
 
+const tapL = document.getElementById("tapL");
+const tapC = document.getElementById("tapC");
+const tapR2 = document.getElementById("tapR"); // renamed to avoid conflict
+
+let _tapTimerL = null, _tapTimerR = null;
 let _suppressNextClick = false;
 
-vw.addEventListener("click", (e) => {
-  if(e.target.closest(".yt-btn,.yt-center-btn,.yt-top-btn,.yt-speed-btn,.yt-progress,.double-tap-zone")) return;
+// ── Left zone ──────────────────────────────────
+tapL.addEventListener("click", () => {
   if (_cinemaMode) { vidMinimize(); return; }
-  if (_suppressNextClick) { _suppressNextClick = false; return; }
-
-  if (vw.classList.contains("show-ctrl")) {
-    // Controls visible hain → play/pause toggle + timer reset
-    togglePlay();
-    showCtrls();
+  if (_tapTimerL) {
+    // Double tap → -10s
+    clearTimeout(_tapTimerL); _tapTimerL = null;
+    skipSec(-10);
   } else {
-    // Controls hidden hain → sirf dikhao, play/pause nahi
+    _tapTimerL = setTimeout(() => {
+      _tapTimerL = null;
+      // Single tap: toggle controls (if video playing)
+      if (!vid.paused) {
+        vw.classList.contains("show-ctrl") ? hideCtrls() : showCtrls();
+      }
+    }, 280);
+  }
+});
+
+// ── Center zone ────────────────────────────────
+tapC.addEventListener("click", () => {
+  if (_cinemaMode) { vidMinimize(); return; }
+  if (vw.classList.contains("show-ctrl")) {
+    // Controls dikh rahe hain → play/pause
+    togglePlay();
+    if (!vid.paused) showCtrls(1500); // play ke baad jaldi chhupao
+  } else {
+    // Controls hidden → sirf dikhao
     showCtrls();
   }
 });
 
-vw.addEventListener("mousemove", showCtrls);
-
-vw.addEventListener("touchstart", (e) => {
-  if (_cinemaMode) return;
-  if (e.target.closest(".yt-btn,.yt-center-btn,.yt-top-btn,.yt-speed-btn,.yt-progress,.double-tap-zone")) return;
-  if (!vw.classList.contains("show-ctrl")) {
-    // Controls abhi hidden hain — sirf dikhao, click pe play/pause suppress karo
-    showCtrls();
-    _suppressNextClick = true;
-    setTimeout(() => { _suppressNextClick = false; }, 500);
+// ── Right zone ─────────────────────────────────
+tapR2.addEventListener("click", () => {
+  if (_cinemaMode) { vidMinimize(); return; }
+  if (_tapTimerR) {
+    clearTimeout(_tapTimerR); _tapTimerR = null;
+    skipSec(10);
+  } else {
+    _tapTimerR = setTimeout(() => {
+      _tapTimerR = null;
+      if (!vid.paused) {
+        vw.classList.contains("show-ctrl") ? hideCtrls() : showCtrls();
+      }
+    }, 280);
   }
-}, {passive:true});
+});
+
+// ── Hold right zone = 2x speed ─────────────────
+const _badge = document.getElementById("speedBadge");
+let _holdTimer2 = null, _holdActive2 = false, _speedBefore2 = 1;
+function _startHold2() {
+  _holdTimer2 = setTimeout(() => {
+    _holdActive2 = true;
+    _speedBefore2 = vid.playbackRate;
+    vid.playbackRate = 2;
+    _badge.classList.add("show");
+  }, 400);
+}
+function _endHold2() {
+  clearTimeout(_holdTimer2);
+  if (_holdActive2) {
+    _holdActive2 = false;
+    vid.playbackRate = _speedBefore2;
+    _badge.classList.remove("show");
+  }
+}
+tapR2.addEventListener("touchstart", _startHold2, {passive:true});
+tapR2.addEventListener("touchend",   _endHold2);
+tapR2.addEventListener("touchcancel",_endHold2);
+tapR2.addEventListener("mousedown",  _startHold2);
+tapR2.addEventListener("mouseup",    _endHold2);
+tapR2.addEventListener("mouseleave", _endHold2);
+
+// ── Page ke bahar click → controls hide ────────
+document.addEventListener("click", (e) => {
+  if (!vw.contains(e.target)) {
+    hideCtrls();
+  }
+});
+
+// ── Mouse move on video → controls show ────────
+vw.addEventListener("mousemove", showCtrls);
 
 function togglePlay() {
   if (vid.paused) { bufSpinner.classList.add("show"); vid.play(); } else vid.pause();
 }
-
-// ── Cinema mode: X button → only video + thin seekbar ──
 function hideEverything() {
   _cinemaMode = true;
   document.body.classList.add("cinema-mode");
@@ -701,17 +741,6 @@ function skipSec(s) {
   showToast(s<0?"⏪ -10 sec":"⏩ +10 sec");
 }
 
-// ── Double tap zones ────────────────────────────
-let tapTimers = {L:null,R:null};
-function setupDoubleTap(el, side) {
-  el.addEventListener("click", () => {
-    if (tapTimers[side]) { clearTimeout(tapTimers[side]); tapTimers[side]=null; skipSec(side==="L"?-10:10); }
-    else tapTimers[side] = setTimeout(()=>{ tapTimers[side]=null; showCtrls(); togglePlay(); },280);
-  });
-}
-setupDoubleTap(document.getElementById("tapL"),"L");
-setupDoubleTap(document.getElementById("tapR"),"R");
-
 // ── Progress bar drag ───────────────────────────
 function seekTo(e) {
   const rect = ytProg.getBoundingClientRect();
@@ -742,21 +771,6 @@ function cycleSpeed() {
   speedBtn.textContent=SPEEDS[speedIdx]+"x";
   showToast("▶ Speed: "+SPEEDS[speedIdx]+"x");
 }
-
-// ── Right hold = 2x speed ───────────────────────
-let _holdTimer=null, _holdActive=false, _speedBefore=1;
-const _badge = document.getElementById("speedBadge");
-function _startHold(){ _holdTimer=setTimeout(()=>{ _holdActive=true; _speedBefore=vid.playbackRate; vid.playbackRate=2; _badge.classList.add("show"); },400); }
-function _endHold(){ clearTimeout(_holdTimer); if(_holdActive){ _holdActive=false; vid.playbackRate=_speedBefore; _badge.classList.remove("show"); } }
-// NOTE: tapR element already fetched via getElementById("tapR") in setupDoubleTap above.
-// Re-using same element reference to avoid double declaration.
-const _tapREl = document.getElementById("tapR");
-_tapREl.addEventListener("touchstart",_startHold,{passive:true});
-_tapREl.addEventListener("touchend",  _endHold);
-_tapREl.addEventListener("touchcancel",_endHold);
-_tapREl.addEventListener("mousedown", _startHold);
-_tapREl.addEventListener("mouseup",   _endHold);
-_tapREl.addEventListener("mouseleave",_endHold);
 
 // ── Fullscreen ──────────────────────────────────
 const FS_EXPAND = `<path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>`;
