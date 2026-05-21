@@ -314,33 +314,9 @@
     <div class="variant-section" id="langSection" style="display:none">
       <div class="variant-title">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-        LANGUAGE / AUDIO TRACK
+        LANGUAGE
       </div>
-      <!-- Inline audio track switcher (YouTube style) — shown for dual/multi audio tracks in same file -->
-      <div id="audioTrackWrap" style="display:none;margin-bottom:10px">
-        <div style="font-size:10px;color:#888;margin-bottom:8px;display:flex;align-items:center;gap:5px">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="#f39c12"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
-          <span style="color:#f39c12;font-weight:700">IN-VIDEO AUDIO TRACKS</span>
-        </div>
-        <div style="font-size:10px;color:#555;margin-bottom:10px">Is file mein multiple audio tracks hain — neeche click karke switch karein</div>
-        <div class="variant-chips" id="audioTrackChips"></div>
-        <div id="audioTrackNote" style="display:none;font-size:10px;color:#555;margin-top:8px;padding:8px 10px;background:rgba(243,156,18,.06);border-radius:8px;border:1px solid rgba(243,156,18,.15)">
-          ⚠️ Browser mein audio track switching limited hai. Best experience ke liye <strong>MX Player</strong> ya <strong>VLC</strong> use karein.
-        </div>
-      </div>
-      <!-- Separate language files from DB -->
-      <div id="langFilesWrap" style="display:none">
-        <div style="font-size:10px;color:#888;margin-bottom:8px;display:flex;align-items:center;gap:5px">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="#27ae60"><path d="M20 6h-2.18c.07-.44.18-.88.18-1.36C18 2.06 15.96 0 13.5 0c-1.3 0-2.51.6-3.36 1.5L9 3 7.86 1.5C7.01.6 5.8 0 4.5 0 2.04 0 0 2.06 0 4.64c0 .48.11.92.18 1.36H0v2h20v-2z M0 9v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9H0z"/></svg>
-          <span style="color:#27ae60;font-weight:700">OTHER LANGUAGE FILES</span>
-        </div>
-        <div style="font-size:10px;color:#555;margin-bottom:10px">Database mein alag language ka alag file available hai</div>
-        <div class="variant-chips" id="langChips"></div>
-      </div>
-      <!-- Fallback: no separate files, no browser tracks -->
-      <div id="langFallback" style="display:none;font-size:11px;color:#555;padding:4px 0">
-        <div class="variant-chips" id="langChipsFallback"></div>
-      </div>
+      <div class="variant-chips" id="langChips"></div>
     </div>
 
     <!-- External Players -->
@@ -467,7 +443,6 @@ showLoading();
 vid.addEventListener("loadedmetadata", () => {
   _videoReady = true;
   hideLoading();
-  try { initAudioTracks(); } catch(e) { console.warn("AudioTrack init failed:", e); }
   const saved = ls.get("pos", 0);
   if (saved > 5) vid.currentTime = saved;
   updateTime();
@@ -707,187 +682,44 @@ function langKey(name) {
 // AUDIO TRACK SWITCHER (YouTube-style, in-video)
 // ═══════════════════════════════════════════════
 // Map ISO 639-1/2 codes and common labels → display names
-const LANG_DISPLAY = {
-  hin:"Hindi", eng:"English", tam:"Tamil", tel:"Telugu",
-  mal:"Malayalam", kan:"Kannada", ben:"Bengali", pan:"Punjabi",
-  mar:"Marathi", guj:"Gujarati", bho:"Bhojpuri", urd:"Urdu",
-  jpn:"Japanese", kor:"Korean", zho:"Chinese", fra:"French",
-  spa:"Spanish", deu:"German", ara:"Arabic", rus:"Russian",
-  hi:"Hindi", en:"English", ta:"Tamil", te:"Telugu",
-  ml:"Malayalam", kn:"Kannada", bn:"Bengali", pa:"Punjabi",
-  mr:"Marathi", gu:"Gujarati", ur:"Urdu", ja:"Japanese",
-  ko:"Korean", zh:"Chinese", fr:"French", es:"Spanish",
-  de:"German", ar:"Arabic", ru:"Russian"
-};
-
-let activeTrackIndex = null;
-
-function getLangDisplayName(track) {
-  if (!track) return null;
-  const lc = (track.language||"").toLowerCase().trim();
-  const lbl = (track.label||"").trim();
-  // Try ISO code first
-  if (lc && LANG_DISPLAY[lc]) return LANG_DISPLAY[lc];
-  // Then label
-  if (lbl) return lbl.charAt(0).toUpperCase() + lbl.slice(1);
-  // Then raw language
-  if (lc) return lc.charAt(0).toUpperCase() + lc.slice(1);
-  return null;
-}
-
-function initAudioTracks() {
-  // Check HTML5 AudioTrack API support
-  if (!vid.audioTracks) return false;
-  const tracks = vid.audioTracks;
-  if (!tracks || tracks.length <= 1) return false;
-
-  const wrap  = document.getElementById("audioTrackWrap");
-  const chips = document.getElementById("audioTrackChips");
-  wrap.style.display = "block";
-
-  // Find active track
-  for (let i = 0; i < tracks.length; i++) {
-    if (tracks[i].enabled) activeTrackIndex = i;
-  }
-
-  function renderAudioChips() {
-    chips.innerHTML = "";
-    for (let i = 0; i < tracks.length; i++) {
-      const t = tracks[i];
-      const name = getLangDisplayName(t) || ("Track " + (i+1));
-      const c = document.createElement("button");
-      c.className = "chip" + (t.enabled ? " active" : "");
-      c.innerHTML = "🔊 " + name;
-      c.dataset.trackIdx = i;
-      c.onclick = () => switchAudioTrack(i, renderAudioChips);
-      chips.appendChild(c);
-    }
-  }
-
-  renderAudioChips();
-  return true;
-}
-
-function switchAudioTrack(targetIdx, renderCb) {
-  if (!vid.audioTracks) {
-    document.getElementById("audioTrackNote").style.display = "block";
-    return false;
-  }
-  const tracks = vid.audioTracks;
-  let switched = false;
-  for (let i = 0; i < tracks.length; i++) {
-    tracks[i].enabled = (i === targetIdx);
-    if (i === targetIdx) switched = true;
-  }
-  activeTrackIndex = targetIdx;
-  if (!switched) {
-    document.getElementById("audioTrackNote").style.display = "block";
-    showToast("⚠️ Browser audio switch not supported");
-    return false;
-  } else {
-    const name = getLangDisplayName(tracks[targetIdx]) || ("Track " + (targetIdx+1));
-    showToast("🔊 Audio: " + name);
-  }
-  if (renderCb) renderCb();
-  return true;
-}
-
-// Also try immediately (some browsers populate tracks early)
-if (vid.readyState >= 1) initAudioTracks();
-
 // ═══════════════════════════════════════════════
 // QUALITY & LANGUAGE VARIANTS (from Railway API)
 // ═══════════════════════════════════════════════
 async function loadVariants() {
   const title = extractMovieTitle(FILE_NAME);
-
-  // ── Immediate fallback: show lang section from filename alone ──────
-  // This runs before API call so user sees chips instantly
-  const isDualFileFB = /\b(dual[\s._-]?audio|multi[\s._-]?audio|dual|multi)\b/i.test(FILE_NAME);
-  function getIndividualLangs(name) {
-    return LANGS.filter(l => new RegExp(`\\b${l}\\b`,"i").test(name));
-  }
-  if (isDualFileFB) {
-    const fbLangs = getIndividualLangs(FILE_NAME);
-    if (fbLangs.length >= 1) {
-      const lSec      = document.getElementById("langSection");
-      const audioWrap = document.getElementById("audioTrackWrap");
-      const chips     = document.getElementById("audioTrackChips");
-      lSec.style.display = "block";
-      audioWrap.style.display = "block";
-      chips.innerHTML = "";
-      fbLangs.forEach((l, idx) => {
-        const c = document.createElement("button");
-        c.className = "chip" + (idx === 0 ? " active" : "");
-        c.innerHTML = "🔊 " + l;
-        c.dataset.lang = l.toLowerCase();
-        c.dataset.trackIdx = idx;
-        c.onclick = () => {
-          const switched = switchAudioTrack(idx, null);
-          if (switched !== false) {
-            document.querySelectorAll("#audioTrackChips .chip").forEach((ch, i) => {
-              ch.classList.toggle("active", i === idx);
-            });
-          }
-        };
-        chips.appendChild(c);
-      });
-      document.getElementById("audioTrackNote").style.display = "block";
-    }
-  }
-
   if (!title) return;
   try {
     const res = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(title)}&limit=50`);
     const data = await res.json();
     if (!data.files || !data.files.length) return;
 
-    const curQ      = detectQual(FILE_NAME);
-    const curLKey   = langKey(FILE_NAME);
+    const curQ = detectQual(FILE_NAME);
 
-    // Detect if current file IS a dual/multi audio file (same file, multiple tracks)
-    const isDualFile = /\b(dual[\s._-]?audio|multi[\s._-]?audio|dual|multi)\b/i.test(FILE_NAME);
-
-    // Parse individual languages from filename for dual audio
     function getIndividualLangs(name) {
       return LANGS.filter(l => new RegExp(`\\b${l}\\b`,"i").test(name));
     }
 
-    // Group by quality and separate-file languages
-    const qualMap = {}, langFileMap = {};
-
+    // Quality map
+    const qualMap = {};
     const curFileObj = { file_id: null, file_name: FILE_NAME, _isCurrent: true };
-    if (curQ && !qualMap[curQ]) qualMap[curQ] = curFileObj;
-
-    // For lang file map: only add current if it's a single-lang file
-    if (curLKey && !isDualFile && !langFileMap[curLKey]) {
-      langFileMap[curLKey] = { file: curFileObj, langs: getIndividualLangs(FILE_NAME) };
-    }
-
+    if (curQ) qualMap[curQ] = curFileObj;
     data.files.forEach(f => {
-      const q  = detectQual(f.file_name);
-      const lk = langKey(f.file_name);
-      const isFileDual = /\b(dual[\s._-]?audio|multi[\s._-]?audio|dual|multi)\b/i.test(f.file_name);
-      if (q  && !qualMap[q])  qualMap[q]  = f;
-      // Only treat as separate file if it's NOT the current dual-audio file
-      if (lk && !langFileMap[lk]) {
-        langFileMap[lk] = { file: f, langs: getIndividualLangs(f.file_name), isDual: isFileDual };
-      }
+      const q = detectQual(f.file_name);
+      if (q && !qualMap[q]) qualMap[q] = f;
     });
 
     // Quality chips
     const quals = Object.keys(qualMap).sort((a,b) => QUALS.indexOf(a)-QUALS.indexOf(b));
     if (quals.length >= 1) {
-      const qSec   = document.getElementById("qualSection");
+      document.getElementById("qualSection").style.display = "block";
       const qChips = document.getElementById("qualChips");
-      qSec.style.display = "block";
       quals.forEach(q => {
         const f = qualMap[q];
         const c = document.createElement("button");
-        c.className = "chip" + (q===curQ ? " active" : "");
+        c.className = "chip" + (q === curQ ? " active" : "");
         c.textContent = q;
         if (f._isCurrent || !f.file_id) {
-          c.onclick = () => showToast("▶️ Already playing " + q);
+          c.onclick = () => showToast("\u25b6\ufe0f Already playing " + q);
         } else {
           c.onclick = () => switchVariant(f.file_id, c, "qualChips");
         }
@@ -895,174 +727,46 @@ async function loadVariants() {
       });
     }
 
-    // Language section logic:
-    // Case 1: Current file is dual audio → show in-video audio track switcher (already handled by initAudioTracks)
-    //         Also show individual language chips for each track, pointing to same-file track switch OR separate DB file
-    // Case 2: Multiple separate-language files exist in DB → show as navigatable chips
+    // Language chips — one chip per individual language
+    // langSlots: langLabel → { file_id|null, isCurrent }
+    const langSlots = {};
 
-    const lSec = document.getElementById("langSection");
-    let langSectionVisible = false;
-
-    // Build a map of single-language entries (each individual lang)
-    // that either: (a) have a separate DB file, or (b) are tracks in current dual file
-    const allLangEntries = {}; // lang_lowercase → { file|null, isTrack, trackIdx? }
-
-    // Add tracks from current dual file
-    if (isDualFile) {
-      const myLangs = getIndividualLangs(FILE_NAME);
-      myLangs.forEach((l, idx) => {
-        const lc = l.toLowerCase();
-        if (!allLangEntries[lc]) {
-          allLangEntries[lc] = { label: l, isTrack: true, isCurrent: true };
-        }
-      });
-    } else {
-      // Current is single-lang file — mark it
-      const myLangs = getIndividualLangs(FILE_NAME);
-      myLangs.forEach(l => {
-        const lc = l.toLowerCase();
-        allLangEntries[lc] = { label: l, isTrack: false, isCurrent: true, file: null };
-      });
-    }
-
-    // Add separate-file entries from DB
-    Object.values(langFileMap).forEach(entry => {
-      if (entry.file._isCurrent) return;
-      entry.langs.forEach(l => {
-        const lc = l.toLowerCase();
-        if (!allLangEntries[lc]) {
-          allLangEntries[lc] = { label: l, isTrack: false, isCurrent: false, file: entry.file };
-        } else if (!allLangEntries[lc].file) {
-          // Upgrade existing track entry with a separate file option
-          allLangEntries[lc].file = entry.file;
-          allLangEntries[lc].hasFile = true;
-        }
-      });
+    // Current file's individual languages (active)
+    getIndividualLangs(FILE_NAME).forEach(l => {
+      langSlots[l] = { file_id: null, isCurrent: true };
     });
 
-    // ── LANGUAGE SECTION ──────────────────────────────────────────────
-    // Strategy:
-    //  • isDualFile  → show individual lang chips (one per language in filename)
-    //                  each chip tries: (1) navigate to separate DB file if exists,
-    //                                   (2) browser AudioTrack switch fallback
-    //  • !isDualFile → collect all unique single-language files from DB + current,
-    //                  show one chip per language
-    // Always show lang section if ANY language is detectable.
-
-    const lSec = document.getElementById("langSection");
-    const isDualFile = /\b(dual[\s._-]?audio|multi[\s._-]?audio|dual|multi)\b/i.test(FILE_NAME);
-
-    function getIndividualLangs(name) {
-      return LANGS.filter(l => new RegExp(`\\b${l}\\b`,"i").test(name));
-    }
-
-    // Build: langLabel → file_id (null = current file / same-file track)
-    // Key = lang lowercase, value = { label, file_id|null, isCurrent, isTrack, trackIdx }
-    const langSlots = {}; // lang_lc → slot
-
-    if (isDualFile) {
-      // Each detected language in current file = a track chip
-      getIndividualLangs(FILE_NAME).forEach((l, idx) => {
-        const lc = l.toLowerCase();
-        langSlots[lc] = { label: l, file_id: null, isCurrent: true, isTrack: true, trackIdx: idx };
-      });
-    } else {
-      // Current file's language(s) — mark as active
-      getIndividualLangs(FILE_NAME).forEach(l => {
-        const lc = l.toLowerCase();
-        langSlots[lc] = { label: l, file_id: null, isCurrent: true, isTrack: false, trackIdx: -1 };
-      });
-    }
-
-    // Overlay with separate DB files (may upgrade a track slot to have a real file_id)
+    // DB files — find dedicated single-lang files
     data.files.forEach(f => {
-      const isF_Dual = /\b(dual[\s._-]?audio|multi[\s._-]?audio|dual|multi)\b/i.test(f.file_name);
+      const isDual = /\b(dual[\s._-]?audio|multi[\s._-]?audio|dual|multi)\b/i.test(f.file_name);
       const fLangs = getIndividualLangs(f.file_name);
       fLangs.forEach(l => {
-        const lc = l.toLowerCase();
-        if (!langSlots[lc]) {
-          // Brand new language not in current file
-          langSlots[lc] = { label: l, file_id: f.file_id, isCurrent: false, isTrack: false, trackIdx: -1 };
-        } else if (langSlots[lc].isCurrent && !langSlots[lc].file_id && f.file_id) {
-          // Current file has this lang as track, but DB also has a dedicated file for it
-          langSlots[lc].file_id = f.file_id;
-          langSlots[lc].hasSeperateFile = true;
+        if (!langSlots[l]) {
+          // New language not in current file
+          langSlots[l] = { file_id: f.file_id, isCurrent: false };
+        } else if (langSlots[l].isCurrent && !isDual && f.file_id) {
+          // Current file has this lang (as dual track) but DB has dedicated single file
+          langSlots[l] = { file_id: f.file_id, isCurrent: false };
         }
-        // If slot already has a file_id from another DB entry, keep first one
       });
     });
 
-    const langKeys = Object.keys(langSlots);
-
-    if (langKeys.length >= 1) {
-      lSec.style.display = "block";
-
-      // Determine which container to use
-      // If isDualFile → use audioTrackWrap (in-video switcher look)
-      // All cases → also populate langFilesWrap for DB-only files
-      const audioWrap  = document.getElementById("audioTrackWrap");
-      const audioChips = document.getElementById("audioTrackChips");
-      const filesWrap  = document.getElementById("langFilesWrap");
-      const fileChips  = document.getElementById("langChips");
-      const fbWrap     = document.getElementById("langFallback");
-      const fbChips    = document.getElementById("langChipsFallback");
-
-      if (isDualFile) {
-        // Show in-video switcher section — replace fallback chips with API-enriched ones
-        audioWrap.style.display = "block";
-        audioChips.innerHTML = ""; // clear fallback
-
-        langKeys.forEach((lc, idx) => {
-          const slot = langSlots[lc];
-          const c = document.createElement("button");
-          // First slot = currently playing (track 0)
-          c.className = "chip" + (idx === 0 ? " active" : "");
-          c.innerHTML = "🔊 " + slot.label;
-
-          if (slot.file_id && !slot.isCurrent) {
-            // Separate DB file exists → navigate to it
-            c.title = slot.label + " — alag file available";
-            c.onclick = () => switchVariant(slot.file_id, c, "audioTrackChips");
-          } else if (slot.hasSeperateFile && slot.file_id) {
-            // Track in current file + also separate DB file → navigate
-            c.title = slot.label + " — dedicated file available";
-            c.onclick = () => switchVariant(slot.file_id, c, "audioTrackChips");
-          } else {
-            // Track-only in current file → try browser AudioTrack API
-            c.onclick = () => {
-              const browserSwitched = switchAudioTrack(slot.trackIdx, null);
-              if (browserSwitched !== false) {
-                document.querySelectorAll("#audioTrackChips .chip").forEach((ch, i) => {
-                  ch.classList.toggle("active", i === idx);
-                });
-              }
-            };
-          }
-          audioChips.appendChild(c);
-        });
-
-        // Show note — browser support is limited
-        document.getElementById("audioTrackNote").style.display = "block";
-
-      } else {
-        // Single-lang file — show all language options as chips
-        // Currently playing = active chip, others navigate to DB file
-        fbWrap.style.display = "block";
-        fbChips.innerHTML = "";
-
-        langKeys.forEach(lc => {
-          const slot = langSlots[lc];
-          const c = document.createElement("button");
-          c.className = "chip" + (slot.isCurrent && !slot.file_id ? " active" : "");
-          c.textContent = slot.label;
-          if (slot.isCurrent && !slot.file_id) {
-            c.onclick = () => showToast("▶️ Already playing " + slot.label);
-          } else if (slot.file_id) {
-            c.onclick = () => switchVariant(slot.file_id, c, "langChipsFallback");
-          }
-          fbChips.appendChild(c);
-        });
-      }
+    const langLabels = Object.keys(langSlots);
+    if (langLabels.length >= 1) {
+      document.getElementById("langSection").style.display = "block";
+      const lChips = document.getElementById("langChips");
+      langLabels.forEach(l => {
+        const slot = langSlots[l];
+        const c = document.createElement("button");
+        c.className = "chip" + (slot.isCurrent ? " active" : "");
+        c.textContent = l;
+        if (slot.isCurrent) {
+          c.onclick = () => showToast("\u25b6\ufe0f Already playing " + l);
+        } else {
+          c.onclick = () => switchVariant(slot.file_id, c, "langChips");
+        }
+        lChips.appendChild(c);
+      });
     }
 
   } catch(e) { console.error("Variants load failed:", e); }
@@ -1072,18 +776,17 @@ async function switchVariant(fileId, chipEl, chipsContainerId) {
   const container = document.getElementById(chipsContainerId);
   if (container) container.querySelectorAll(".chip").forEach(c => { c.classList.remove("active"); c.classList.add("loading"); });
   if (chipEl) { chipEl.classList.remove("loading"); chipEl.classList.add("active"); }
-
   try {
     const res  = await fetch(`${API_BASE}/api/get-links?file_id=${encodeURIComponent(fileId)}`);
     const data = await res.json();
     if (data.watch_url) {
       window.location.href = data.watch_url;
     } else {
-      showToast("❌ Link generate nahi hua");
+      showToast("\u274c Link generate nahi hua");
       if (container) container.querySelectorAll(".chip").forEach(c => c.classList.remove("loading"));
     }
   } catch(e) {
-    showToast("❌ Server error");
+    showToast("\u274c Server error");
     if (container) container.querySelectorAll(".chip").forEach(c => c.classList.remove("loading"));
   }
 }
