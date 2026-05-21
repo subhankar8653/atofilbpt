@@ -189,6 +189,24 @@
       <svg id="playOverlayIcon" width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
     </div>
 
+    <!-- Loading overlay -->
+    <div id="vidLoading" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.7);gap:10px;pointer-events:none">
+      <div style="width:36px;height:36px;border:3px solid rgba(243,156,18,.2);border-top-color:#f39c12;border-radius:50%;animation:spin .8s linear infinite"></div>
+      <span style="font-size:11px;color:#888;font-weight:600">Loading video...</span>
+    </div>
+
+    <!-- Error overlay -->
+    <div id="vidError" style="position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.85);gap:12px;padding:20px;text-align:center">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <div style="font-size:13px;font-weight:700;color:#fff">Video Load Nahi Hua</div>
+      <div style="font-size:11px;color:#888;line-height:1.6" id="vidErrorMsg">Stream server se connect nahi ho pa raha.<br>MX Player ya VLC mein open karein.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:4px">
+        <button onclick="retryVideo()" style="padding:8px 16px;border-radius:10px;background:rgba(243,156,18,.15);border:1px solid rgba(243,156,18,.3);color:#f39c12;font-size:11px;font-weight:700;cursor:pointer">🔄 Retry</button>
+        <button onclick="openPlayer('mx')" style="padding:8px 16px;border-radius:10px;background:linear-gradient(135deg,#1a73e8,#0d47a1);border:none;color:#fff;font-size:11px;font-weight:700;cursor:pointer">▶ MX Player</button>
+        <button onclick="openPlayer('vlc')" style="padding:8px 16px;border-radius:10px;background:linear-gradient(135deg,#e67e22,#d35400);border:none;color:#fff;font-size:11px;font-weight:700;cursor:pointer">▶ VLC Player</button>
+      </div>
+    </div>
+
     <video id="vid" src="{{ file_url }}" playsinline preload="metadata"></video>
 
     <!-- Custom Controls -->
@@ -421,12 +439,60 @@ let speedIdx = 2;
 let ctrlTimer = null;
 let isDragging = false;
 
-// Restore position
+// ── Video loading / error state ──────────────────
+const vidLoading = document.getElementById("vidLoading");
+const vidError   = document.getElementById("vidError");
+
+function showLoading() { vidLoading.style.display = "flex"; vidError.style.display = "none"; }
+function hideLoading() { vidLoading.style.display = "none"; }
+function showError(msg) {
+  hideLoading();
+  if (msg) document.getElementById("vidErrorMsg").innerHTML = msg;
+  vidError.style.display = "flex";
+}
+
+function retryVideo() {
+  vidError.style.display = "none";
+  showLoading();
+  const src = vid.src;
+  vid.src = "";
+  setTimeout(() => { vid.src = src; vid.load(); }, 300);
+}
+
+// Start in loading state
+showLoading();
+
 vid.addEventListener("loadedmetadata", () => {
+  hideLoading();
+  initAudioTracks();
   const saved = ls.get("pos", 0);
   if (saved > 5) vid.currentTime = saved;
   updateTime();
 });
+
+vid.addEventListener("canplay", () => { hideLoading(); });
+
+vid.addEventListener("waiting", () => { showLoading(); });
+vid.addEventListener("playing", () => { hideLoading(); });
+
+vid.addEventListener("error", () => {
+  const err = vid.error;
+  let msg = "Stream load nahi hua.<br>MX Player ya VLC mein try karein.";
+  if (err) {
+    if (err.code === 2) msg = "Network error — internet check karein ya retry karein.";
+    else if (err.code === 3) msg = "Video decode nahi hua — format supported nahi hai browser mein.<br>MX Player ya VLC use karein.";
+    else if (err.code === 4) msg = "Video source not found — link expire ho gaya hoga.<br>Telegram se dobara link lo.";
+  }
+  showError(msg);
+});
+
+// Stall detection — if loading > 15s, show warning
+let _stallTimer = setTimeout(() => {
+  if (vid.readyState < 3 && vidLoading.style.display !== "none") {
+    showError("Server slow lag raha hai.<br>Retry karein ya MX/VLC mein open karein.");
+  }
+}, 15000);
+vid.addEventListener("canplay", () => clearTimeout(_stallTimer));
 
 // Save position every 5s
 setInterval(() => { if (!vid.paused && vid.currentTime > 0) ls.set("pos", vid.currentTime); }, 5000);
@@ -729,10 +795,6 @@ function switchAudioTrack(targetIdx, renderCb) {
   return true;
 }
 
-// Try init after metadata loads
-vid.addEventListener("loadedmetadata", () => {
-  initAudioTracks();
-});
 // Also try immediately (some browsers populate tracks early)
 if (vid.readyState >= 1) initAudioTracks();
 
