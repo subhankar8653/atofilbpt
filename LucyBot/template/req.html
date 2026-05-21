@@ -68,8 +68,52 @@
     .speed-badge { position:absolute; top:10px; right:12px; background:rgba(0,0,0,.75); color:#fff; font-size:12px; font-weight:800; padding:4px 10px; border-radius:6px; pointer-events:none; opacity:0; transition:opacity .2s; z-index:20; letter-spacing:.5px; }
     .speed-badge.show { opacity:1; }
 
-    /* Controls (kept for compatibility) */
-    .ctrl-btn { background:none; border:none; }
+    /* ── Cinema mode (X button pressed) ── */
+    body.cinema-mode .header,
+    body.cinema-mode #pageContent,
+    body.cinema-mode footer { display:none !important; }
+
+    body.cinema-mode .main { padding:0 !important; }
+
+    body.cinema-mode .video-wrapper {
+      position:fixed !important;
+      top:0; left:0;
+      width:100vw !important;
+      height:100vh !important;
+      max-width:100vw !important;
+      aspect-ratio:unset !important;
+      z-index:99999 !important;
+      background:#000 !important;
+    }
+
+    /* Hide all overlay controls in cinema mode */
+    body.cinema-mode .yt-overlay { display:none !important; }
+    body.cinema-mode .buf-spinner,
+    body.cinema-mode .skip-anim,
+    body.cinema-mode .speed-badge,
+    body.cinema-mode .double-tap-zone { display:none !important; }
+
+    /* Show only thin red progress bar at very bottom */
+    body.cinema-mode .cinema-bar {
+      display:block !important;
+    }
+
+    .cinema-bar {
+      display:none;
+      position:absolute;
+      bottom:0; left:0;
+      width:100%;
+      height:3px;
+      background:rgba(255,255,255,.2);
+      z-index:100000;
+      pointer-events:none;
+    }
+    .cinema-bar-fill {
+      height:100%;
+      background:#f00;
+      border-radius:0;
+      pointer-events:none;
+    }
 
     /* ── Skip overlay (YouTube style) ── */
     .skip-anim { position:absolute; top:50%; transform:translateY(-50%); pointer-events:none; display:flex; flex-direction:column; align-items:center; gap:4px; opacity:0; transition:opacity .2s; }
@@ -213,18 +257,17 @@
 
     <video id="vid" src="{{ file_url }}" playsinline preload="none"></video>
 
+    <!-- Cinema mode: thin progress bar only -->
+    <div class="cinema-bar" id="cinemaBar">
+      <div class="cinema-bar-fill" id="cinemaBarFill"></div>
+    </div>
+
     <!-- YouTube-style full overlay -->
     <div class="yt-overlay" id="ytOverlay">
 
       <!-- Top bar -->
       <div class="yt-top">
-        <button class="yt-top-btn" onclick="vidMinimize()" title="Minimize">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
-        </button>
         <div style="flex:1"></div>
-        <button class="yt-top-btn" onclick="hideEverything()" title="Close">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-        </button>
       </div>
 
       <!-- Center big controls -->
@@ -494,6 +537,9 @@ function updateTime() {
   ytThumb.style.left  = pct + "%";
   document.getElementById("ytCurTime").textContent = fmtTime(vid.currentTime);
   document.getElementById("ytDurTime").textContent = fmtTime(vid.duration);
+  // Cinema bar
+  const cb = document.getElementById("cinemaBarFill");
+  if(cb) cb.style.width = pct + "%";
 }
 vid.addEventListener("timeupdate", updateTime);
 vid.addEventListener("progress", () => {
@@ -519,74 +565,43 @@ function hideCtrls() {
   vw.classList.remove("show-ctrl");
 }
 
-// Tap on video area (not on buttons) = show controls for 5s
+// Tap logic:
+// - Cinema mode mein tap → restore normal
+// - Controls visible hain aur video chal raha hai → cinema mode
+// - Controls visible nahi → controls dikhao
+// - Buttons pe tap → unka kaam
 vw.addEventListener("click", (e) => {
-  if(e.target.closest(".yt-btn,.yt-center-btn,.yt-top-btn,.yt-speed-btn,.double-tap-zone,.yt-progress")) return;
+  if(e.target.closest(".yt-btn,.yt-center-btn,.yt-top-btn,.yt-speed-btn,.yt-progress,.double-tap-zone")) return;
   if (_cinemaMode) { vidMinimize(); return; }
-  if(vw.classList.contains("show-ctrl")) {
-    hideCtrls();
-    togglePlay();
+  if (vw.classList.contains("show-ctrl")) {
+    // Controls dikh rahe hain — cinema mode mein jao
+    hideEverything();
   } else {
+    // Controls nahi dikh rahe — dikhao
     showCtrls();
   }
 });
-vw.addEventListener("mousemove",  showCtrls);
+vw.addEventListener("mousemove", showCtrls);
 vw.addEventListener("touchstart", (e) => { if(!_cinemaMode) showCtrls(); }, {passive:true});
 
 function togglePlay() {
   if (vid.paused) { bufSpinner.classList.add("show"); vid.play(); } else vid.pause();
 }
 
-// ── Cinema mode: X button hides EVERYTHING, only raw video ──
+// ── Cinema mode: X button → only video + thin seekbar ──
 function hideEverything() {
   _cinemaMode = true;
-
-  // 1. Hide all page chrome
-  document.querySelector(".header").style.display        = "none";
-  document.querySelector("main.main").style.paddingBottom = "0";
-  document.querySelector("footer").style.display         = "none";
-  // Hide the content div that lives INSIDE main (title, buttons etc.)
-  document.getElementById("pageContent").style.display   = "none";
-
-  // 2. Kill overlay controls instantly
+  document.body.classList.add("cinema-mode");
   vw.classList.remove("show-ctrl");
   clearTimeout(ctrlTimer);
-
-  // 3. Float video over everything, full screen
-  vw.style.position   = "fixed";
-  vw.style.top        = "0";
-  vw.style.left       = "0";
-  vw.style.width      = "100vw";
-  vw.style.height     = "100vh";
-  vw.style.maxWidth   = "100vw";
-  vw.style.aspectRatio = "unset";
-  vw.style.zIndex     = "99999";
-  vw.style.background = "#000";
-
-  document.body.style.overflow   = "hidden";
+  document.body.style.overflow = "hidden";
   document.body.style.background = "#000";
 }
 
 function vidMinimize() {
-  if (!_cinemaMode) return;
   _cinemaMode = false;
-
-  document.querySelector(".header").style.display         = "";
-  document.querySelector("main.main").style.paddingBottom = "";
-  document.querySelector("footer").style.display          = "";
-  document.getElementById("pageContent").style.display    = "";
-
-  vw.style.position   = "";
-  vw.style.top        = "";
-  vw.style.left       = "";
-  vw.style.width      = "";
-  vw.style.height     = "";
-  vw.style.maxWidth   = "";
-  vw.style.aspectRatio = "";
-  vw.style.zIndex     = "";
-  vw.style.background = "";
-
-  document.body.style.overflow   = "";
+  document.body.classList.remove("cinema-mode");
+  document.body.style.overflow = "";
   document.body.style.background = "";
 }
 
