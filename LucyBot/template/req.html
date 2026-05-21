@@ -220,10 +220,8 @@
         <button class="yt-top-btn" onclick="vidMinimize()" title="Minimize">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
         </button>
-        <button class="yt-top-btn" onclick="toggleFS()" title="Fullscreen">
-          <svg id="fsIconTop" width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
-        </button>
-        <button class="yt-top-btn" onclick="window.history.back()" title="Close">
+        <div style="flex:1"></div>
+        <button class="yt-top-btn" onclick="hideEverything()" title="Close">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
         </button>
       </div>
@@ -503,25 +501,66 @@ vid.addEventListener("progress", () => {
 // ── Play/Pause icons ────────────────────────────
 const PLAY_PATH  = `<path d="M8 5v14l11-7z"/>`;
 const PAUSE_PATH = `<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>`;
-vid.addEventListener("play",  () => { playIcon.innerHTML=PAUSE_PATH; centerPlayIcon.innerHTML=PAUSE_PATH; });
-vid.addEventListener("pause", () => { playIcon.innerHTML=PLAY_PATH;  centerPlayIcon.innerHTML=PLAY_PATH; });
+vid.addEventListener("play",  () => { playIcon.innerHTML=PAUSE_PATH; centerPlayIcon.innerHTML=PAUSE_PATH; showCtrls(); });
+vid.addEventListener("pause", () => { playIcon.innerHTML=PLAY_PATH;  centerPlayIcon.innerHTML=PLAY_PATH;  showCtrls(); });
 
 // ── Controls show/hide ──────────────────────────
+const CTRL_TIMEOUT = 5000; // 5 seconds
+
 function showCtrls() {
   vw.classList.add("show-ctrl");
   clearTimeout(ctrlTimer);
-  ctrlTimer = setTimeout(() => { if(!vid.paused) vw.classList.remove("show-ctrl"); }, 3000);
+  ctrlTimer = setTimeout(() => { if(!vid.paused) hideCtrls(); }, CTRL_TIMEOUT);
 }
-vw.addEventListener("click",      (e) => { if(e.target.closest(".yt-btn,.yt-center-btn,.yt-top-btn,.yt-speed-btn,.double-tap-zone,.yt-progress")) return; showCtrls(); togglePlay(); });
+function hideCtrls() {
+  vw.classList.remove("show-ctrl");
+}
+
+// Tap on video area (not on buttons) = show controls for 5s
+vw.addEventListener("click", (e) => {
+  if(e.target.closest(".yt-btn,.yt-center-btn,.yt-top-btn,.yt-speed-btn,.double-tap-zone,.yt-progress")) return;
+  if(vw.classList.contains("show-ctrl")) {
+    hideCtrls();
+    togglePlay();
+  } else {
+    showCtrls();
+  }
+});
 vw.addEventListener("mousemove",  showCtrls);
 vw.addEventListener("touchstart", showCtrls, {passive:true});
 
 function togglePlay() {
   if (vid.paused) { bufSpinner.classList.add("show"); vid.play(); } else vid.pause();
 }
+
+// ── Cross button: hide everything, only video visible ──
+function hideEverything() {
+  document.querySelector(".header").style.display = "none";
+  document.querySelector(".main .content").style.display = "none";
+  document.querySelector("footer").style.display = "none";
+  // Make video wrapper full screen feel
+  vw.style.maxWidth = "100%";
+  vw.style.position = "fixed";
+  vw.style.top = "0";
+  vw.style.left = "0";
+  vw.style.width = "100vw";
+  vw.style.height = "100vh";
+  vw.style.zIndex = "9999";
+  vw.style.aspectRatio = "unset";
+  document.body.style.background = "#000";
+  document.body.style.overflow = "hidden";
+  // Show tap-to-restore hint
+  showToast("Tap ▶ to restore page");
+}
+
 function vidMinimize() {
-  // Scroll page down so video is out of view (mini behavior)
-  window.scrollTo({top: vw.offsetTop + vw.offsetHeight + 20, behavior:"smooth"});
+  // Restore everything
+  document.querySelector(".header").style.display = "";
+  document.querySelector(".main .content").style.display = "";
+  document.querySelector("footer").style.display = "";
+  vw.style.cssText = "";
+  document.body.style.background = "";
+  document.body.style.overflow = "";
 }
 
 // ── Skip ±10s ───────────────────────────────────
@@ -600,8 +639,7 @@ function toggleFS() {
 }
 document.addEventListener("fullscreenchange", ()=>{
   const isFs = !!document.fullscreenElement;
-  document.getElementById("fsIcon").innerHTML    = isFs ? FS_EXIT : FS_EXPAND;
-  document.getElementById("fsIconTop").innerHTML = isFs ? FS_EXIT : FS_EXPAND;
+  document.getElementById("fsIcon").innerHTML = isFs ? FS_EXIT : FS_EXPAND;
 });
 
 // ── Keyboard shortcuts ──────────────────────────
