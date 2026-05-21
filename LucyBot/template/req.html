@@ -793,23 +793,25 @@ function toggleFS() {
   _isFS = !_isFS;
   const fsIcon = document.getElementById("fsIcon");
   if (_isFS) {
-    // Portrait screen par landscape dikhane ke liye:
-    // vw ko rotate(90deg) karke screen-width = screen-height size dete hain
-    const sw = window.screen.width  || window.innerWidth;
-    const sh = window.screen.height || window.innerHeight;
-    const W  = Math.max(sw, sh); // landscape width = longer side
-    const H  = Math.min(sw, sh); // landscape height = shorter side
+    // rotate(90deg) ke baad:
+    // element ki pre-rotate WIDTH = screen ki HEIGHT (portrait)
+    // element ki pre-rotate HEIGHT = screen ki WIDTH (portrait)
+    // Taaki rotate hone ke baad poora screen fill ho
+    const vw_ = window.innerWidth;   // portrait width  (e.g. 393px)
+    const vh_ = window.innerHeight;  // portrait height (e.g. 852px)
 
+    // Pre-rotation dimensions: width=vh_, height=vw_
+    // After rotate(90deg): visual W=vh_, visual H=vw_ → fills screen perfectly
     vw.style.cssText = [
       "position:fixed!important",
-      "top:50%!important",
-      "left:50%!important",
-      `width:${W}px!important`,
-      `height:${H}px!important`,
+      "top:0!important",
+      "left:0!important",
+      `width:${vh_}px!important`,
+      `height:${vw_}px!important`,
       "max-width:none!important",
       "aspect-ratio:unset!important",
-      "transform:translate(-50%,-50%) rotate(90deg)!important",
-      "transform-origin:center center!important",
+      `transform:rotate(90deg) translateY(-100%)!important`,
+      "transform-origin:top left!important",
       "z-index:999999!important",
       "background:#000!important",
     ].join(";");
