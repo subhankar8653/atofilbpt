@@ -8,7 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
+    html, body { user-select: none; -webkit-user-select: none; }
     :root {
       --orange: #f39c12; --red: #e74c3c;
       --bg: #0a0a0a; --surface: #111; --surface2: #181818;
@@ -137,7 +138,7 @@
     .comments-count { font-size:11px; color:var(--muted); background:rgba(255,255,255,.05); padding:3px 10px; border-radius:20px; }
     .comment-form { display:flex; gap:10px; margin-bottom:16px; align-items:flex-start; }
     .comment-avatar { width:32px; height:32px; border-radius:50%; background:var(--grad); display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:800; color:#fff; flex-shrink:0; }
-    .comment-input { flex:1; background:rgba(255,255,255,.04); border:1px solid var(--border); border-radius:12px; padding:10px 14px; color:var(--text); font-family:'DM Sans',sans-serif; font-size:12px; resize:none; outline:none; transition:border .2s; min-height:42px; }
+    .comment-input { flex:1; background:rgba(255,255,255,.04); border:1px solid var(--border); border-radius:12px; padding:10px 14px; color:var(--text); font-family:'DM Sans',sans-serif; font-size:12px; resize:none; outline:none; transition:border .2s; min-height:42px; user-select:text; -webkit-user-select:text; }
     .comment-input:focus { border-color:rgba(243,156,18,.4); min-height:72px; }
     .comment-submit { margin-top:6px; padding:8px 16px; border-radius:10px; background:var(--grad); border:none; color:#fff; font-weight:800; font-size:11px; cursor:pointer; transition:opacity .2s; }
     .comment-submit:hover { opacity:.88; }
@@ -269,7 +270,7 @@
   </div><!-- video-wrapper -->
 
   <!-- ═══════════════════ CONTENT ═══════════════════ -->
-  <div class="content">
+  <div class="content" id="pageContent">
 
     <!-- Title & meta -->
     <div style="margin:10px 0 6px">
@@ -446,6 +447,7 @@ const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 let speedIdx = 2;
 let ctrlTimer = null;
 let isDragging = false;
+let _cinemaMode = false;
 
 // ── Autoplay ────────────────────────────────────
 function tryAutoplay() {
@@ -508,6 +510,7 @@ vid.addEventListener("pause", () => { playIcon.innerHTML=PLAY_PATH;  centerPlayI
 const CTRL_TIMEOUT = 5000; // 5 seconds
 
 function showCtrls() {
+  if (_cinemaMode) return;
   vw.classList.add("show-ctrl");
   clearTimeout(ctrlTimer);
   ctrlTimer = setTimeout(() => { if(!vid.paused) hideCtrls(); }, CTRL_TIMEOUT);
@@ -519,6 +522,7 @@ function hideCtrls() {
 // Tap on video area (not on buttons) = show controls for 5s
 vw.addEventListener("click", (e) => {
   if(e.target.closest(".yt-btn,.yt-center-btn,.yt-top-btn,.yt-speed-btn,.double-tap-zone,.yt-progress")) return;
+  if (_cinemaMode) { vidMinimize(); return; }
   if(vw.classList.contains("show-ctrl")) {
     hideCtrls();
     togglePlay();
@@ -527,40 +531,63 @@ vw.addEventListener("click", (e) => {
   }
 });
 vw.addEventListener("mousemove",  showCtrls);
-vw.addEventListener("touchstart", showCtrls, {passive:true});
+vw.addEventListener("touchstart", (e) => { if(!_cinemaMode) showCtrls(); }, {passive:true});
 
 function togglePlay() {
   if (vid.paused) { bufSpinner.classList.add("show"); vid.play(); } else vid.pause();
 }
 
-// ── Cross button: hide everything, only video visible ──
+// ── Cinema mode: X button hides EVERYTHING, only raw video ──
 function hideEverything() {
-  document.querySelector(".header").style.display = "none";
-  document.querySelector(".main .content").style.display = "none";
-  document.querySelector("footer").style.display = "none";
-  // Make video wrapper full screen feel
-  vw.style.maxWidth = "100%";
-  vw.style.position = "fixed";
-  vw.style.top = "0";
-  vw.style.left = "0";
-  vw.style.width = "100vw";
-  vw.style.height = "100vh";
-  vw.style.zIndex = "9999";
+  _cinemaMode = true;
+
+  // 1. Hide all page chrome
+  document.querySelector(".header").style.display        = "none";
+  document.querySelector("main.main").style.paddingBottom = "0";
+  document.querySelector("footer").style.display         = "none";
+  // Hide the content div that lives INSIDE main (title, buttons etc.)
+  document.getElementById("pageContent").style.display   = "none";
+
+  // 2. Kill overlay controls instantly
+  vw.classList.remove("show-ctrl");
+  clearTimeout(ctrlTimer);
+
+  // 3. Float video over everything, full screen
+  vw.style.position   = "fixed";
+  vw.style.top        = "0";
+  vw.style.left       = "0";
+  vw.style.width      = "100vw";
+  vw.style.height     = "100vh";
+  vw.style.maxWidth   = "100vw";
   vw.style.aspectRatio = "unset";
+  vw.style.zIndex     = "99999";
+  vw.style.background = "#000";
+
+  document.body.style.overflow   = "hidden";
   document.body.style.background = "#000";
-  document.body.style.overflow = "hidden";
-  // Show tap-to-restore hint
-  showToast("Tap ▶ to restore page");
 }
 
 function vidMinimize() {
-  // Restore everything
-  document.querySelector(".header").style.display = "";
-  document.querySelector(".main .content").style.display = "";
-  document.querySelector("footer").style.display = "";
-  vw.style.cssText = "";
+  if (!_cinemaMode) return;
+  _cinemaMode = false;
+
+  document.querySelector(".header").style.display         = "";
+  document.querySelector("main.main").style.paddingBottom = "";
+  document.querySelector("footer").style.display          = "";
+  document.getElementById("pageContent").style.display    = "";
+
+  vw.style.position   = "";
+  vw.style.top        = "";
+  vw.style.left       = "";
+  vw.style.width      = "";
+  vw.style.height     = "";
+  vw.style.maxWidth   = "";
+  vw.style.aspectRatio = "";
+  vw.style.zIndex     = "";
+  vw.style.background = "";
+
+  document.body.style.overflow   = "";
   document.body.style.background = "";
-  document.body.style.overflow = "";
 }
 
 // ── Skip ±10s ───────────────────────────────────
