@@ -51,11 +51,13 @@
     /* Bottom bar */
     .yt-bottom { background:linear-gradient(transparent,rgba(0,0,0,.9)); padding:0 10px 8px; position:relative; z-index:20; }
     .yt-progress { position:relative; height:3px; background:rgba(255,255,255,.3); border-radius:3px; cursor:pointer; margin-bottom:10px; touch-action:none; transition:height .15s; }
-    .yt-progress:hover, .yt-progress.dragging { height:5px; }
+    .yt-progress::before { content:''; position:absolute; left:0; right:0; top:-10px; bottom:-10px; } /* touch area bada karo (invisible) */
+    .yt-progress:hover, .yt-progress.dragging { height:3px; }
     .yt-buf { position:absolute; left:0; top:0; height:100%; background:rgba(255,255,255,.4); border-radius:3px; pointer-events:none; }
     .yt-fill { position:absolute; left:0; top:0; height:100%; background:#f00; border-radius:3px; pointer-events:none; }
-    .yt-thumb { position:absolute; top:50%; width:14px; height:14px; background:#f00; border-radius:50%; transform:translate(-50%,-50%) scale(0); pointer-events:none; transition:transform .15s; box-shadow:0 0 4px rgba(0,0,0,.5); }
-    .yt-progress:hover .yt-thumb, .yt-progress.dragging .yt-thumb { transform:translate(-50%,-50%) scale(1); }
+    .yt-thumb { position:absolute; top:50%; width:14px; height:14px; background:#f00; border-radius:50%; transform:translate(-50%,-50%) scale(0); pointer-events:none; transition:transform .1s; box-shadow:0 0 6px rgba(0,0,0,.6); }
+    .yt-progress:hover .yt-thumb, .yt-progress.dragging .yt-thumb { transform:translate(-50%,-50%) scale(1.2); }
+    
     .yt-bottom-row { display:flex; align-items:center; gap:6px; }
     .yt-btn { background:none; border:none; color:#fff; cursor:pointer; padding:4px; display:flex; align-items:center; justify-content:center; -webkit-tap-highlight-color:transparent; opacity:.9; }
     .yt-btn:active { opacity:.6; }
@@ -570,20 +572,103 @@ vid.addEventListener("loadedmetadata", () => {
 });
 setInterval(() => { if (!vid.paused && vid.currentTime > 0) ls.set("pos", vid.currentTime); }, 5000);
 
+// ═══════════════════════════════════════════════
+// SMART PRELOAD / CACHE SYSTEM
+// ─────────────────────────────────────────────
+// Browser ko ahead ka content prefetch karne ke liye force karo
+// Taaki skip karne par buffering na aaye
+// ═══════════════════════════════════════════════
+(function initPreloadCache() {
+  // Video ka preload hint strong set karo
+  vid.preload = "auto";
+
+  // Browser hint: agar 'none' ya 'metadata' tha toh 'auto' karo
+  if (vid.preload !== "auto") vid.preload = "auto";
+
+  // Range request via fetch — aage ka 2MB chunk silently prefetch karo
+  // Yeh browser cache mein daal dega — seek karne par instant play
+  async function prefetchAhead(fromSec) {
+    if (!FILE_URL || !vid.duration) return;
+    const PREFETCH_SEC = 120;  // aage 2 min prefetch karo
+    const CHUNK_BYTES  = 2 * 1024 * 1024; // 2MB per chunk
+
+    // File ki approximate byte rate nikalo (duration se)
+    // Video streaming ke liye hum direct Range request karenge
+    const toSec = Math.min(fromSec + PREFETCH_SEC, vid.duration);
+    if (toSec <= fromSec) return;
+
+    // Rough byte estimate (average 500KB/s for 480p)
+    const avgBps = 500 * 1024;
+    const startByte = Math.floor(fromSec * avgBps);
+    const endByte   = Math.floor(toSec   * avgBps);
+
+    try {
+      // Silently fetch — browser automatically caches
+      const resp = await fetch(FILE_URL, {
+        headers: { "Range": `bytes=${startByte}-${Math.min(endByte, startByte + CHUNK_BYTES - 1)}` },
+        mode: "cors",
+        credentials: "omit",
+        cache: "force-cache",   // browser cache mein store karo
+        priority: "low"         // background mein karo, playback affect na ho
+      });
+      // Body consume karo taaki cache mein properly save ho
+      if (resp.ok || resp.status === 206) {
+        await resp.arrayBuffer();
+      }
+    } catch (e) {
+      // Silently ignore — CORS ya range not supported ho sakta hai
+    }
+  }
+
+  // Playback shuru hone ke 3 sec baad pehla prefetch
+  vid.addEventListener("playing", function onFirstPlay() {
+    vid.removeEventListener("playing", onFirstPlay);
+    setTimeout(() => prefetchAhead(vid.currentTime), 3000);
+  }, { once: true });
+
+  // Har 60 sec baad current position se aage prefetch karo
+  setInterval(() => {
+    if (!vid.paused && vid.duration && vid.currentTime > 0) {
+      prefetchAhead(vid.currentTime);
+    }
+  }, 60000);
+
+  // User ne seek kiya — naye position se prefetch shuru karo
+  vid.addEventListener("seeked", () => {
+    setTimeout(() => prefetchAhead(vid.currentTime), 1500);
+  });
+
+  // Jab buffered range kam ho (10 sec se kam ahead) — urgently fetch karo
+  vid.addEventListener("progress", () => {
+    if (!vid.duration || vid.buffered.length === 0) return;
+    const bufferedEnd = vid.buffered.end(vid.buffered.length - 1);
+    const ahead = bufferedEnd - vid.currentTime;
+    if (ahead < 10 && !vid.paused) {
+      prefetchAhead(bufferedEnd); // buffer end se aage se start karo
+    }
+  });
+})();
+
 function fmtTime(s) {
   s = Math.floor(s||0);
   const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60;
   return h ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}` : `${m}:${String(sec).padStart(2,'0')}`;
 }
 function updateTime() {
-  const pct = vid.duration ? (vid.currentTime/vid.duration)*100 : 0;
-  ytFill.style.width  = pct + "%";
-  ytThumb.style.left  = pct + "%";
-  document.getElementById("ytCurTime").textContent = fmtTime(vid.currentTime);
+  // Drag ke dauran timeupdate se visual override mat karo (finger ke saath chalega)
+  if (!isDragging) {
+    const pct = vid.duration ? (vid.currentTime/vid.duration)*100 : 0;
+    ytFill.style.width  = pct + "%";
+    ytThumb.style.left  = pct + "%";
+    const cb = document.getElementById("cinemaBarFill");
+    if(cb) cb.style.width = pct + "%";
+  }
+  // Time text: drag mein preview time dikhao, warna actual time
+  const displayTime = (isDragging && _dragPct >= 0 && vid.duration)
+    ? _dragPct * vid.duration
+    : vid.currentTime;
+  document.getElementById("ytCurTime").textContent = fmtTime(displayTime);
   document.getElementById("ytDurTime").textContent = fmtTime(vid.duration);
-  // Cinema bar
-  const cb = document.getElementById("cinemaBarFill");
-  if(cb) cb.style.width = pct + "%";
 }
 vid.addEventListener("timeupdate", updateTime);
 vid.addEventListener("progress", () => {
@@ -753,18 +838,83 @@ function skipSec(s) {
   showToast(s<0?"⏪ -10 sec":"⏩ +10 sec");
 }
 
-// ── Progress bar drag ───────────────────────────
-function seekTo(e) {
+// ── Progress bar drag (fixed: finger ke saath-saath chalega) ────────────
+let _dragPct = -1; // drag ke dauran visual pct track karo (seek preview)
+
+function getSeekPct(e) {
   const rect = ytProg.getBoundingClientRect();
-  const x = (e.touches?e.touches[0].clientX:e.clientX)-rect.left;
-  vid.currentTime = Math.max(0,Math.min(1,x/rect.width))*(vid.duration||0);
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const x = clientX - rect.left;
+  return Math.max(0, Math.min(1, x / rect.width));
 }
-ytProg.addEventListener("mousedown",  (e)=>{ isDragging=true; ytProg.classList.add("dragging"); seekTo(e); });
-ytProg.addEventListener("touchstart", (e)=>{ isDragging=true; ytProg.classList.add("dragging"); e.preventDefault(); seekTo(e); },{passive:false});
-document.addEventListener("mousemove", (e)=>{ if(isDragging) seekTo(e); });
-document.addEventListener("touchmove", (e)=>{ if(isDragging){e.preventDefault();seekTo(e);} },{passive:false});
-document.addEventListener("mouseup",   ()=>{ isDragging=false; ytProg.classList.remove("dragging"); });
-document.addEventListener("touchend",  ()=>{ isDragging=false; ytProg.classList.remove("dragging"); });
+
+function updateSeekVisual(pct) {
+  // Sirf UI update karo — video seek nahi karo (drag ke dauran smooth dikhne ke liye)
+  ytFill.style.width  = (pct * 100) + "%";
+  ytThumb.style.left  = (pct * 100) + "%";
+}
+
+function seekTo(e) {
+  const pct = getSeekPct(e);
+  _dragPct = pct;
+  updateSeekVisual(pct); // instantly finger ke saath move karo
+}
+
+function commitSeek() {
+  if (_dragPct >= 0 && vid.duration) {
+    vid.currentTime = _dragPct * vid.duration;
+  }
+  _dragPct = -1;
+}
+
+ytProg.addEventListener("mousedown",  (e) => {
+  isDragging = true;
+  ytProg.classList.add("dragging");
+  seekTo(e);
+  e.preventDefault();
+}, { passive: false });
+
+ytProg.addEventListener("touchstart", (e) => {
+  isDragging = true;
+  ytProg.classList.add("dragging");
+  e.preventDefault(); // scroll rok do, drag enable karo
+  seekTo(e);
+}, { passive: false });
+
+document.addEventListener("mousemove", (e) => {
+  if (isDragging) seekTo(e);
+});
+
+document.addEventListener("touchmove", (e) => {
+  if (isDragging) {
+    e.preventDefault(); // page scroll nahi hoga drag ke dauran
+    seekTo(e);
+  }
+}, { passive: false });
+
+document.addEventListener("mouseup", () => {
+  if (isDragging) {
+    isDragging = false;
+    ytProg.classList.remove("dragging");
+    commitSeek(); // release pe actual seek karo
+  }
+});
+
+document.addEventListener("touchend", () => {
+  if (isDragging) {
+    isDragging = false;
+    ytProg.classList.remove("dragging");
+    commitSeek(); // release pe actual seek karo
+  }
+});
+
+document.addEventListener("touchcancel", () => {
+  if (isDragging) {
+    isDragging = false;
+    ytProg.classList.remove("dragging");
+    commitSeek();
+  }
+});
 
 // ── Volume / Mute ───────────────────────────────
 function toggleMute() { vid.muted=!vid.muted; updateVolIcon(vid.muted?0:vid.volume); }
