@@ -6,7 +6,6 @@
 
 ### Step 1: Fork/Upload to GitHub
 1. Create a new GitHub repository
-2. Upload all these files to it
 
 ### Step 2: Deploy on Railway
 1. Go to [railway.app](https://railway.app)
