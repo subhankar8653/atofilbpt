@@ -26,7 +26,7 @@
     .header-badge { font-size:10px; font-weight:700; color:var(--orange); background:rgba(243,156,18,.1); border:1px solid rgba(243,156,18,.25); border-radius:20px; padding:4px 10px; letter-spacing:1px; }
 
     /* ── Video wrapper ── */
-    .video-wrapper { width:100%; max-width:520px; background:#000; position:relative; user-select:none; }
+    .video-wrapper { width:100%; max-width:520px; background:#000; position:relative; user-select:none; min-height:200px; }
     video { width:100%; display:block; max-height:300px; background:#000; }
 
     /* ── Custom controls ── */
@@ -189,7 +189,20 @@
       <svg id="playOverlayIcon" width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
     </div>
 
-    <video id="vid" src="{{ file_url }}" playsinline preload="metadata"></video>
+    <!-- YouTube-style big play button overlay -->
+    <div id="ytPlayBtn" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#000;cursor:pointer;z-index:10;" onclick="startVideo()">
+      <div style="width:72px;height:72px;border-radius:50%;background:rgba(243,156,18,.92);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 28px rgba(0,0,0,.7);">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="white" style="margin-left:4px"><path d="M8 5v14l11-7z"/></svg>
+      </div>
+      <div style="margin-top:12px;font-size:11px;color:#888;font-weight:600;letter-spacing:.5px;">TAP TO PLAY</div>
+    </div>
+
+    <!-- Buffering spinner (sirf play ke baad dikhega) -->
+    <div id="bufSpinner" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45);z-index:9;pointer-events:none;">
+      <div style="width:44px;height:44px;border:4px solid rgba(243,156,18,.2);border-top-color:#f39c12;border-radius:50%;animation:spin .8s linear infinite"></div>
+    </div>
+
+    <video id="vid" src="{{ file_url }}" playsinline preload="none" style="display:none"></video>
 
     <!-- Custom Controls -->
     <div class="controls" id="ctrlBar">
@@ -403,6 +416,23 @@ const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 let speedIdx = 2;
 let ctrlTimer = null;
 let isDragging = false;
+
+// ═══════════════════════════════════════════════
+// YOUTUBE-STYLE: Tap to play — video tab load hogi
+// ═══════════════════════════════════════════════
+function startVideo() {
+  const overlay = document.getElementById("ytPlayBtn");
+  const spinner = document.getElementById("bufSpinner");
+  overlay.style.display = "none";
+  vid.style.display = "block";
+  spinner.style.display = "flex";
+  vid.play().catch(() => { spinner.style.display = "none"; });
+}
+
+// Buffering spinner — sirf play ke baad
+vid.addEventListener("waiting",        () => { document.getElementById("bufSpinner").style.display = "flex"; });
+vid.addEventListener("playing",        () => { document.getElementById("bufSpinner").style.display = "none"; });
+vid.addEventListener("canplaythrough", () => { document.getElementById("bufSpinner").style.display = "none"; });
 
 // Restore position
 vid.addEventListener("loadedmetadata", () => {
@@ -851,9 +881,9 @@ renderComments();
 // ACTION BUTTONS
 // ═══════════════════════════════════════════════
 function dlFile() {
-  const a = document.createElement("a");
-  a.href = DOWNLOAD_URL; a.download = FILE_NAME;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  // Cross-origin URLs pe a.download kaam nahi karta browser mein
+  // Seedha /dl/ URL pe navigate karo — server "attachment" header bhejta hai
+  window.location.href = DOWNLOAD_URL;
 }
 
 function openPlayer(type) {
