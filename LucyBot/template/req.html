@@ -442,8 +442,9 @@ let isDragging = false;
 // ── Video loading / error state ──────────────────
 const vidLoading = document.getElementById("vidLoading");
 const vidError   = document.getElementById("vidError");
+let _videoReady  = false; // track if video has ever been ready
 
-function showLoading() { vidLoading.style.display = "flex"; vidError.style.display = "none"; }
+function showLoading() { if (!_videoReady) { vidLoading.style.display = "flex"; } vidError.style.display = "none"; }
 function hideLoading() { vidLoading.style.display = "none"; }
 function showError(msg) {
   hideLoading();
@@ -452,6 +453,7 @@ function showError(msg) {
 }
 
 function retryVideo() {
+  _videoReady = false;
   vidError.style.display = "none";
   showLoading();
   const src = vid.src;
@@ -463,17 +465,20 @@ function retryVideo() {
 showLoading();
 
 vid.addEventListener("loadedmetadata", () => {
+  _videoReady = true;
   hideLoading();
-  initAudioTracks();
+  try { initAudioTracks(); } catch(e) { console.warn("AudioTrack init failed:", e); }
   const saved = ls.get("pos", 0);
   if (saved > 5) vid.currentTime = saved;
   updateTime();
 });
 
-vid.addEventListener("canplay", () => { hideLoading(); });
+vid.addEventListener("canplay", () => { _videoReady = true; hideLoading(); });
 
-vid.addEventListener("waiting", () => { showLoading(); });
+// Only show buffering spinner AFTER video was already playing (not on initial load)
+vid.addEventListener("waiting", () => { if (_videoReady) { vidLoading.style.display = "flex"; } });
 vid.addEventListener("playing", () => { hideLoading(); });
+vid.addEventListener("canplaythrough", () => { hideLoading(); });
 
 vid.addEventListener("error", () => {
   const err = vid.error;
@@ -485,14 +490,6 @@ vid.addEventListener("error", () => {
   }
   showError(msg);
 });
-
-// Stall detection — if loading > 15s, show warning
-let _stallTimer = setTimeout(() => {
-  if (vid.readyState < 3 && vidLoading.style.display !== "none") {
-    showError("Server slow lag raha hai.<br>Retry karein ya MX/VLC mein open karein.");
-  }
-}, 15000);
-vid.addEventListener("canplay", () => clearTimeout(_stallTimer));
 
 // Save position every 5s
 setInterval(() => { if (!vid.paused && vid.currentTime > 0) ls.set("pos", vid.currentTime); }, 5000);
