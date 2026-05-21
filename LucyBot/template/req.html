@@ -207,7 +207,7 @@
       </div>
     </div>
 
-    <video id="vid" src="{{ file_url }}" playsinline preload="metadata"></video>
+    <video id="vid" src="{{ file_url }}" playsinline preload="none"></video>
 
     <!-- Custom Controls -->
     <div class="controls" id="ctrlBar">
@@ -437,8 +437,8 @@ function retryVideo() {
   setTimeout(() => { vid.src = src; vid.load(); }, 300);
 }
 
-// Start in loading state
-showLoading();
+// Don't show loading on page load — only when user presses play
+hideLoading();
 
 vid.addEventListener("loadedmetadata", () => {
   _videoReady = true;
@@ -450,9 +450,10 @@ vid.addEventListener("loadedmetadata", () => {
 
 vid.addEventListener("canplay", () => { _videoReady = true; hideLoading(); });
 
-// Only show buffering spinner AFTER video was already playing (not on initial load)
-vid.addEventListener("waiting", () => { if (_videoReady) { vidLoading.style.display = "flex"; } });
-vid.addEventListener("playing", () => { hideLoading(); });
+// Only show buffering spinner AFTER user has started playing
+let userStartedPlay = false;
+vid.addEventListener("waiting", () => { if (userStartedPlay) { vidLoading.style.display = "flex"; } });
+vid.addEventListener("playing", () => { userStartedPlay = true; hideLoading(); });
 vid.addEventListener("canplaythrough", () => { hideLoading(); });
 
 vid.addEventListener("error", () => {
@@ -522,7 +523,12 @@ vw.addEventListener("mousemove", showCtrls);
 vw.addEventListener("touchstart", showCtrls, {passive:true});
 
 function togglePlay() {
-  vid.paused ? vid.play() : vid.pause();
+  if (vid.paused) {
+    showLoading();
+    vid.play().catch(() => {});
+  } else {
+    vid.pause();
+  }
 }
 
 // Skip ±10s
@@ -791,7 +797,13 @@ async function switchVariant(fileId, chipEl, chipsContainerId) {
   }
 }
 
-loadVariants();
+// Lazy load variants — only after user interacts or after 3s delay
+let variantsLoaded = false;
+function lazyLoadVariants() {
+  if (!variantsLoaded) { variantsLoaded = true; loadVariants(); }
+}
+setTimeout(lazyLoadVariants, 3000);
+document.getElementById("vw").addEventListener("click", lazyLoadVariants, { once: true });
 
 // ═══════════════════════════════════════════════
 // SAVE / WATCHLIST
