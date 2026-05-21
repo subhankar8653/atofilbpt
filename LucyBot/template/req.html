@@ -26,28 +26,52 @@
     .header-badge { font-size:10px; font-weight:700; color:var(--orange); background:rgba(243,156,18,.1); border:1px solid rgba(243,156,18,.25); border-radius:20px; padding:4px 10px; letter-spacing:1px; }
 
     /* ── Video wrapper ── */
-    .video-wrapper { width:100%; max-width:520px; background:#000; position:relative; user-select:none; }
+    .video-wrapper { width:100%; max-width:520px; background:#000; position:relative; user-select:none; min-height:210px; }
     video { width:100%; display:block; max-height:300px; background:#000; }
 
-    /* ── Custom controls ── */
-    .controls { position:absolute; bottom:0; left:0; right:0; background:linear-gradient(transparent,rgba(0,0,0,.92)); padding:8px 14px 12px; opacity:0; transition:opacity .25s; }
-    .video-wrapper:hover .controls, .video-wrapper.show-ctrl .controls { opacity:1; }
-    .progress-wrap { position:relative; height:4px; background:rgba(255,255,255,.2); border-radius:4px; cursor:pointer; margin-bottom:10px; transition:height .15s; }
-    .progress-wrap:hover { height:6px; }
-    .progress-buf { position:absolute; left:0; top:0; height:100%; background:rgba(255,255,255,.25); border-radius:4px; pointer-events:none; }
-    .progress-fill { position:absolute; left:0; top:0; height:100%; background:var(--grad); border-radius:4px; pointer-events:none; }
-    .progress-thumb { position:absolute; top:50%; width:14px; height:14px; background:#fff; border-radius:50%; transform:translate(-50%,-50%); pointer-events:none; box-shadow:0 0 6px rgba(0,0,0,.5); opacity:0; transition:opacity .15s; }
-    .progress-wrap:hover .progress-thumb { opacity:1; }
-    .ctrl-row { display:flex; align-items:center; gap:4px; }
-    .ctrl-btn { background:none; border:none; color:#fff; cursor:pointer; padding:5px; border-radius:8px; display:flex; align-items:center; justify-content:center; transition:background .15s; -webkit-tap-highlight-color:transparent; }
-    .ctrl-btn:hover { background:rgba(255,255,255,.1); }
-    .ctrl-btn svg { display:block; }
-    .time-display { font-size:11px; font-weight:700; color:#ccc; letter-spacing:.3px; margin:0 4px; white-space:nowrap; }
-    .ctrl-spacer { flex:1; }
-    .volume-wrap { display:flex; align-items:center; gap:6px; }
-    .volume-slider { -webkit-appearance:none; appearance:none; width:70px; height:3px; background:rgba(255,255,255,.3); border-radius:3px; outline:none; cursor:pointer; }
-    .volume-slider::-webkit-slider-thumb { -webkit-appearance:none; width:12px; height:12px; background:#fff; border-radius:50%; cursor:pointer; }
-    .quality-btn { font-size:10px; font-weight:800; padding:3px 8px; border-radius:6px; background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.2); color:#fff; cursor:pointer; letter-spacing:.5px; }
+    .video-wrapper { width:100%; max-width:520px; background:#000; position:relative; user-select:none; min-height:210px; }
+    video { width:100%; display:block; max-height:300px; background:#000; }
+
+    /* ── YouTube-style controls overlay ── */
+    .yt-overlay { position:absolute; inset:0; display:flex; flex-direction:column; justify-content:space-between; opacity:0; transition:opacity .25s; pointer-events:none; }
+    .video-wrapper.show-ctrl .yt-overlay, .video-wrapper:hover .yt-overlay { opacity:1; pointer-events:all; }
+
+    /* Top bar — minimize, fullscreen, close */
+    .yt-top { display:flex; align-items:center; justify-content:flex-end; gap:4px; padding:10px 10px 0; background:linear-gradient(rgba(0,0,0,.5),transparent); }
+    .yt-top-btn { background:none; border:none; color:#fff; cursor:pointer; padding:6px; border-radius:50%; display:flex; align-items:center; justify-content:center; -webkit-tap-highlight-color:transparent; opacity:.9; }
+    .yt-top-btn:active { background:rgba(255,255,255,.15); }
+
+    /* Center big controls */
+    .yt-center { display:flex; align-items:center; justify-content:center; gap:28px; flex:1; }
+    .yt-center-btn { background:rgba(0,0,0,.35); border:none; color:#fff; cursor:pointer; width:52px; height:52px; border-radius:50%; display:flex; align-items:center; justify-content:center; -webkit-tap-highlight-color:transparent; transition:background .15s; backdrop-filter:blur(2px); }
+    .yt-center-btn:active { background:rgba(255,255,255,.2); }
+    .yt-play-btn { width:64px; height:64px; background:rgba(0,0,0,.5); }
+
+    /* Bottom bar */
+    .yt-bottom { background:linear-gradient(transparent,rgba(0,0,0,.85)); padding:0 10px 10px; }
+    .yt-progress { position:relative; height:3px; background:rgba(255,255,255,.3); border-radius:3px; cursor:pointer; margin-bottom:8px; touch-action:none; transition:height .15s; }
+    .yt-progress:hover, .yt-progress.dragging { height:5px; }
+    .yt-buf { position:absolute; left:0; top:0; height:100%; background:rgba(255,255,255,.4); border-radius:3px; pointer-events:none; }
+    .yt-fill { position:absolute; left:0; top:0; height:100%; background:#f00; border-radius:3px; pointer-events:none; }
+    .yt-thumb { position:absolute; top:50%; width:14px; height:14px; background:#f00; border-radius:50%; transform:translate(-50%,-50%) scale(0); pointer-events:none; transition:transform .15s; box-shadow:0 0 4px rgba(0,0,0,.5); }
+    .yt-progress:hover .yt-thumb, .yt-progress.dragging .yt-thumb { transform:translate(-50%,-50%) scale(1); }
+    .yt-bottom-row { display:flex; align-items:center; gap:6px; }
+    .yt-btn { background:none; border:none; color:#fff; cursor:pointer; padding:4px; display:flex; align-items:center; justify-content:center; -webkit-tap-highlight-color:transparent; opacity:.9; }
+    .yt-btn:active { opacity:.6; }
+    .yt-time { font-size:12px; font-weight:600; color:#fff; white-space:nowrap; margin:0 2px; }
+    .yt-spacer { flex:1; }
+    .yt-speed-btn { font-size:11px; font-weight:800; color:#fff; background:rgba(255,255,255,.1); border:none; border-radius:4px; padding:3px 7px; cursor:pointer; letter-spacing:.5px; -webkit-tap-highlight-color:transparent; }
+
+    /* Buffering spinner */
+    .buf-spinner { position:absolute; inset:0; display:none; align-items:center; justify-content:center; pointer-events:none; z-index:5; }
+    .buf-spinner.show { display:flex; }
+
+    /* Speed overlay badge */
+    .speed-badge { position:absolute; top:10px; right:12px; background:rgba(0,0,0,.75); color:#fff; font-size:12px; font-weight:800; padding:4px 10px; border-radius:6px; pointer-events:none; opacity:0; transition:opacity .2s; z-index:20; letter-spacing:.5px; }
+    .speed-badge.show { opacity:1; }
+
+    /* Controls (kept for compatibility) */
+    .ctrl-btn { background:none; border:none; }
 
     /* ── Skip overlay (YouTube style) ── */
     .skip-anim { position:absolute; top:50%; transform:translateY(-50%); pointer-events:none; display:flex; flex-direction:column; align-items:center; gap:4px; opacity:0; transition:opacity .2s; }
@@ -166,77 +190,82 @@
   <!-- ═══════════════════ VIDEO PLAYER ═══════════════════ -->
   <div class="video-wrapper" id="vw">
 
+    <!-- Buffering spinner -->
+    <div class="buf-spinner" id="bufSpinner">
+      <div style="width:44px;height:44px;border:4px solid rgba(255,255,255,.2);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite"></div>
+    </div>
+
+    <!-- Speed hold badge -->
+    <div class="speed-badge" id="speedBadge">▶▶ 2x</div>
+
+    <!-- Skip animations -->
+    <div class="skip-anim left" id="skipAnimL">
+      <div class="skip-circle"><svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"/></svg></div>
+      <span class="skip-label">- 10 sec</span>
+    </div>
+    <div class="skip-anim right" id="skipAnimR">
+      <div class="skip-circle"><svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg></div>
+      <span class="skip-label">+ 10 sec</span>
+    </div>
+
     <!-- Double-tap zones -->
     <div class="double-tap-zone left"  id="tapL"></div>
     <div class="double-tap-zone right" id="tapR"></div>
 
-    <!-- Skip animations -->
-    <div class="skip-anim left" id="skipAnimL">
-      <div class="skip-circle">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"/></svg>
-      </div>
-      <span class="skip-label">- 10 sec</span>
-    </div>
-    <div class="skip-anim right" id="skipAnimR">
-      <div class="skip-circle">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>
-      </div>
-      <span class="skip-label">+ 10 sec</span>
-    </div>
+    <video id="vid" src="{{ file_url }}" playsinline preload="none"></video>
 
-    <!-- Play/Pause overlay -->
-    <div class="play-overlay hide" id="playOverlay">
-      <svg id="playOverlayIcon" width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
-    </div>
+    <!-- YouTube-style full overlay -->
+    <div class="yt-overlay" id="ytOverlay">
 
-    <video id="vid" src="{{ file_url }}" playsinline preload="metadata"></video>
-
-    <!-- Custom Controls -->
-    <div class="controls" id="ctrlBar">
-      <!-- Progress -->
-      <div class="progress-wrap" id="progWrap">
-        <div class="progress-buf" id="progBuf"></div>
-        <div class="progress-fill" id="progFill"></div>
-        <div class="progress-thumb" id="progThumb"></div>
+      <!-- Top bar -->
+      <div class="yt-top">
+        <button class="yt-top-btn" onclick="vidMinimize()" title="Minimize">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+        </button>
+        <button class="yt-top-btn" onclick="toggleFS()" title="Fullscreen">
+          <svg id="fsIconTop" width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+        </button>
+        <button class="yt-top-btn" onclick="window.history.back()" title="Close">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
       </div>
 
-      <!-- Buttons row -->
-      <div class="ctrl-row">
-        <!-- Play/Pause -->
-        <button class="ctrl-btn" id="playBtn" onclick="togglePlay()">
-          <svg id="playIcon" width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+      <!-- Center big controls -->
+      <div class="yt-center">
+        <button class="yt-center-btn" onclick="skipSec(-10)" title="-10s">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="white"><path d="M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/><text x="8.5" y="16" font-size="5.5" fill="white" font-weight="bold">10</text></svg>
         </button>
-
-        <!-- Skip back 10s -->
-        <button class="ctrl-btn" onclick="skipSec(-10)" title="-10s">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/><text x="8.5" y="16" font-size="5.5" fill="white" font-weight="bold">10</text></svg>
+        <button class="yt-center-btn yt-play-btn" id="centerPlayBtn" onclick="togglePlay()">
+          <svg id="centerPlayIcon" width="32" height="32" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
         </button>
-
-        <!-- Skip forward 10s -->
-        <button class="ctrl-btn" onclick="skipSec(10)" title="+10s">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M12.01 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/><text x="8.5" y="16" font-size="5.5" fill="white" font-weight="bold">10</text></svg>
+        <button class="yt-center-btn" onclick="skipSec(10)" title="+10s">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="white"><path d="M12.01 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/><text x="8.5" y="16" font-size="5.5" fill="white" font-weight="bold">10</text></svg>
         </button>
+      </div>
 
-        <!-- Time -->
-        <span class="time-display" id="timeDisplay">0:00 / 0:00</span>
-        <div class="ctrl-spacer"></div>
-
-        <!-- Volume -->
-        <div class="volume-wrap">
-          <button class="ctrl-btn" id="muteBtn" onclick="toggleMute()">
-            <svg id="volIcon" width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
-          </button>
-          <input class="volume-slider" id="volSlider" type="range" min="0" max="1" step="0.05" value="1" oninput="setVolume(this.value)">
+      <!-- Bottom bar -->
+      <div class="yt-bottom">
+        <!-- Progress bar -->
+        <div class="yt-progress" id="ytProg">
+          <div class="yt-buf"  id="ytBuf"></div>
+          <div class="yt-fill" id="ytFill"></div>
+          <div class="yt-thumb" id="ytThumb"></div>
         </div>
-
-        <!-- Playback speed -->
-        <button class="ctrl-btn quality-btn" id="speedBtn" onclick="cycleSpeed()" title="Speed">1x</button>
-
-        <!-- Fullscreen -->
-        <button class="ctrl-btn" onclick="toggleFS()">
-          <svg id="fsIcon" width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
-        </button>
-      </div>
+        <!-- Controls row -->
+        <div class="yt-bottom-row">
+          <button class="yt-btn" onclick="togglePlay()">
+            <svg id="playIcon" width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+          </button>
+          <span class="yt-time" id="ytCurTime">0:00</span>
+          <span class="yt-time" style="opacity:.6">/</span>
+          <span class="yt-time" id="ytDurTime">0:00</span>
+          <div class="yt-spacer"></div>
+          <button class="yt-btn" onclick="toggleMute()">
+            <svg id="volIcon" width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
+          </button>
+          <button class="yt-speed-btn" id="speedBtn" onclick="cycleSpeed()">1x</button>
+          <button class="yt-btn" onclick="toggleFS()">
+            <svg id="fsIcon" width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
     </div>
   </div>
 
@@ -400,161 +429,167 @@ const SK = (k) => `sf_${FILE_UID}_${k}`;
 const ls = { get:(k,d)=>{ try{const v=localStorage.getItem(SK(k));return v!==null?JSON.parse(v):d;}catch{return d;} }, set:(k,v)=>{ try{localStorage.setItem(SK(k),JSON.stringify(v));}catch{} } };
 
 // ═══════════════════════════════════════════════
-// VIDEO PLAYER
+// VIDEO PLAYER — YouTube Style
 // ═══════════════════════════════════════════════
-const vid   = document.getElementById("vid");
-const vw    = document.getElementById("vw");
-const progFill  = document.getElementById("progFill");
-const progBuf   = document.getElementById("progBuf");
-const progThumb = document.getElementById("progThumb");
-const progWrap  = document.getElementById("progWrap");
-const playIcon  = document.getElementById("playIcon");
-const playOverlay = document.getElementById("playOverlay");
-const playOverlayIcon = document.getElementById("playOverlayIcon");
-const timeDisplay = document.getElementById("timeDisplay");
-const volSlider = document.getElementById("volSlider");
-const volIcon   = document.getElementById("volIcon");
-const speedBtn  = document.getElementById("speedBtn");
+const vid      = document.getElementById("vid");
+const vw       = document.getElementById("vw");
+const ytProg   = document.getElementById("ytProg");
+const ytFill   = document.getElementById("ytFill");
+const ytBuf    = document.getElementById("ytBuf");
+const ytThumb  = document.getElementById("ytThumb");
+const playIcon = document.getElementById("playIcon");
+const centerPlayIcon = document.getElementById("centerPlayIcon");
+const volIcon  = document.getElementById("volIcon");
+const speedBtn = document.getElementById("speedBtn");
+const bufSpinner = document.getElementById("bufSpinner");
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 let speedIdx = 2;
 let ctrlTimer = null;
 let isDragging = false;
 
-// Restore position
+// ── Autoplay ────────────────────────────────────
+function tryAutoplay() {
+  vid.muted = true;
+  const p = vid.play();
+  if (p !== undefined) {
+    p.then(() => { vid.muted = false; updateVolIcon(1); })
+     .catch(() => { bufSpinner.classList.remove("show"); showTapToPlay(); });
+  }
+}
+function showTapToPlay() {
+  const t = document.createElement("div");
+  t.style.cssText = "position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#000;cursor:pointer;z-index:15;";
+  t.innerHTML = `<div style="width:72px;height:72px;border-radius:50%;background:rgba(243,156,18,.92);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 28px rgba(0,0,0,.7);"><svg width="30" height="30" viewBox="0 0 24 24" fill="white" style="margin-left:4px"><path d="M8 5v14l11-7z"/></svg></div><div style="margin-top:12px;font-size:11px;color:#888;font-weight:600;letter-spacing:.5px;">TAP TO PLAY</div>`;
+  t.onclick = () => { t.remove(); bufSpinner.classList.add("show"); vid.muted=false; vid.play().catch(()=>bufSpinner.classList.remove("show")); };
+  vw.appendChild(t);
+}
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", tryAutoplay);
+} else { tryAutoplay(); }
+
+// ── Buffering ───────────────────────────────────
+let _playing = false;
+vid.addEventListener("waiting",        () => { if(_playing) bufSpinner.classList.add("show"); });
+vid.addEventListener("playing",        () => { _playing=true; bufSpinner.classList.remove("show"); });
+vid.addEventListener("canplaythrough", () => { bufSpinner.classList.remove("show"); });
+
+// ── Time & Progress ─────────────────────────────
 vid.addEventListener("loadedmetadata", () => {
   const saved = ls.get("pos", 0);
   if (saved > 5) vid.currentTime = saved;
   updateTime();
 });
-
-// Save position every 5s
 setInterval(() => { if (!vid.paused && vid.currentTime > 0) ls.set("pos", vid.currentTime); }, 5000);
 
 function fmtTime(s) {
   s = Math.floor(s||0);
-  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+  const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60;
   return h ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}` : `${m}:${String(sec).padStart(2,'0')}`;
 }
-
 function updateTime() {
   const pct = vid.duration ? (vid.currentTime/vid.duration)*100 : 0;
-  progFill.style.width  = pct + "%";
-  progThumb.style.left  = pct + "%";
-  timeDisplay.textContent = `${fmtTime(vid.currentTime)} / ${fmtTime(vid.duration)}`;
+  ytFill.style.width  = pct + "%";
+  ytThumb.style.left  = pct + "%";
+  document.getElementById("ytCurTime").textContent = fmtTime(vid.currentTime);
+  document.getElementById("ytDurTime").textContent = fmtTime(vid.duration);
 }
-
 vid.addEventListener("timeupdate", updateTime);
 vid.addEventListener("progress", () => {
-  if (vid.buffered.length) {
-    progBuf.style.width = (vid.buffered.end(vid.buffered.length-1)/vid.duration*100)+"%";
-  }
+  if (vid.buffered.length) ytBuf.style.width = (vid.buffered.end(vid.buffered.length-1)/(vid.duration||1)*100)+"%";
 });
 
-// Play/Pause state
-vid.addEventListener("play",  () => {
-  playIcon.innerHTML = `<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>`;
-  playOverlayIcon.innerHTML = `<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>`;
-  flashOverlay();
-});
-vid.addEventListener("pause", () => {
-  playIcon.innerHTML = `<path d="M8 5v14l11-7z"/>`;
-  playOverlayIcon.innerHTML = `<path d="M8 5v14l11-7z"/>`;
-  flashOverlay();
-});
+// ── Play/Pause icons ────────────────────────────
+const PLAY_PATH  = `<path d="M8 5v14l11-7z"/>`;
+const PAUSE_PATH = `<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>`;
+vid.addEventListener("play",  () => { playIcon.innerHTML=PAUSE_PATH; centerPlayIcon.innerHTML=PAUSE_PATH; });
+vid.addEventListener("pause", () => { playIcon.innerHTML=PLAY_PATH;  centerPlayIcon.innerHTML=PLAY_PATH; });
 
-function flashOverlay() {
-  playOverlay.classList.remove("hide");
-  clearTimeout(window._ovTimer);
-  window._ovTimer = setTimeout(() => playOverlay.classList.add("hide"), 600);
-}
-
+// ── Controls show/hide ──────────────────────────
 function showCtrls() {
   vw.classList.add("show-ctrl");
   clearTimeout(ctrlTimer);
-  ctrlTimer = setTimeout(() => { if (!vid.paused) vw.classList.remove("show-ctrl"); }, 3000);
+  ctrlTimer = setTimeout(() => { if(!vid.paused) vw.classList.remove("show-ctrl"); }, 3000);
 }
-
-vw.addEventListener("click", (e) => {
-  if (e.target.closest(".double-tap-zone") || e.target.closest(".ctrl-btn") || e.target.closest(".controls")) return;
-  showCtrls();
-  togglePlay();
-});
-vw.addEventListener("mousemove", showCtrls);
+vw.addEventListener("click",      (e) => { if(e.target.closest(".yt-btn,.yt-center-btn,.yt-top-btn,.yt-speed-btn,.double-tap-zone,.yt-progress")) return; showCtrls(); togglePlay(); });
+vw.addEventListener("mousemove",  showCtrls);
 vw.addEventListener("touchstart", showCtrls, {passive:true});
 
 function togglePlay() {
-  vid.paused ? vid.play() : vid.pause();
+  if (vid.paused) { bufSpinner.classList.add("show"); vid.play(); } else vid.pause();
+}
+function vidMinimize() {
+  // Scroll page down so video is out of view (mini behavior)
+  window.scrollTo({top: vw.offsetTop + vw.offsetHeight + 20, behavior:"smooth"});
 }
 
-// Skip ±10s
+// ── Skip ±10s ───────────────────────────────────
 function skipSec(s) {
-  vid.currentTime = Math.max(0, Math.min(vid.duration||0, vid.currentTime + s));
-  showSkipAnim(s < 0 ? "L" : "R");
-  showToast(s < 0 ? "⏪ -10 seconds" : "⏩ +10 seconds");
+  vid.currentTime = Math.max(0, Math.min(vid.duration||0, vid.currentTime+s));
+  const el = document.getElementById("skipAnim"+(s<0?"L":"R"));
+  el.classList.add("show"); setTimeout(()=>el.classList.remove("show"),700);
+  showToast(s<0?"⏪ -10 sec":"⏩ +10 sec");
 }
 
-// Double tap to skip
-let tapTimers = { L:null, R:null };
+// ── Double tap zones ────────────────────────────
+let tapTimers = {L:null,R:null};
 function setupDoubleTap(el, side) {
   el.addEventListener("click", () => {
-    if (tapTimers[side]) {
-      clearTimeout(tapTimers[side]);
-      tapTimers[side] = null;
-      skipSec(side === "L" ? -10 : 10);
-    } else {
-      tapTimers[side] = setTimeout(() => { tapTimers[side] = null; showCtrls(); togglePlay(); }, 280);
-    }
+    if (tapTimers[side]) { clearTimeout(tapTimers[side]); tapTimers[side]=null; skipSec(side==="L"?-10:10); }
+    else tapTimers[side] = setTimeout(()=>{ tapTimers[side]=null; showCtrls(); togglePlay(); },280);
   });
 }
-setupDoubleTap(document.getElementById("tapL"), "L");
-setupDoubleTap(document.getElementById("tapR"), "R");
+setupDoubleTap(document.getElementById("tapL"),"L");
+setupDoubleTap(document.getElementById("tapR"),"R");
 
-function showSkipAnim(side) {
-  const el = document.getElementById("skipAnim" + side);
-  el.classList.add("show");
-  setTimeout(() => el.classList.remove("show"), 700);
-}
-
-// Progress bar drag
+// ── Progress bar drag ───────────────────────────
 function seekTo(e) {
-  const rect = progWrap.getBoundingClientRect();
-  const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
-  const pct = Math.max(0, Math.min(1, x / rect.width));
-  vid.currentTime = pct * (vid.duration || 0);
+  const rect = ytProg.getBoundingClientRect();
+  const x = (e.touches?e.touches[0].clientX:e.clientX)-rect.left;
+  vid.currentTime = Math.max(0,Math.min(1,x/rect.width))*(vid.duration||0);
 }
-progWrap.addEventListener("mousedown",  (e) => { isDragging=true; seekTo(e); });
-progWrap.addEventListener("touchstart", (e) => { isDragging=true; seekTo(e); }, {passive:true});
-document.addEventListener("mousemove",  (e) => { if(isDragging) seekTo(e); });
-document.addEventListener("touchmove",  (e) => { if(isDragging) seekTo(e); }, {passive:true});
-document.addEventListener("mouseup",    ()  => isDragging=false);
-document.addEventListener("touchend",   ()  => isDragging=false);
+ytProg.addEventListener("mousedown",  (e)=>{ isDragging=true; ytProg.classList.add("dragging"); seekTo(e); });
+ytProg.addEventListener("touchstart", (e)=>{ isDragging=true; ytProg.classList.add("dragging"); seekTo(e); },{passive:true});
+document.addEventListener("mousemove", (e)=>{ if(isDragging) seekTo(e); });
+document.addEventListener("touchmove", (e)=>{ if(isDragging){e.preventDefault();seekTo(e);} },{passive:false});
+document.addEventListener("mouseup",   ()=>{ isDragging=false; ytProg.classList.remove("dragging"); });
+document.addEventListener("touchend",  ()=>{ isDragging=false; ytProg.classList.remove("dragging"); });
 
-// Volume
-function setVolume(v) { vid.volume = v; vid.muted = (v==0); updateVolIcon(v); }
-function toggleMute() {
-  vid.muted = !vid.muted;
-  volSlider.value = vid.muted ? 0 : vid.volume;
-  updateVolIcon(vid.muted ? 0 : vid.volume);
-}
+// ── Volume / Mute ───────────────────────────────
+function setVolume(v) { vid.volume=v; vid.muted=(v==0); updateVolIcon(v); }
+function toggleMute() { vid.muted=!vid.muted; updateVolIcon(vid.muted?0:vid.volume); }
 function updateVolIcon(v) {
-  const paths = v==0
+  volIcon.innerHTML = v==0
     ? `<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>`
-    : v < 0.5
+    : v<0.5
     ? `<path d="M18.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z"/>`
     : `<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>`;
-  volIcon.innerHTML = paths;
 }
 
-// Speed
+// ── Speed cycle ─────────────────────────────────
 function cycleSpeed() {
-  speedIdx = (speedIdx+1) % SPEEDS.length;
-  vid.playbackRate = SPEEDS[speedIdx];
-  speedBtn.textContent = SPEEDS[speedIdx]+"x";
+  speedIdx=(speedIdx+1)%SPEEDS.length;
+  vid.playbackRate=SPEEDS[speedIdx];
+  speedBtn.textContent=SPEEDS[speedIdx]+"x";
   showToast("▶ Speed: "+SPEEDS[speedIdx]+"x");
 }
 
-// Fullscreen
+// ── Right hold = 2x speed ───────────────────────
+let _holdTimer=null, _holdActive=false, _speedBefore=1;
+const _badge = document.getElementById("speedBadge");
+function _startHold(){ _holdTimer=setTimeout(()=>{ _holdActive=true; _speedBefore=vid.playbackRate; vid.playbackRate=2; _badge.classList.add("show"); },400); }
+function _endHold(){ clearTimeout(_holdTimer); if(_holdActive){ _holdActive=false; vid.playbackRate=_speedBefore; _badge.classList.remove("show"); } }
+const tapR=document.getElementById("tapR");
+tapR.addEventListener("touchstart",_startHold,{passive:true});
+tapR.addEventListener("touchend",  _endHold);
+tapR.addEventListener("touchcancel",_endHold);
+tapR.addEventListener("mousedown", _startHold);
+tapR.addEventListener("mouseup",   _endHold);
+tapR.addEventListener("mouseleave",_endHold);
+
+// ── Fullscreen ──────────────────────────────────
+const FS_EXPAND = `<path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>`;
+const FS_EXIT   = `<path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>`;
 function toggleFS() {
   if (!document.fullscreenElement) {
     vw.requestFullscreen?.() || vw.webkitRequestFullscreen?.();
@@ -562,13 +597,18 @@ function toggleFS() {
     document.exitFullscreen?.() || document.webkitExitFullscreen?.();
   }
 }
+document.addEventListener("fullscreenchange", ()=>{
+  const isFs = !!document.fullscreenElement;
+  document.getElementById("fsIcon").innerHTML    = isFs ? FS_EXIT : FS_EXPAND;
+  document.getElementById("fsIconTop").innerHTML = isFs ? FS_EXIT : FS_EXPAND;
+});
 
-// Keyboard shortcuts
-document.addEventListener("keydown", (e) => {
-  if (e.target.tagName === "TEXTAREA") return;
-  if (e.code === "Space") { e.preventDefault(); togglePlay(); }
-  if (e.code === "ArrowLeft")  skipSec(-10);
-  if (e.code === "ArrowRight") skipSec(10);
+// ── Keyboard shortcuts ──────────────────────────
+document.addEventListener("keydown", (e)=>{
+  if(e.target.tagName==="TEXTAREA") return;
+  if(e.code==="Space"){e.preventDefault();togglePlay();}
+  if(e.code==="ArrowLeft")  skipSec(-10);
+  if(e.code==="ArrowRight") skipSec(10);
 });
 
 // ═══════════════════════════════════════════════
