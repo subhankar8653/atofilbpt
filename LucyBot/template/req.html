@@ -43,13 +43,13 @@
     .yt-center { display:flex; align-items:center; justify-content:center; gap:28px; flex:1; }
 
     /* Tap zones — left 33% / center 34% / right 33% — invisible, cover full video height except bottom bar */
-    .tap-zone { position:absolute; top:0; bottom:56px; cursor:pointer; z-index:10; }
+    .tap-zone { position:absolute; top:0; bottom:0; cursor:pointer; z-index:10; }
     .tap-left   { left:0;    width:33%; }
     .tap-center { left:33%;  width:34%; }
     .tap-right  { right:0;   width:33%; }
 
     /* Bottom bar */
-    .yt-bottom { background:linear-gradient(transparent,rgba(0,0,0,.9)); padding:0 10px 8px; }
+    .yt-bottom { background:linear-gradient(transparent,rgba(0,0,0,.9)); padding:0 10px 8px; position:relative; z-index:20; }
     .yt-progress { position:relative; height:3px; background:rgba(255,255,255,.3); border-radius:3px; cursor:pointer; margin-bottom:10px; touch-action:none; transition:height .15s; }
     .yt-progress:hover, .yt-progress.dragging { height:5px; }
     .yt-buf { position:absolute; left:0; top:0; height:100%; background:rgba(255,255,255,.4); border-radius:3px; pointer-events:none; }
@@ -70,6 +70,12 @@
     /* Speed overlay badge */
     .speed-badge { position:absolute; top:10px; right:12px; background:rgba(0,0,0,.75); color:#fff; font-size:12px; font-weight:800; padding:4px 10px; border-radius:6px; pointer-events:none; opacity:0; transition:opacity .2s; z-index:20; letter-spacing:.5px; }
     .speed-badge.show { opacity:1; }
+
+    /* ── CSS Fullscreen mode ── */
+    body.fs-mode .header,
+    body.fs-mode #pageContent,
+    body.fs-mode footer { display:none !important; }
+    body.fs-mode .main { padding:0 !important; }
 
     /* ── Cinema mode (X button pressed) ── */
     body.cinema-mode .header,
@@ -585,11 +591,12 @@ const PAUSE_PATH = `<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>`;
 vid.addEventListener("play",  () => {
   playIcon.innerHTML=PAUSE_PATH;
   if (_isAutoplay) { _isAutoplay = false; return; }
-  showCtrls(1500);
+  // Don't auto-show controls on play — let user control visibility
 });
 vid.addEventListener("pause", () => {
   playIcon.innerHTML=PLAY_PATH;
   if (_cinemaMode) return;
+  // On pause, show controls so user can see paused state
   vw.classList.add("show-ctrl");
   clearTimeout(ctrlTimer);
 });
@@ -634,24 +641,27 @@ tapL.addEventListener("click", () => {
   } else {
     _tapTimerL = setTimeout(() => {
       _tapTimerL = null;
-      // Single tap: toggle controls (if video playing)
-      if (!vid.paused) {
-        vw.classList.contains("show-ctrl") ? hideCtrls() : showCtrls();
-      }
+      // Single tap: toggle controls
+      vw.classList.contains("show-ctrl") ? hideCtrls() : showCtrls();
     }, 280);
   }
 });
 
 // ── Center zone ────────────────────────────────
-tapC.addEventListener("click", () => {
+let _tapTimerC = null;
+tapC.addEventListener("click", (e) => {
   if (_cinemaMode) { vidMinimize(); return; }
-  if (vw.classList.contains("show-ctrl")) {
-    // Controls dikh rahe hain → play/pause
+  if (_tapTimerC) {
+    // Double tap center → play/pause
+    clearTimeout(_tapTimerC); _tapTimerC = null;
     togglePlay();
-    if (!vid.paused) showCtrls(1500); // play ke baad jaldi chhupao
+    if (!vid.paused) showCtrls(1500);
   } else {
-    // Controls hidden → sirf dikhao
-    showCtrls();
+    _tapTimerC = setTimeout(() => {
+      _tapTimerC = null;
+      // Single tap: toggle controls visibility
+      vw.classList.contains("show-ctrl") ? hideCtrls() : showCtrls();
+    }, 280);
   }
 });
 
@@ -664,9 +674,8 @@ tapR2.addEventListener("click", () => {
   } else {
     _tapTimerR = setTimeout(() => {
       _tapTimerR = null;
-      if (!vid.paused) {
-        vw.classList.contains("show-ctrl") ? hideCtrls() : showCtrls();
-      }
+      // Single tap: toggle controls
+      vw.classList.contains("show-ctrl") ? hideCtrls() : showCtrls();
     }, 280);
   }
 });
@@ -772,20 +781,48 @@ function cycleSpeed() {
   showToast("▶ Speed: "+SPEEDS[speedIdx]+"x");
 }
 
-// ── Fullscreen ──────────────────────────────────
+// ── Fullscreen (CSS-based vertical — works on all mobile browsers) ──
 const FS_EXPAND = `<path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>`;
 const FS_EXIT   = `<path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>`;
+let _isFS = false;
+
 function toggleFS() {
-  if (!document.fullscreenElement) {
-    vw.requestFullscreen?.() || vw.webkitRequestFullscreen?.();
+  _isFS = !_isFS;
+  const fsIcon = document.getElementById("fsIcon");
+  if (_isFS) {
+    vw.style.cssText = "position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:100vh!important;max-width:100vw!important;aspect-ratio:unset!important;z-index:999999!important;background:#000!important;";
+    vid.style.cssText = "width:100%!important;height:100%!important;object-fit:contain!important;";
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    document.body.classList.add("fs-mode");
+    fsIcon.innerHTML = FS_EXIT;
+    try { vw.requestFullscreen?.() || vw.webkitRequestFullscreen?.(); } catch(e){}
+    showToast("✕ Wapas aane ke liye fullscreen button dabayein");
   } else {
-    document.exitFullscreen?.() || document.webkitExitFullscreen?.();
+    vw.style.cssText = "";
+    vid.style.cssText = "";
+    document.body.style.overflow = "";
+    document.documentElement.style.overflow = "";
+    document.body.classList.remove("fs-mode");
+    fsIcon.innerHTML = FS_EXPAND;
+    try { document.exitFullscreen?.() || document.webkitExitFullscreen?.(); } catch(e){}
   }
 }
-document.addEventListener("fullscreenchange", ()=>{
-  const isFs = !!document.fullscreenElement;
-  document.getElementById("fsIcon").innerHTML = isFs ? FS_EXIT : FS_EXPAND;
-});
+
+// Native fullscreen exit (back button) bhi handle karo
+function _onFSChange() {
+  if (!document.fullscreenElement && !document.webkitFullscreenElement && _isFS) {
+    _isFS = false;
+    vw.style.cssText = "";
+    vid.style.cssText = "";
+    document.body.style.overflow = "";
+    document.documentElement.style.overflow = "";
+    document.body.classList.remove("fs-mode");
+    document.getElementById("fsIcon").innerHTML = FS_EXPAND;
+  }
+}
+document.addEventListener("fullscreenchange", _onFSChange);
+document.addEventListener("webkitfullscreenchange", _onFSChange);
 
 // ── Keyboard shortcuts ──────────────────────────
 document.addEventListener("keydown", (e)=>{
