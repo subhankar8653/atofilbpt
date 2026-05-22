@@ -1215,9 +1215,23 @@ _lockOverlay.addEventListener("touchstart", (e) => {
   _lockTouchStart = Date.now();
   _lockIsHold = false;
 
+  // Hold timer — 500ms baad 2x start
+  const holdTimer = setTimeout(() => {
+    _lockIsHold = true;
+    _lockHoldActive = true;
+    _lockSpeedBefore = vid.playbackRate;
+    vid.playbackRate = 2;
+    document.getElementById("speedBadge").classList.add("show");
+    clearTimeout(_lockTapTimer);
+    _lockTapCount = 0;
+    _lockTapSide = null;
+  }, LOCK_HOLD_MS);
+
+  // touchend/cancel pe hold timer cancel karne ke liye ref store karo
+  _lockOverlay._holdTimer = holdTimer;
+
   // Tap count track karo — same side ke taps count karo
   if (_lockTapSide !== side) {
-    // Side badal gayi — count reset karo
     clearTimeout(_lockTapTimer);
     _lockTapCount = 0;
   }
@@ -1227,6 +1241,7 @@ _lockOverlay.addEventListener("touchstart", (e) => {
   if (_lockTapCount >= 2) {
     // Double tap — immediately skip
     clearTimeout(_lockTapTimer);
+    clearTimeout(_lockOverlay._holdTimer);
     _lockTapCount = 0;
     _lockTapSide = null;
     if (side === "L") {
@@ -1236,12 +1251,11 @@ _lockOverlay.addEventListener("touchstart", (e) => {
     }
     hideLockIcon();
   } else {
-    // Pehla tap — 300ms wait karo, agar dobaara tap nahi aaya toh single tap
+    // Pehla tap — 300ms wait, agar dobara tap nahi aaya toh single tap
     clearTimeout(_lockTapTimer);
     _lockTapTimer = setTimeout(() => {
       _lockTapCount = 0;
       _lockTapSide = null;
-      // Single tap — lock icon toggle (sirf agar hold nahi tha)
       if (!_lockIsHold) {
         vw.classList.contains("show-lock-icon") ? hideLockIcon() : showLockIcon();
       }
@@ -1249,54 +1263,27 @@ _lockOverlay.addEventListener("touchstart", (e) => {
   }
 }, { passive: true });
 
-_lockOverlay.addEventListener("touchend", () => {
-  const held = Date.now() - _lockTouchStart;
-  _lockTouchStart = 0; // reset — rAF loop dobara trigger na kare
+function _lockRelease() {
+  clearTimeout(_lockOverlay._holdTimer); // hold timer cancel karo
+  _lockTouchStart = 0;
   if (_lockHoldActive) {
-    _lockIsHold = true;
     _lockHoldActive = false;
-    vid.playbackRate = _lockSpeedBefore;
+    vid.playbackRate = _lockSpeedBefore; // wapas normal speed
     document.getElementById("speedBadge").classList.remove("show");
-  } else if (held >= LOCK_HOLD_MS) {
-    _lockIsHold = true; // hold tha, single tap cancel karo
   }
-});
+}
 
+_lockOverlay.addEventListener("touchend",    _lockRelease);
+_lockOverlay.addEventListener("touchcancel", _lockRelease);
 _lockOverlay.addEventListener("touchmove", () => {
-  _lockTouchStart = 0; // finger hili — hold cancel
-  if (_lockHoldActive) {
-    _lockHoldActive = false;
-    vid.playbackRate = _lockSpeedBefore;
-    document.getElementById("speedBadge").classList.remove("show");
-  }
-}, { passive: true });
-
-_lockOverlay.addEventListener("touchcancel", () => {
+  clearTimeout(_lockOverlay._holdTimer);
   _lockTouchStart = 0;
   if (_lockHoldActive) {
     _lockHoldActive = false;
     vid.playbackRate = _lockSpeedBefore;
     document.getElementById("speedBadge").classList.remove("show");
   }
-});
-
-// Hold = 2x — rAF loop se detect (sirf jab _lockTouchStart > 0 ho)
-(function _lockHoldLoop() {
-  if (_lockTouchStart > 0) {
-    const held = Date.now() - _lockTouchStart;
-    if (held >= LOCK_HOLD_MS && !_lockHoldActive && !_lockIsHold) {
-      _lockHoldActive = true;
-      _lockSpeedBefore = vid.playbackRate;
-      vid.playbackRate = 2;
-      document.getElementById("speedBadge").classList.add("show");
-      // Hold chal raha hai — pending tap cancel karo
-      clearTimeout(_lockTapTimer);
-      _lockTapCount = 0;
-      _lockTapSide = null;
-    }
-  }
-  requestAnimationFrame(_lockHoldLoop);
-})();
+}, { passive: true });
 
 vw.appendChild(_lockOverlay);
 
