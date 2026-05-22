@@ -90,7 +90,7 @@
     /* Controls bottom bar visible in FS */
     body.fs-mode .yt-bottom { padding-bottom: 12px; }
 
-    /* ── Cinema mode button (overlay ke bahar — hamesha clickable) ── */
+    /* ── Clean mode button — cinema mode mein dikhega (exit ke liye) ── */
     .cinema-btn {
       position:absolute;
       top:10px; right:10px;
@@ -108,42 +108,19 @@
       backdrop-filter:blur(4px);
       pointer-events:none;
     }
-    /* Normal mode mein: show-ctrl pe bhi mat dikho — cinema mode ke liye reserved hai */
+    /* Normal mode mein hide */
     .video-wrapper.show-ctrl .cinema-btn { opacity:0; pointer-events:none; }
-    /* Sirf cinema mode mein dikho — hamesha visible */
+    /* Clean mode mein hamesha visible */
     body.cinema-mode .video-wrapper .cinema-btn { opacity:1 !important; pointer-events:auto !important; display:flex !important; }
-    /* Locked state mein chhupao */
-    .video-wrapper.locked .cinema-btn { display:none !important; }
 
-    /* ── Cinema mode (X button pressed) ── */
-    body.cinema-mode .header,
-    body.cinema-mode #pageContent,
-    body.cinema-mode footer { display:none !important; }
-
-    body.cinema-mode .main { padding:0 !important; }
-
-    body.cinema-mode .video-wrapper {
-      position:fixed !important;
-      top:0; left:0;
-      width:100vw !important;
-      height:100vh !important;
-      max-width:100vw !important;
-      aspect-ratio:unset !important;
-      z-index:99999 !important;
-      background:#000 !important;
-    }
-
-    /* Hide all overlay controls in cinema mode */
+    /* ── Clean mode — sirf video ke upar se overlay hata, video apni jagah rahe ── */
+    /* Header, footer, pageContent sab rahe — kuch hide nahi */
+    /* Sirf video ke upar wale controls/overlay hide honge */
     body.cinema-mode .yt-overlay { display:none !important; }
-    body.cinema-mode .buf-spinner,
+    body.cinema-mode .buf-spinner { display:none !important; }
     body.cinema-mode .skip-anim { display:none !important; }
-    /* speed-badge cinema mein bhi dikhni chahiye (2x hold ke waqt) — display:none nahi */
-    /* tap-zone cinema mode mein bhi VISIBLE rakho — cinema overlay handle karega */
-
-    /* Show only thin red progress bar at very bottom */
-    body.cinema-mode .cinema-bar {
-      display:block !important;
-    }
+    body.cinema-mode .lock-btn { display:none !important; }
+    body.cinema-mode .cinema-bar { display:block !important; }
     /* Cinema exit hint */
     .cinema-hint {
       display:none;
@@ -177,13 +154,13 @@
       pointer-events:none;
     }
 
-    /* ── Skip overlay (YouTube style) ── */
-    .skip-anim { position:absolute; top:50%; transform:translateY(-50%); pointer-events:none; display:flex; flex-direction:column; align-items:center; gap:4px; opacity:0; transition:opacity .2s; }
-    .skip-anim.left { left:14%; }
-    .skip-anim.right { right:14%; }
+    /* ── Skip overlay (MX/YouTube style pill) ── */
+    .skip-anim { position:absolute; top:50%; transform:translateY(-50%); pointer-events:none; display:flex; align-items:center; justify-content:center; opacity:0; transition:opacity .15s; }
+    .skip-anim.left { left:10%; }
+    .skip-anim.right { right:10%; }
     .skip-anim.show { opacity:1; }
-    .skip-circle { width:64px; height:64px; border-radius:50%; background:rgba(255,255,255,.18); backdrop-filter:blur(4px); display:flex; align-items:center; justify-content:center; }
-    .skip-label { font-size:10px; font-weight:700; color:#fff; letter-spacing:.5px; }
+    .skip-pill { background:rgba(0,0,0,.6); backdrop-filter:blur(6px); border-radius:30px; padding:10px 18px; display:flex; align-items:center; gap:6px; }
+    .skip-pill-text { font-size:15px; font-weight:800; color:#fff; letter-spacing:.5px; }
     /* ── Play overlay ── */
     .play-overlay { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:64px; height:64px; border-radius:50%; background:rgba(0,0,0,.55); backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; pointer-events:none; transition:opacity .2s; }
     .play-overlay.hide { opacity:0; }
@@ -278,59 +255,28 @@
     @keyframes fadeUp { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:translateY(0); } }
     @keyframes pulse { 0%,100% { opacity:.4; } 50% { opacity:.8; } }
 
-    /* ── Lock Button ── */
+    /* ── Clean Mode Button (X) — top-right, controls ke saath dikhega ── */
     .lock-btn {
       position:absolute;
-      bottom:60px; right:10px;
-      width:38px; height:38px;
+      top:10px; right:10px;
+      width:36px; height:36px;
       border-radius:50%;
-      background:rgba(0,0,0,.6);
-      border:1.5px solid rgba(255,255,255,.25);
+      background:rgba(0,0,0,.55);
+      border:none;
       color:#fff;
       display:flex; align-items:center; justify-content:center;
       cursor:pointer;
-      z-index:25;
+      z-index:30;
       opacity:0;
       transition:opacity .25s;
       -webkit-tap-highlight-color:transparent;
       backdrop-filter:blur(4px);
+      pointer-events:none;
     }
-    .video-wrapper.show-ctrl .lock-btn { opacity:1; }
-    /* Lock button apna khud ka show class — controls ke bina bhi dikh sake */
-    .video-wrapper.show-lock-btn .lock-btn { opacity:1; }
+    .video-wrapper.show-ctrl .lock-btn { opacity:1; pointer-events:auto; }
 
-    /* Locked state: chhota lock icon side mein */
-    .lock-icon-small {
-      position:absolute;
-      left:10px; top:50%;
-      transform:translateY(-50%);
-      width:36px; height:36px;
-      border-radius:50%;
-      background:rgba(0,0,0,.65);
-      border:1.5px solid rgba(255,255,255,.3);
-      color:#fff;
-      display:none;
-      align-items:center; justify-content:center;
-      cursor:pointer;
-      z-index:100;
-      -webkit-tap-highlight-color:transparent;
-      backdrop-filter:blur(4px);
-      animation:fadeUp .3s ease;
-      opacity:0;
-      transition:opacity .3s;
-    }
-    .video-wrapper.locked .lock-icon-small { display:flex; }
-    /* Lock icon visible class — single tap pe show/hide */
-    .video-wrapper.locked.show-lock-icon .lock-icon-small { opacity:1; }
-
-    /* Locked state: saari UI hide */
-    .video-wrapper.locked .yt-overlay { display:none !important; }
-    .video-wrapper.locked .lock-btn { display:none !important; }
-    .video-wrapper.locked .tap-zone { pointer-events:none !important; }
-    .video-wrapper.locked .buf-spinner { display:none !important; }
-    .video-wrapper.locked .skip-anim { display:none !important; }
-    /* lock-icon-small locked state mein hamesha display:flex rakho — opacity se control karenge */
-    .video-wrapper.locked .lock-icon-small { display:flex !important; pointer-events:auto !important; }
+    /* Lock icon — completely removed */
+    .lock-icon-small { display:none !important; }
   </style>
 </head>
 <body>
@@ -358,14 +304,16 @@
       <svg width="26" height="26" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
     </div>
 
-    <!-- Skip animations -->
+    <!-- Skip animations — pill style -->
     <div class="skip-anim left" id="skipAnimL">
-      <div class="skip-circle"><svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"/></svg></div>
-      <span class="skip-label">- 10 sec</span>
+      <div class="skip-pill">
+        <span class="skip-pill-text">← 10s</span>
+      </div>
     </div>
     <div class="skip-anim right" id="skipAnimR">
-      <div class="skip-circle"><svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg></div>
-      <span class="skip-label">+ 10 sec</span>
+      <div class="skip-pill">
+        <span class="skip-pill-text">10s →</span>
+      </div>
     </div>
 
     <!-- Tap zones: left=double-tap skip back, center=play/pause, right=double-tap skip forward -->
@@ -373,15 +321,12 @@
     <div class="tap-zone tap-center" id="tapC"></div>
     <div class="tap-zone tap-right" id="tapR"></div>
 
-    <!-- Lock Button (normal mode mein dikhega) -->
-    <button class="lock-btn" id="lockBtn" onclick="lockScreen()" title="Lock Screen">
+    <!-- Clean Mode Button — controls visible hone pe top-right mein X dikhega -->
+    <button class="lock-btn" id="lockBtn" onclick="hideEverything()" title="Clean Mode">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
     </button>
 
-    <!-- Chhota lock icon (locked state mein sirf yahi dikhega) -->
-    <div class="lock-icon-small" id="lockIconSmall" onclick="unlockScreen()" title="Unlock">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M12 1C8.676 1 6 3.676 6 7v1H4v15h16V8h-2V7c0-3.324-2.676-6-6-6zm0 2c2.276 0 4 1.724 4 4v1H8V7c0-2.276 1.724-4 4-4zm0 9c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2z"/></svg>
-    </div>
+    <!-- Lock icon removed -->
 
     <video id="vid" src="{{ file_url }}" playsinline preload="none"></video>
 
@@ -630,6 +575,7 @@ let _isAutoplay = true; // pehli baar autoplay pe controls mat dikho
 
 function tryAutoplay() {
   vid.muted = false; // seedha unmuted start karo
+  updateVolIcon(vid.volume || 1); // volume icon turant unmuted dikhao
   const p = vid.play();
   if (p !== undefined) {
     p.then(() => {
@@ -984,28 +930,16 @@ function hideEverything() {
   document.body.classList.add("cinema-mode");
   vw.classList.remove("show-ctrl");
   clearTimeout(ctrlTimer);
-  document.body.style.overflow = "hidden";
-  document.body.style.background = "#000";
-  // Cinema overlay enable karo (lock jaise features)
+  // Cinema overlay enable karo (single tap = exit, double tap = skip)
   enableCinemaOverlay();
-  // Show exit hint, then fade it out after 3s
-  const hint = document.getElementById("cinemaHint");
-  if (hint) {
-    hint.style.opacity = "1";
-    clearTimeout(hint._timer);
-    hint._timer = setTimeout(() => { hint.style.transition = "opacity .6s"; hint.style.opacity = "0"; }, 3000);
-  }
 }
 
 function vidMinimize() {
   _cinemaMode = false;
   document.body.classList.remove("cinema-mode");
-  document.body.style.overflow = "";
-  document.body.style.background = "";
   // Cinema overlay disable karo
   disableCinemaOverlay();
-  // Page top pe scroll karo taaki video + header dikh sake
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  showCtrls(2000);
 }
 
 // ── Skip ±10s ───────────────────────────────────
