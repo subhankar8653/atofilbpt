@@ -394,7 +394,7 @@
       </button>
       <div class="react-divider"></div>
       <!-- Caption / Subtitle Toggle -->
-      <button class="react-btn" id="captionBtn" onclick="toggleCaption()" title="Subtitles / Caption" style="display:none">
+      <button class="react-btn" id="captionBtn" onclick="toggleCaption()" title="Subtitles / Caption">
         <svg id="captionIcon" width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-9 7H9.5v-.5h-2v3h2V13H11v1c0 .55-.45 1-1 1H7c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1c0 .55-.45 1-1 1h-3c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1z"/></svg>
       </button>
       <div class="react-divider"></div>
@@ -2039,19 +2039,14 @@ function initCaptions() {
     track.label   = "Subtitles";
     vid.appendChild(track);
     _captionReady = true;
-    captionBtn.style.display = "flex";
-    // Default off
     track.mode = "hidden";
   }
 
   // ── Step 2: Embedded tracks check ──
-  // loadedmetadata ke baad check karo (tracks tab load hote hain)
   vid.addEventListener("loadedmetadata", () => {
     const tracks = Array.from(vid.textTracks);
     if (tracks.length > 0) {
       _captionReady = true;
-      captionBtn.style.display = "flex";
-      // Sab off karo by default
       tracks.forEach(t => { t.mode = "hidden"; });
     }
   });
