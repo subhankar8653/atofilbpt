@@ -142,12 +142,12 @@
     }
 
     /* ── Skip overlay (MX/YouTube style pill) ── */
-    .skip-anim { position:absolute; top:50%; transform:translateY(-50%); pointer-events:none; display:flex; align-items:center; justify-content:center; opacity:0; transition:opacity .15s; }
+    .skip-anim { position:absolute; top:50%; transform:translateY(-50%); pointer-events:none; display:flex; align-items:center; justify-content:center; opacity:0; transition:opacity .15s; z-index:20; }
     .skip-anim.left { left:10%; }
     .skip-anim.right { right:10%; }
     .skip-anim.show { opacity:1; }
-    .skip-pill { background:rgba(0,0,0,.6); backdrop-filter:blur(6px); border-radius:30px; padding:10px 18px; display:flex; align-items:center; gap:6px; }
-    .skip-pill-text { font-size:15px; font-weight:800; color:#fff; letter-spacing:.5px; }
+    .skip-pill { background:rgba(0,0,0,.65); backdrop-filter:blur(6px); border-radius:30px; padding:10px 18px; display:flex; align-items:center; gap:6px; }
+    .skip-pill-text { font-size:16px; font-weight:800; color:#fff; letter-spacing:.5px; }
     /* ── Play overlay ── */
     .play-overlay { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:64px; height:64px; border-radius:50%; background:rgba(0,0,0,.55); backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; pointer-events:none; transition:opacity .2s; }
     .play-overlay.hide { opacity:0; }
@@ -562,7 +562,8 @@ let _isAutoplay = true; // pehli baar autoplay pe controls mat dikho
 
 function tryAutoplay() {
   vid.muted = false;
-  updateVolIcon(vid.volume || 1);
+  vid.volume = 1; // volume max pe set karo
+  updateVolIcon(1);
   const p = vid.play();
   if (p !== undefined) {
     p.then(() => {
