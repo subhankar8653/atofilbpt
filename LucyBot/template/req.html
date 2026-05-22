@@ -1010,17 +1010,19 @@ ytProg.addEventListener("mousedown",  (e) => {
 // Touch tracking — drag hua hai ya sirf tap?
 let _touchStartX = -1;
 let _touchMoved = false;
+let _activeTouchId = -1; // konsa touch finger drag kar raha hai
 
 ytProg.addEventListener("touchstart", (e) => {
   isDragging = true;
   ytProg.classList.add("dragging");
-  e.preventDefault(); // scroll rok do, drag enable karo
-  // touchstart pe initial position track karo
-  _touchStartX = e.touches[0].clientX;
+  e.preventDefault();
+  const touch = e.touches[0];
+  _activeTouchId = touch.identifier;
+  _touchStartX = touch.clientX;
   _touchMoved = false;
   const pct = getSeekPct(e);
   _dragPct = pct;
-  updateSeekVisual(pct); // visual update karo position ke liye
+  updateSeekVisual(pct);
 }, { passive: false });
 
 document.addEventListener("mousemove", (e) => {
@@ -1028,41 +1030,58 @@ document.addEventListener("mousemove", (e) => {
 });
 
 document.addEventListener("touchmove", (e) => {
-  if (isDragging) {
-    e.preventDefault(); // page scroll nahi hoga drag ke dauran
-    // Horizontal movement check — thoda bhi move hua toh drag maano
-    if (e.touches && e.touches.length > 0 && _touchStartX >= 0) {
-      const dx = Math.abs(e.touches[0].clientX - _touchStartX);
-      if (dx > 3) _touchMoved = true; // 3px threshold
-    } else {
-      _touchMoved = true;
+  if (!isDragging) return;
+  e.preventDefault();
+
+  // Sirf wahi touch use karo jo ytProg pe start hua tha
+  let activeTouch = null;
+  for (let i = 0; i < e.touches.length; i++) {
+    if (e.touches[i].identifier === _activeTouchId) {
+      activeTouch = e.touches[i];
+      break;
     }
-    seekTo(e);
   }
+  if (!activeTouch) return;
+
+  const dx = Math.abs(activeTouch.clientX - _touchStartX);
+  if (dx > 2) _touchMoved = true;
+
+  // ytProg ka rect fresh lo — landscape rotate hone pe bhi sahi rahega
+  const rect = ytProg.getBoundingClientRect();
+  const x = activeTouch.clientX - rect.left;
+  const pct = Math.max(0, Math.min(1, x / rect.width));
+  _dragPct = pct;
+  updateSeekVisual(pct);
 }, { passive: false });
 
 document.addEventListener("mouseup", () => {
   if (isDragging) {
     isDragging = false;
     ytProg.classList.remove("dragging");
-    commitSeek(); // release pe actual seek karo
+    commitSeek();
   }
 });
 
 document.addEventListener("touchend", (e) => {
-  if (isDragging) {
-    isDragging = false;
-    ytProg.classList.remove("dragging");
-    if (_touchMoved) {
-      commitSeek(); // sirf tab seek karo jab finger actually move hui ho
-    } else {
-      // Sirf tap tha — drag nahi — seek nahi karo, visual reset karo
-      _dragPct = -1;
-      updateTime(); // original position pe wapas
-    }
-    _touchMoved = false;
-    _touchStartX = -1;
+  if (!isDragging) return;
+  // Sirf tab end karo jab hamara active touch end hua ho
+  let found = false;
+  for (let i = 0; i < e.changedTouches.length; i++) {
+    if (e.changedTouches[i].identifier === _activeTouchId) { found = true; break; }
   }
+  if (!found) return;
+
+  isDragging = false;
+  ytProg.classList.remove("dragging");
+  _activeTouchId = -1;
+  if (_touchMoved) {
+    commitSeek();
+  } else {
+    _dragPct = -1;
+    updateTime();
+  }
+  _touchMoved = false;
+  _touchStartX = -1;
 });
 
 document.addEventListener("touchcancel", () => {
@@ -1072,7 +1091,8 @@ document.addEventListener("touchcancel", () => {
     _dragPct = -1;
     _touchMoved = false;
     _touchStartX = -1;
-    updateTime(); // position reset
+    _activeTouchId = -1;
+    updateTime();
   }
 });
 
