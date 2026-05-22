@@ -74,7 +74,7 @@
     .speed-badge.show { opacity:1; }
 
     /* Center play/resume button */
-    .center-play-btn { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:56px; height:56px; border-radius:50%; background:rgba(0,0,0,.55); border:2px solid rgba(255,255,255,.5); color:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:10; pointer-events:none; backdrop-filter:blur(4px); transition:opacity .2s, transform .15s; -webkit-tap-highlight-color:transparent; opacity:0; }
+    .center-play-btn { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:56px; height:56px; border-radius:50%; background:rgba(0,0,0,.55); border:2px solid rgba(255,255,255,.5); color:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:15; pointer-events:none; backdrop-filter:blur(4px); transition:opacity .2s, transform .15s; -webkit-tap-highlight-color:transparent; opacity:0; }
     .center-play-btn:active { transform:translate(-50%,-50%) scale(.9); }
     .video-wrapper.show-ctrl.is-paused .center-play-btn { opacity:1; pointer-events:auto; }
     .video-wrapper.locked .center-play-btn { display:none !important; }
@@ -329,7 +329,7 @@
     <div class="speed-badge" id="speedBadge">▶▶ 2x</div>
 
     <!-- Center play/resume button -->
-    <div class="center-play-btn" id="centerPlayBtn" onclick="togglePlay(); showCtrls();">
+    <div class="center-play-btn" id="centerPlayBtn">
       <svg width="26" height="26" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
     </div>
 
@@ -919,6 +919,19 @@ vw.addEventListener("mousemove", showCtrls);
 function togglePlay() {
   if (vid.paused) { bufSpinner.classList.add("show"); vid.play(); } else vid.pause();
 }
+
+// Center play button — touchstart use karo (onclick tap zones se block hota tha)
+const centerPlayBtn = document.getElementById("centerPlayBtn");
+centerPlayBtn.addEventListener("touchstart", (e) => {
+  e.stopPropagation();
+  vid.play();
+  showCtrls(1500);
+}, { passive: true });
+centerPlayBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  vid.play();
+  showCtrls(1500);
+});
 function hideEverything() {
   _cinemaMode = true;
   document.body.classList.add("cinema-mode");
