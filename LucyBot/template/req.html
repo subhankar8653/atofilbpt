@@ -110,8 +110,8 @@
     }
     /* Normal mode mein hide */
     .video-wrapper.show-ctrl .cinema-btn { opacity:0; pointer-events:none; }
-    /* Clean mode mein hamesha visible */
-    body.cinema-mode .video-wrapper .cinema-btn { opacity:1 !important; pointer-events:auto !important; display:flex !important; }
+    /* Clean mode mein bhi hide — sirf tap se exit hoga */
+    body.cinema-mode .video-wrapper .cinema-btn { display:none !important; }
 
     /* ── Clean mode — sirf video ke upar se overlay hata, video apni jagah rahe ── */
     /* Header, footer, pageContent sab rahe — kuch hide nahi */
@@ -121,21 +121,8 @@
     body.cinema-mode .skip-anim { display:none !important; }
     body.cinema-mode .lock-btn { display:none !important; }
     body.cinema-mode .cinema-bar { display:block !important; }
-    /* Cinema exit hint */
-    .cinema-hint {
-      display:none;
-      position:absolute;
-      top:12px; left:50%;
-      transform:translateX(-50%);
-      background:rgba(0,0,0,.72);
-      color:rgba(255,255,255,.7);
-      font-size:10px; font-weight:700;
-      padding:5px 14px; border-radius:20px;
-      letter-spacing:.5px; white-space:nowrap;
-      z-index:100001; pointer-events:none;
-      animation:fadeUp .4s ease both;
-    }
-    body.cinema-mode .cinema-hint { display:block !important; }
+    /* Cinema hint — removed */
+    .cinema-hint { display:none !important; }
 
     .cinema-bar {
       display:none;
@@ -574,23 +561,17 @@ let _cinemaMode = false;
 let _isAutoplay = true; // pehli baar autoplay pe controls mat dikho
 
 function tryAutoplay() {
-  vid.muted = false; // seedha unmuted start karo
-  updateVolIcon(vid.volume || 1); // volume icon turant unmuted dikhao
+  vid.muted = false;
+  updateVolIcon(vid.volume || 1);
   const p = vid.play();
   if (p !== undefined) {
     p.then(() => {
       hideCtrls();
     }).catch(() => {
-      // Autoplay block hua (browser policy) — muted try karo silently
-      vid.muted = true;
-      vid.play().then(() => {
-        // Muted chal raha hai — volume icon update karo
-        updateVolIcon(0);
-      }).catch(() => {
-        _isAutoplay = false;
-        bufSpinner.classList.remove("show");
-        showTapToPlay();
-      });
+      // Browser ne unmuted autoplay block kiya — TAP TO PLAY dikhao (unmuted rahega)
+      _isAutoplay = false;
+      bufSpinner.classList.remove("show");
+      showTapToPlay();
     });
   }
 }
