@@ -2023,47 +2023,87 @@ function shareIt() {
 // CAPTION / SUBTITLE SYSTEM
 // Embedded tracks (in-video) + External .vtt (future)
 // ═══════════════════════════════════════════════
-const SUBTITLE_URL = "{{ subtitle_url | default('') }}"; // future: bot se .vtt URL milega
+const SUBTITLE_URL = "{{ subtitle_url | default('') }}";
 let _captionOn = false;
-let _captionReady = false; // koi track available hai ya nahi
+let _captionReady = false;
+let _captionTrackIdx = -1; // konsa track use karna hai
 
 const captionBtn = document.getElementById("captionBtn");
 
+function _findSubtitleTrack(tracks) {
+  // Priority: kind="subtitles" > kind="captions" > any track
+  // English ya first available prefer karo
+  const arr = Array.from(tracks);
+  // pehle subtitles kind dhundo
+  let idx = arr.findIndex(t => t.kind === "subtitles");
+  if (idx === -1) idx = arr.findIndex(t => t.kind === "captions");
+  if (idx === -1 && arr.length > 0) idx = 0;
+  return idx;
+}
+
+function _checkTracks() {
+  // External .vtt
+  if (SUBTITLE_URL && SUBTITLE_URL !== "" && SUBTITLE_URL.indexOf("{{") === -1) {
+    _captionReady = true;
+    return;
+  }
+  // Embedded tracks
+  const tracks = vid.textTracks;
+  if (tracks.length > 0) {
+    _captionTrackIdx = _findSubtitleTrack(tracks);
+    if (_captionTrackIdx >= 0) {
+      _captionReady = true;
+      // Sab hidden karo by default
+      Array.from(tracks).forEach(t => { t.mode = "hidden"; });
+    }
+  }
+}
+
 function initCaptions() {
-  // ── Step 1: External .vtt check (future use) ──
-  if (SUBTITLE_URL && SUBTITLE_URL !== "") {
+  // External .vtt add karo (future)
+  if (SUBTITLE_URL && SUBTITLE_URL !== "" && SUBTITLE_URL.indexOf("{{") === -1) {
     const track = document.createElement("track");
-    track.kind    = "subtitles";
-    track.src     = SUBTITLE_URL;
-    track.default = false;
-    track.label   = "Subtitles";
+    track.kind  = "subtitles";
+    track.src   = SUBTITLE_URL;
+    track.label = "Subtitles";
+    track.mode  = "hidden";
     vid.appendChild(track);
     _captionReady = true;
-    track.mode = "hidden";
+    _captionTrackIdx = 0;
   }
 
-  // ── Step 2: Embedded tracks check ──
-  vid.addEventListener("loadedmetadata", () => {
-    const tracks = Array.from(vid.textTracks);
-    if (tracks.length > 0) {
-      _captionReady = true;
-      tracks.forEach(t => { t.mode = "hidden"; });
-    }
-  });
+  // Embedded tracks — multiple events pe check karo kyunki MKV mein late load hota hai
+  const evts = ["loadedmetadata", "loadeddata", "canplay"];
+  evts.forEach(ev => vid.addEventListener(ev, _checkTracks, { once: false }));
+
+  // Polling fallback — 500ms tak check karte raho
+  let attempts = 0;
+  const poll = setInterval(() => {
+    _checkTracks();
+    attempts++;
+    if (_captionReady || attempts > 10) clearInterval(poll);
+  }, 500);
 }
 
 function toggleCaption() {
+  // Fresh check — ho sakta hai ab tak tracks load ho gaye hon
+  _checkTracks();
+
   if (!_captionReady) {
     showToast("❌ Is video mein subtitle available nahi hai");
     return;
   }
 
   _captionOn = !_captionOn;
-  const tracks = Array.from(vid.textTracks);
 
+  const tracks = Array.from(vid.textTracks);
   if (tracks.length > 0) {
-    // Embedded tracks
-    tracks.forEach(t => { t.mode = _captionOn ? "showing" : "hidden"; });
+    // Pehle sab hide karo
+    tracks.forEach(t => { t.mode = "hidden"; });
+    // Sirf selected track show karo
+    if (_captionOn && _captionTrackIdx >= 0 && tracks[_captionTrackIdx]) {
+      tracks[_captionTrackIdx].mode = "showing";
+    }
   }
 
   captionBtn.classList.toggle("active-caption", _captionOn);
