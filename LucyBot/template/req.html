@@ -90,6 +90,31 @@
     /* Controls bottom bar visible in FS */
     body.fs-mode .yt-bottom { padding-bottom: 12px; }
 
+    /* ── Cinema mode button (overlay ke bahar — hamesha clickable) ── */
+    .cinema-btn {
+      position:absolute;
+      top:10px; right:10px;
+      z-index:30;
+      background:rgba(0,0,0,.55);
+      border:none;
+      color:#fff;
+      width:36px; height:36px;
+      border-radius:50%;
+      display:flex; align-items:center; justify-content:center;
+      cursor:pointer;
+      opacity:0;
+      transition:opacity .25s;
+      -webkit-tap-highlight-color:transparent;
+      backdrop-filter:blur(4px);
+      pointer-events:none;
+    }
+    /* Controls show hone pe cinema button bhi dikhao */
+    .video-wrapper.show-ctrl .cinema-btn { opacity:1; pointer-events:auto; }
+    /* Cinema mode mein khud ko chhupao */
+    body.cinema-mode .cinema-btn { display:none !important; }
+    /* Locked state mein chhupao */
+    .video-wrapper.locked .cinema-btn { display:none !important; }
+
     /* ── Cinema mode (X button pressed) ── */
     body.cinema-mode .header,
     body.cinema-mode #pageContent,
@@ -367,15 +392,16 @@
     <!-- Cinema mode: tap to exit hint -->
     <div class="cinema-hint" id="cinemaHint">👆 Tap karein normal mode ke liye</div>
 
+    <!-- Cinema button: yt-overlay ke BAHAR hai taaki show-ctrl pe hamesha clickable rahe -->
+    <button class="cinema-btn" id="cinemaModeBtn" onclick="hideEverything()" title="Cinema Mode">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+    </button>
+
     <!-- YouTube-style full overlay -->
     <div class="yt-overlay" id="ytOverlay">
 
-      <!-- Top bar — Cinema mode button -->
-      <div class="yt-top">
-        <button class="yt-top-btn" onclick="hideEverything()" title="Cinema Mode">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-        </button>
-      </div>
+      <!-- Top bar (empty) -->
+      <div class="yt-top"></div>
 
       <!-- Center: NO buttons — invisible tap zones handle everything -->
       <div class="yt-center" style="pointer-events:none"></div>
@@ -1007,16 +1033,40 @@ let _dragPct = -1; // drag ke dauran visual pct track karo (seek preview)
 function getSeekPct(e) {
   const rect = ytProg.getBoundingClientRect();
   // touches available ho toh use karo, warna changedTouches, warna mouse
-  let clientX;
+  let clientX, clientY;
   if (e.touches && e.touches.length > 0) {
     clientX = e.touches[0].clientX;
+    clientY = e.touches[0].clientY;
   } else if (e.changedTouches && e.changedTouches.length > 0) {
     clientX = e.changedTouches[0].clientX;
+    clientY = e.changedTouches[0].clientY;
   } else {
     clientX = e.clientX;
+    clientY = e.clientY;
   }
+
+  // CSS rotate(90deg) fix:
+  // Jab landscape FS mein CSS rotation use ki hai, progress bar visually horizontal
+  // dikhta hai lekin browser ke liye wo 90deg rotated hai.
+  // rect.width << rect.height hoga landscape mein (bar thin hai, height = visual width)
+  // Solution: agar _isFS aur CSS rotate chal rahi hai, clientY use karo aur
+  // bar ki top se neeche ki taraf map karo (jo visually left-to-right hai)
+  if (_isFS) {
+    // Bar ka center
+    const barCenterX = rect.left + rect.width / 2;
+    const barCenterY = rect.top  + rect.height / 2;
+    // Rotated bar mein: visual "left" = bar ka top (min clientY)
+    //                   visual "right" = bar ka bottom (max clientY)
+    // Touch ka Y relative to bar center → percentage
+    const dy = clientY - barCenterY;
+    const halfH = rect.height / 2;
+    // Map: barCenterY - halfH (visual left=0%) → barCenterY + halfH (visual right=100%)
+    return Math.max(0, Math.min(1, (dy + halfH) / (rect.height || 1)));
+  }
+
+  // Normal (portrait) mode — clientX use karo
   const x = clientX - rect.left;
-  return Math.max(0, Math.min(1, x / rect.width));
+  return Math.max(0, Math.min(1, x / (rect.width || 1)));
 }
 
 function updateSeekVisual(pct) {
@@ -1047,6 +1097,7 @@ ytProg.addEventListener("mousedown",  (e) => {
 
 // Touch tracking — drag hua hai ya sirf tap?
 let _touchStartX = -1;
+let _touchStartY = -1;
 let _touchMoved = false;
 let _activeTouchId = -1; // konsa touch finger drag kar raha hai
 
@@ -1057,6 +1108,7 @@ ytProg.addEventListener("touchstart", (e) => {
   const touch = e.touches[0];
   _activeTouchId = touch.identifier;
   _touchStartX = touch.clientX;
+  _touchStartY = touch.clientY;
   _touchMoved = false;
   const pct = getSeekPct(e);
   _dragPct = pct;
@@ -1084,10 +1136,26 @@ document.addEventListener("touchmove", (e) => {
   const dx = Math.abs(activeTouch.clientX - _touchStartX);
   if (dx > 2) _touchMoved = true;
 
+  // Landscape mode mein dy bhi check karo
+  if (_isFS) {
+    const dy = Math.abs(activeTouch.clientY - _touchStartY);
+    if (dy > 2) _touchMoved = true;
+  }
+
   // ytProg ka rect fresh lo — landscape rotate hone pe bhi sahi rahega
+  // getSeekPct ke liye synthetic event-like object pass karo
   const rect = ytProg.getBoundingClientRect();
-  const x = activeTouch.clientX - rect.left;
-  const pct = Math.max(0, Math.min(1, x / rect.width));
+  let pct;
+  if (_isFS) {
+    // Landscape: clientY se calculate karo (bar visually horizontal hai, internally vertical)
+    const barCenterY = rect.top + rect.height / 2;
+    const dy = activeTouch.clientY - barCenterY;
+    const halfH = rect.height / 2;
+    pct = Math.max(0, Math.min(1, (dy + halfH) / (rect.height || 1)));
+  } else {
+    const x = activeTouch.clientX - rect.left;
+    pct = Math.max(0, Math.min(1, x / (rect.width || 1)));
+  }
   _dragPct = pct;
   updateSeekVisual(pct);
 }, { passive: false });
@@ -1120,6 +1188,7 @@ document.addEventListener("touchend", (e) => {
   }
   _touchMoved = false;
   _touchStartX = -1;
+  _touchStartY = -1;
 });
 
 document.addEventListener("touchcancel", () => {
@@ -1129,6 +1198,7 @@ document.addEventListener("touchcancel", () => {
     _dragPct = -1;
     _touchMoved = false;
     _touchStartX = -1;
+    _touchStartY = -1;
     _activeTouchId = -1;
     updateTime();
   }
