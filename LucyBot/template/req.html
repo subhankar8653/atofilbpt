@@ -69,9 +69,15 @@
     .buf-spinner { position:absolute; inset:0; display:none; align-items:center; justify-content:center; pointer-events:none; z-index:5; }
     .buf-spinner.show { display:flex; }
 
-    /* Speed overlay badge */
-    .speed-badge { position:absolute; top:10px; right:12px; background:rgba(0,0,0,.75); color:#fff; font-size:12px; font-weight:800; padding:4px 10px; border-radius:6px; pointer-events:none; opacity:0; transition:opacity .2s; z-index:20; letter-spacing:.5px; }
+    /* Speed overlay badge — chhota */
+    .speed-badge { position:absolute; top:8px; right:10px; background:rgba(0,0,0,.65); color:#fff; font-size:10px; font-weight:700; padding:2px 7px; border-radius:4px; pointer-events:none; opacity:0; transition:opacity .2s; z-index:20; letter-spacing:.3px; }
     .speed-badge.show { opacity:1; }
+
+    /* Center play/resume button */
+    .center-play-btn { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:56px; height:56px; border-radius:50%; background:rgba(0,0,0,.55); border:2px solid rgba(255,255,255,.5); color:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:10; pointer-events:none; backdrop-filter:blur(4px); transition:opacity .2s, transform .15s; -webkit-tap-highlight-color:transparent; opacity:0; }
+    .center-play-btn:active { transform:translate(-50%,-50%) scale(.9); }
+    .video-wrapper.show-ctrl.is-paused .center-play-btn { opacity:1; pointer-events:auto; }
+    .video-wrapper.locked .center-play-btn { display:none !important; }
 
     /* ── CSS Fullscreen mode ── */
     body.fs-mode .header,
@@ -321,6 +327,11 @@
 
     <!-- Speed hold badge -->
     <div class="speed-badge" id="speedBadge">▶▶ 2x</div>
+
+    <!-- Center play/resume button -->
+    <div class="center-play-btn" id="centerPlayBtn" onclick="togglePlay(); showCtrls();">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+    </div>
 
     <!-- Skip animations -->
     <div class="skip-anim left" id="skipAnimL">
@@ -744,13 +755,13 @@ const PLAY_PATH  = `<path d="M8 5v14l11-7z"/>`;
 const PAUSE_PATH = `<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>`;
 vid.addEventListener("play",  () => {
   playIcon.innerHTML=PAUSE_PATH;
+  vw.classList.remove("is-paused");
   if (_isAutoplay) { _isAutoplay = false; return; }
-  // Don't auto-show controls on play — let user control visibility
 });
 vid.addEventListener("pause", () => {
   playIcon.innerHTML=PLAY_PATH;
+  vw.classList.add("is-paused");
   if (_cinemaMode) return;
-  // On pause, always show controls (works in normal + fullscreen)
   vw.classList.add("show-ctrl");
   clearTimeout(ctrlTimer);
 });
@@ -1214,23 +1225,9 @@ _lockOverlay.addEventListener("touchstart", (e) => {
 
   _lockTouchStart = Date.now();
   _lockIsHold = false;
+  _lockOverlay._touchSide = side;
 
-  // Hold timer — 500ms baad 2x start
-  const holdTimer = setTimeout(() => {
-    _lockIsHold = true;
-    _lockHoldActive = true;
-    _lockSpeedBefore = vid.playbackRate;
-    vid.playbackRate = 2;
-    document.getElementById("speedBadge").classList.add("show");
-    clearTimeout(_lockTapTimer);
-    _lockTapCount = 0;
-    _lockTapSide = null;
-  }, LOCK_HOLD_MS);
-
-  // touchend/cancel pe hold timer cancel karne ke liye ref store karo
-  _lockOverlay._holdTimer = holdTimer;
-
-  // Tap count track karo — same side ke taps count karo
+  // Tap count track karo (double tap detect ke liye)
   if (_lockTapSide !== side) {
     clearTimeout(_lockTapTimer);
     _lockTapCount = 0;
@@ -1239,37 +1236,39 @@ _lockOverlay.addEventListener("touchstart", (e) => {
   _lockTapCount++;
 
   if (_lockTapCount >= 2) {
-    // Double tap — immediately skip
+    // Double tap — skip
     clearTimeout(_lockTapTimer);
     clearTimeout(_lockOverlay._holdTimer);
     _lockTapCount = 0;
     _lockTapSide = null;
-    if (side === "L") {
-      skipSec(-10);
-    } else {
-      skipSec(10);
-    }
+    if (side === "L") { skipSec(-10); } else { skipSec(10); }
     hideLockIcon();
-  } else {
-    // Pehla tap — 300ms wait, agar dobara tap nahi aaya toh single tap
-    clearTimeout(_lockTapTimer);
-    _lockTapTimer = setTimeout(() => {
-      _lockTapCount = 0;
-      _lockTapSide = null;
-      if (!_lockIsHold) {
-        vw.classList.contains("show-lock-icon") ? hideLockIcon() : showLockIcon();
-      }
-    }, LOCK_DBL_MS);
   }
+  // Single tap action touchend mein handle hoga
 }, { passive: true });
 
 function _lockRelease() {
-  clearTimeout(_lockOverlay._holdTimer); // hold timer cancel karo
+  clearTimeout(_lockOverlay._holdTimer);
+  const held = Date.now() - _lockTouchStart;
   _lockTouchStart = 0;
+
   if (_lockHoldActive) {
+    // Hold tha — speed wapas normal, icon hide
     _lockHoldActive = false;
-    vid.playbackRate = _lockSpeedBefore; // wapas normal speed
+    _lockIsHold = true;
+    vid.playbackRate = _lockSpeedBefore;
     document.getElementById("speedBadge").classList.remove("show");
+  } else if (held < LOCK_HOLD_MS && _lockTapCount === 1) {
+    // Single tap tha (hold nahi, double tap nahi) — lock icon toggle
+    // 310ms baad fire karo taaki double tap check ho sake
+    clearTimeout(_lockTapTimer);
+    _lockTapTimer = setTimeout(() => {
+      if (_lockTapCount === 1) { // abhi bhi single tap hai
+        _lockTapCount = 0;
+        _lockTapSide = null;
+        vw.classList.contains("show-lock-icon") ? hideLockIcon() : showLockIcon();
+      }
+    }, LOCK_DBL_MS + 10);
   }
 }
 
@@ -1284,6 +1283,22 @@ _lockOverlay.addEventListener("touchmove", () => {
     document.getElementById("speedBadge").classList.remove("show");
   }
 }, { passive: true });
+
+// Hold = 2x — touchstart ke baad 500ms tak finger press rahe
+(function _lockHoldCheck() {
+  if (_lockTouchStart > 0 && !_lockHoldActive && !_lockIsHold) {
+    if (Date.now() - _lockTouchStart >= LOCK_HOLD_MS) {
+      _lockHoldActive = true;
+      _lockSpeedBefore = vid.playbackRate;
+      vid.playbackRate = 2;
+      document.getElementById("speedBadge").classList.add("show");
+      clearTimeout(_lockTapTimer);
+      _lockTapCount = 0;
+      _lockTapSide = null;
+    }
+  }
+  requestAnimationFrame(_lockHoldCheck);
+})();
 
 vw.appendChild(_lockOverlay);
 
