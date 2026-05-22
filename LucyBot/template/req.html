@@ -265,6 +265,8 @@
       backdrop-filter:blur(4px);
     }
     .video-wrapper.show-ctrl .lock-btn { opacity:1; }
+    /* Lock button apna khud ka show class — controls ke bina bhi dikh sake */
+    .video-wrapper.show-lock-btn .lock-btn { opacity:1; }
 
     /* Locked state: chhota lock icon side mein */
     .lock-icon-small {
@@ -283,8 +285,12 @@
       -webkit-tap-highlight-color:transparent;
       backdrop-filter:blur(4px);
       animation:fadeUp .3s ease;
+      opacity:0;
+      transition:opacity .3s;
     }
     .video-wrapper.locked .lock-icon-small { display:flex; }
+    /* Lock icon visible class — single tap pe show/hide */
+    .video-wrapper.locked.show-lock-icon .lock-icon-small { opacity:1; }
 
     /* Locked state: saari UI hide */
     .video-wrapper.locked .yt-overlay { display:none !important; }
@@ -292,6 +298,8 @@
     .video-wrapper.locked .tap-zone { pointer-events:none !important; }
     .video-wrapper.locked .buf-spinner { display:none !important; }
     .video-wrapper.locked .skip-anim { display:none !important; }
+    /* lock-icon-small locked state mein hamesha display:flex rakho — opacity se control karenge */
+    .video-wrapper.locked .lock-icon-small { display:flex !important; pointer-events:auto !important; }
   </style>
 </head>
 <body>
@@ -749,6 +757,17 @@ vid.addEventListener("pause", () => {
 
 // ── Controls show/hide ──────────────────────────
 const CTRL_TIMEOUT = 3000; // 3 seconds (was 5)
+let _lockBtnTimer = null;
+
+// Lock button independently show karo (controls ke saath ya alag)
+function showLockBtn() {
+  if (_isLocked) return; // locked hone ke baad lock-btn bilkul nahi
+  vw.classList.add("show-lock-btn");
+  clearTimeout(_lockBtnTimer);
+  _lockBtnTimer = setTimeout(() => {
+    vw.classList.remove("show-lock-btn");
+  }, CTRL_TIMEOUT);
+}
 
 function showCtrls(customTimeout) {
   if (_cinemaMode) return;
@@ -757,9 +776,14 @@ function showCtrls(customTimeout) {
   const t = customTimeout !== undefined ? customTimeout : CTRL_TIMEOUT;
   // Fullscreen mein bhi auto-hide karo
   ctrlTimer = setTimeout(() => { if(!vid.paused) hideCtrls(); }, t);
+  // Lock button bhi saath mein dikhao
+  showLockBtn();
 }
 function hideCtrls() {
   vw.classList.remove("show-ctrl");
+  // Lock button bhi chhupao (locked state mein already handle hai)
+  vw.classList.remove("show-lock-btn");
+  clearTimeout(_lockBtnTimer);
 }
 
 // ═══════════════════════════════════════════════
@@ -775,54 +799,75 @@ const tapL = document.getElementById("tapL");
 const tapC = document.getElementById("tapC");
 const tapR2 = document.getElementById("tapR"); // renamed to avoid conflict
 
-let _tapTimerL = null, _tapTimerR = null;
-let _suppressNextClick = false;
+// Double-tap timing (touchstart based — click se zyada accurate mobile pe)
+const DBL_TAP_MS = 300;
+let _tapTimerL = null, _tapTimerR = null, _tapTimerC = null;
+let _tapCountL = 0, _tapCountR = 0, _tapCountC = 0;
+
+// Helper: touchstart-based tap handler factory
+// onSingle = single tap callback, onDouble = double tap callback
+function makeTapHandler(onSingle, onDouble) {
+  let timer = null;
+  let count = 0;
+  return function(e) {
+    // Sirf real touch/mouse — programmatic events ignore karo
+    e.stopPropagation();
+    count++;
+    if (count === 1) {
+      timer = setTimeout(() => {
+        count = 0;
+        onSingle();
+      }, DBL_TAP_MS);
+    } else {
+      clearTimeout(timer);
+      count = 0;
+      onDouble();
+    }
+  };
+}
 
 // ── Left zone ──────────────────────────────────
-tapL.addEventListener("click", () => {
-  if (_cinemaMode) { vidMinimize(); return; }
-  if (_tapTimerL) {
-    clearTimeout(_tapTimerL); _tapTimerL = null;
+const _tapHandlerL = makeTapHandler(
+  () => { // single tap
+    if (_cinemaMode) { vidMinimize(); return; }
+    vw.classList.contains("show-ctrl") ? hideCtrls() : showCtrls();
+  },
+  () => { // double tap
+    if (_cinemaMode) return;
     skipSec(-10);
-  } else {
-    _tapTimerL = setTimeout(() => {
-      _tapTimerL = null;
-      vw.classList.contains("show-ctrl") ? hideCtrls() : showCtrls();
-    }, 280);
   }
-});
+);
+tapL.addEventListener("touchstart", _tapHandlerL, { passive: true });
+tapL.addEventListener("click", (e) => { e.stopPropagation(); }); // click suppress karo — touchstart handle kar raha hai
 
 // ── Center zone ────────────────────────────────
-let _tapTimerC = null;
-tapC.addEventListener("click", (e) => {
-  if (_cinemaMode) { vidMinimize(); return; }
-  if (_tapTimerC) {
-    // Double tap → play/pause
-    clearTimeout(_tapTimerC); _tapTimerC = null;
+const _tapHandlerC = makeTapHandler(
+  () => { // single tap
+    if (_cinemaMode) { vidMinimize(); return; }
+    vw.classList.contains("show-ctrl") ? hideCtrls() : showCtrls();
+  },
+  () => { // double tap
+    if (_cinemaMode) return;
     togglePlay();
     showCtrls(1500);
-  } else {
-    _tapTimerC = setTimeout(() => {
-      _tapTimerC = null;
-      // Single tap: controls toggle (hide/show) — fullscreen mein bhi
-      vw.classList.contains("show-ctrl") ? hideCtrls() : showCtrls();
-    }, 280);
   }
-});
+);
+tapC.addEventListener("touchstart", _tapHandlerC, { passive: true });
+tapC.addEventListener("click", (e) => { e.stopPropagation(); });
 
 // ── Right zone ─────────────────────────────────
-tapR2.addEventListener("click", () => {
-  if (_cinemaMode) { vidMinimize(); return; }
-  if (_tapTimerR) {
-    clearTimeout(_tapTimerR); _tapTimerR = null;
+const _tapHandlerR = makeTapHandler(
+  () => { // single tap
+    if (_cinemaMode) { vidMinimize(); return; }
+    vw.classList.contains("show-ctrl") ? hideCtrls() : showCtrls();
+  },
+  () => { // double tap
+    if (_cinemaMode) return;
     skipSec(10);
-  } else {
-    _tapTimerR = setTimeout(() => {
-      _tapTimerR = null;
-      vw.classList.contains("show-ctrl") ? hideCtrls() : showCtrls();
-    }, 280);
   }
-});
+);
+tapR2.addEventListener("touchstart", _tapHandlerR, { passive: true });
+tapR2.addEventListener("click", (e) => { e.stopPropagation(); });
 
 // ── Hold right zone = 2x speed ─────────────────
 const _badge = document.getElementById("speedBadge");
@@ -899,7 +944,15 @@ let _dragPct = -1; // drag ke dauran visual pct track karo (seek preview)
 
 function getSeekPct(e) {
   const rect = ytProg.getBoundingClientRect();
-  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  // touches available ho toh use karo, warna changedTouches, warna mouse
+  let clientX;
+  if (e.touches && e.touches.length > 0) {
+    clientX = e.touches[0].clientX;
+  } else if (e.changedTouches && e.changedTouches.length > 0) {
+    clientX = e.changedTouches[0].clientX;
+  } else {
+    clientX = e.clientX;
+  }
   const x = clientX - rect.left;
   return Math.max(0, Math.min(1, x / rect.width));
 }
@@ -930,14 +983,17 @@ ytProg.addEventListener("mousedown",  (e) => {
   e.preventDefault();
 }, { passive: false });
 
+// Touch tracking — drag hua hai ya sirf tap?
+let _touchStartX = -1;
+let _touchMoved = false;
+
 ytProg.addEventListener("touchstart", (e) => {
   isDragging = true;
   ytProg.classList.add("dragging");
   e.preventDefault(); // scroll rok do, drag enable karo
-  // Note: touchstart pe seekTo mat karo — sirf drag start karo
-  // Actual seek touchmove pe hoga (finger move hone pe)
-  // Isse ek tap mein last tak jaane ki problem fix hogi
-  const touch = e.touches[0];
+  // touchstart pe initial position track karo
+  _touchStartX = e.touches[0].clientX;
+  _touchMoved = false;
   const pct = getSeekPct(e);
   _dragPct = pct;
   updateSeekVisual(pct); // visual update karo position ke liye
@@ -950,7 +1006,13 @@ document.addEventListener("mousemove", (e) => {
 document.addEventListener("touchmove", (e) => {
   if (isDragging) {
     e.preventDefault(); // page scroll nahi hoga drag ke dauran
-    _touchMoved = true; // finger move hui — yeh drag hai, tap nahi
+    // Horizontal movement check — thoda bhi move hua toh drag maano
+    if (e.touches && e.touches.length > 0 && _touchStartX >= 0) {
+      const dx = Math.abs(e.touches[0].clientX - _touchStartX);
+      if (dx > 3) _touchMoved = true; // 3px threshold
+    } else {
+      _touchMoved = true;
+    }
     seekTo(e);
   }
 }, { passive: false });
@@ -963,18 +1025,7 @@ document.addEventListener("mouseup", () => {
   }
 });
 
-// Touch tracking — drag hua hai ya sirf tap?
-let _touchStartX = -1;
-let _touchMoved = false;
-
-document.addEventListener("touchstart", (e) => {
-  if (isDragging) {
-    _touchStartX = e.touches[0].clientX;
-    _touchMoved = false;
-  }
-}, { passive: true });
-
-document.addEventListener("touchend", () => {
+document.addEventListener("touchend", (e) => {
   if (isDragging) {
     isDragging = false;
     ytProg.classList.remove("dragging");
@@ -1087,12 +1138,27 @@ document.addEventListener("keydown", (e)=>{
 // LOCK SCREEN (MX Player style)
 // ═══════════════════════════════════════════════
 let _isLocked = false;
+let _lockIconTimer = null;
+
+// Lock icon show/hide (locked state mein single tap pe)
+function showLockIcon() {
+  vw.classList.add("show-lock-icon");
+  clearTimeout(_lockIconTimer);
+  _lockIconTimer = setTimeout(() => {
+    vw.classList.remove("show-lock-icon");
+  }, 5000);
+}
+function hideLockIcon() {
+  vw.classList.remove("show-lock-icon");
+  clearTimeout(_lockIconTimer);
+}
 
 function lockScreen() {
   _isLocked = true;
   vw.classList.add("locked");
-  vw.classList.remove("show-ctrl");
+  vw.classList.remove("show-ctrl", "show-lock-btn");
   clearTimeout(ctrlTimer);
+  clearTimeout(_lockBtnTimer);
   showToast("🔒 Screen Locked");
 
   // Locked tap zones enable karo (double-tap skip + hold 2x)
@@ -1101,7 +1167,8 @@ function lockScreen() {
 
 function unlockScreen() {
   _isLocked = false;
-  vw.classList.remove("locked");
+  vw.classList.remove("locked", "show-lock-icon");
+  clearTimeout(_lockIconTimer);
   showToast("🔓 Screen Unlocked");
   showCtrls(2000);
 
@@ -1109,35 +1176,16 @@ function unlockScreen() {
   disableLockedTapZones();
 }
 
-// ── Locked state: double-tap skip + hold 2x ────
-let _lockTapTimerL = null, _lockTapTimerR = null;
-let _lockHoldTimer = null, _lockHoldActive = false, _lockSpeedBefore = 1;
+// ── Locked state: single tap = lock icon, double tap = skip, hold = 2x ────
+let _lockHoldActive = false, _lockSpeedBefore = 1;
+let _lockTapTimer = null;   // single/double tap decide karne ka timer
+let _lockTapCount = 0;      // kitni baar tap hua (left/right alag nahi — side touchstart pe pata chalegi)
+let _lockTapSide = null;    // 'L' ya 'R'
+let _lockTouchStart = 0;    // finger press time (hold detect ke liye)
+let _lockIsHold = false;    // hold chal raha hai ya nahi
 
-function _lockDoubleTapLeft() {
-  if (_lockTapTimerL) {
-    clearTimeout(_lockTapTimerL);
-    _lockTapTimerL = null;
-    skipSec(-10);
-  } else {
-    _lockTapTimerL = setTimeout(() => {
-      _lockTapTimerL = null;
-      // Single tap — kuch nahi karo locked mein
-    }, 280);
-  }
-}
-
-function _lockDoubleTapRight() {
-  if (_lockTapTimerR) {
-    clearTimeout(_lockTapTimerR);
-    _lockTapTimerR = null;
-    skipSec(10);
-  } else {
-    _lockTapTimerR = setTimeout(() => {
-      _lockTapTimerR = null;
-      // Single tap — kuch nahi
-    }, 280);
-  }
-}
+const LOCK_HOLD_MS = 500;   // 500ms se zyada = hold
+const LOCK_DBL_MS = 300;    // 300ms ke andar dobaara tap = double tap
 
 // Locked hold anywhere = 2x speed
 const _lockOverlay = document.createElement("div");
@@ -1148,7 +1196,10 @@ function enableLockedTapZones() {
 }
 function disableLockedTapZones() {
   _lockOverlay.style.display = "none";
-  clearTimeout(_lockHoldTimer);
+  clearTimeout(_lockTapTimer);
+  _lockTapCount = 0;
+  _lockTapSide = null;
+  _lockIsHold = false;
   if (_lockHoldActive) {
     _lockHoldActive = false;
     vid.playbackRate = _lockSpeedBefore;
@@ -1156,42 +1207,96 @@ function disableLockedTapZones() {
   }
 }
 
-function _lockStartHold(e) {
+_lockOverlay.addEventListener("touchstart", (e) => {
   const rect = vw.getBoundingClientRect();
-  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-  const xPct = (clientX - rect.left) / rect.width;
+  const clientX = e.touches[0].clientX;
+  const side = (clientX - rect.left) / rect.width < 0.5 ? "L" : "R";
 
-  // Left half pe double-tap check
-  if (xPct < 0.5) {
-    _lockDoubleTapLeft();
-  } else {
-    _lockDoubleTapRight();
+  _lockTouchStart = Date.now();
+  _lockIsHold = false;
+
+  // Tap count track karo — same side ke taps count karo
+  if (_lockTapSide !== side) {
+    // Side badal gayi — count reset karo
+    clearTimeout(_lockTapTimer);
+    _lockTapCount = 0;
   }
+  _lockTapSide = side;
+  _lockTapCount++;
 
-  // Hold for 2x speed
-  _lockHoldTimer = setTimeout(() => {
-    _lockHoldActive = true;
-    _lockSpeedBefore = vid.playbackRate;
-    vid.playbackRate = 2;
-    document.getElementById("speedBadge").classList.add("show");
-  }, 400);
-}
+  if (_lockTapCount >= 2) {
+    // Double tap — immediately skip
+    clearTimeout(_lockTapTimer);
+    _lockTapCount = 0;
+    _lockTapSide = null;
+    if (side === "L") {
+      skipSec(-10);
+    } else {
+      skipSec(10);
+    }
+    hideLockIcon();
+  } else {
+    // Pehla tap — 300ms wait karo, agar dobaara tap nahi aaya toh single tap
+    clearTimeout(_lockTapTimer);
+    _lockTapTimer = setTimeout(() => {
+      _lockTapCount = 0;
+      _lockTapSide = null;
+      // Single tap — lock icon toggle (sirf agar hold nahi tha)
+      if (!_lockIsHold) {
+        vw.classList.contains("show-lock-icon") ? hideLockIcon() : showLockIcon();
+      }
+    }, LOCK_DBL_MS);
+  }
+}, { passive: true });
 
-function _lockEndHold() {
-  clearTimeout(_lockHoldTimer);
+_lockOverlay.addEventListener("touchend", () => {
+  const held = Date.now() - _lockTouchStart;
+  _lockTouchStart = 0; // reset — rAF loop dobara trigger na kare
+  if (_lockHoldActive) {
+    _lockIsHold = true;
+    _lockHoldActive = false;
+    vid.playbackRate = _lockSpeedBefore;
+    document.getElementById("speedBadge").classList.remove("show");
+  } else if (held >= LOCK_HOLD_MS) {
+    _lockIsHold = true; // hold tha, single tap cancel karo
+  }
+});
+
+_lockOverlay.addEventListener("touchmove", () => {
+  _lockTouchStart = 0; // finger hili — hold cancel
   if (_lockHoldActive) {
     _lockHoldActive = false;
     vid.playbackRate = _lockSpeedBefore;
     document.getElementById("speedBadge").classList.remove("show");
   }
-}
+}, { passive: true });
 
-_lockOverlay.addEventListener("touchstart", _lockStartHold, {passive:true});
-_lockOverlay.addEventListener("touchend",   _lockEndHold);
-_lockOverlay.addEventListener("touchcancel",_lockEndHold);
-_lockOverlay.addEventListener("mousedown",  _lockStartHold);
-_lockOverlay.addEventListener("mouseup",    _lockEndHold);
-_lockOverlay.addEventListener("mouseleave", _lockEndHold);
+_lockOverlay.addEventListener("touchcancel", () => {
+  _lockTouchStart = 0;
+  if (_lockHoldActive) {
+    _lockHoldActive = false;
+    vid.playbackRate = _lockSpeedBefore;
+    document.getElementById("speedBadge").classList.remove("show");
+  }
+});
+
+// Hold = 2x — rAF loop se detect (sirf jab _lockTouchStart > 0 ho)
+(function _lockHoldLoop() {
+  if (_lockTouchStart > 0) {
+    const held = Date.now() - _lockTouchStart;
+    if (held >= LOCK_HOLD_MS && !_lockHoldActive && !_lockIsHold) {
+      _lockHoldActive = true;
+      _lockSpeedBefore = vid.playbackRate;
+      vid.playbackRate = 2;
+      document.getElementById("speedBadge").classList.add("show");
+      // Hold chal raha hai — pending tap cancel karo
+      clearTimeout(_lockTapTimer);
+      _lockTapCount = 0;
+      _lockTapSide = null;
+    }
+  }
+  requestAnimationFrame(_lockHoldLoop);
+})();
 
 vw.appendChild(_lockOverlay);
 
