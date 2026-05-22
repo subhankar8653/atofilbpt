@@ -370,8 +370,12 @@
     <!-- YouTube-style full overlay -->
     <div class="yt-overlay" id="ytOverlay">
 
-      <!-- Top bar (empty — no buttons) -->
-      <div class="yt-top"></div>
+      <!-- Top bar — Cinema mode button -->
+      <div class="yt-top">
+        <button class="yt-top-btn" onclick="hideEverything()" title="Cinema Mode">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
 
       <!-- Center: NO buttons — invisible tap zones handle everything -->
       <div class="yt-center" style="pointer-events:none"></div>
@@ -603,9 +607,9 @@ function tryAutoplay() {
   const p = vid.play();
   if (p !== undefined) {
     p.then(() => {
-      vid.muted = false;
-      updateVolIcon(1);
-      // Autoplay success — controls mat dikho, video silently start ho
+      // iOS Safari pe user gesture ke bina unmute nahi hota
+      // Isliye muted rakhte hain aur ek unmute button dikhate hain
+      _showUnmuteHint();
       hideCtrls();
     }).catch(() => {
       _isAutoplay = false;
@@ -613,6 +617,24 @@ function tryAutoplay() {
       showTapToPlay();
     });
   }
+}
+
+function _showUnmuteHint() {
+  // Agar already unmuted hai toh skip
+  if (!vid.muted) return;
+  const existing = document.getElementById("unmuteHint");
+  if (existing) return;
+  const btn = document.createElement("button");
+  btn.id = "unmuteHint";
+  btn.style.cssText = "position:absolute;top:10px;left:10px;z-index:200;background:rgba(0,0,0,.75);border:1.5px solid rgba(255,255,255,.4);color:#fff;border-radius:20px;padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;backdrop-filter:blur(4px);";
+  btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg> Tap to Unmute`;
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    vid.muted = false;
+    updateVolIcon(vid.volume);
+    btn.remove();
+  };
+  vw.appendChild(btn);
 }
 function showTapToPlay() {
   const t = document.createElement("div");
@@ -667,15 +689,31 @@ setInterval(() => { if (!vid.paused && vid.currentTime > 0) ls.set("pos", vid.cu
     const PREFETCH_SEC = 120;  // aage 2 min prefetch karo
     const CHUNK_BYTES  = 2 * 1024 * 1024; // 2MB per chunk
 
-    // File ki approximate byte rate nikalo (duration se)
-    // Video streaming ke liye hum direct Range request karenge
     const toSec = Math.min(fromSec + PREFETCH_SEC, vid.duration);
     if (toSec <= fromSec) return;
 
-    // Rough byte estimate (average 500KB/s for 480p)
-    const avgBps = 500 * 1024;
-    const startByte = Math.floor(fromSec * avgBps);
-    const endByte   = Math.floor(toSec   * avgBps);
+    // Dynamic bitrate estimate: buffered bytes / buffered duration se nikalo
+    // Fallback: resolution se guess karo
+    let avgBps = 500 * 1024; // fallback: 480p
+    try {
+      if (vid.buffered.length > 0) {
+        const bufDur = vid.buffered.end(vid.buffered.length - 1) - vid.buffered.start(0);
+        if (bufDur > 5) {
+          // rough: assume 1MB per buffered second as estimate (over-estimate better than under)
+          avgBps = (1 * 1024 * 1024);
+        }
+      }
+      // Quality badge se refine karo
+      const qMatch = FILE_NAME.match(/\b(2160p|4K|1080p|720p|480p|360p|240p)\b/i);
+      if (qMatch) {
+        const q = qMatch[1].toLowerCase();
+        const bpsMap = { "2160p":8*1024*1024, "4k":8*1024*1024, "1080p":4*1024*1024, "720p":2*1024*1024, "480p":800*1024, "360p":500*1024, "240p":300*1024 };
+        avgBps = bpsMap[q] || avgBps;
+      }
+    } catch(e) {}
+
+    const startByte = Math.floor(fromSec * avgBps / 8); // bits → bytes
+    const endByte   = Math.floor(toSec   * avgBps / 8);
 
     try {
       // Silently fetch — browser automatically caches
@@ -756,7 +794,7 @@ const PAUSE_PATH = `<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>`;
 vid.addEventListener("play",  () => {
   playIcon.innerHTML=PAUSE_PATH;
   vw.classList.remove("is-paused");
-  if (_isAutoplay) { _isAutoplay = false; return; }
+  _isAutoplay = false; // play fire hote hi clear karo — race condition fix
 });
 vid.addEventListener("pause", () => {
   playIcon.innerHTML=PLAY_PATH;
@@ -880,16 +918,19 @@ const _tapHandlerR = makeTapHandler(
 tapR2.addEventListener("touchstart", _tapHandlerR, { passive: true });
 tapR2.addEventListener("click", (e) => { e.stopPropagation(); });
 
-// ── Hold right zone = 2x speed ─────────────────
+// ── Hold right zone = 2x speed — FIXED: tap timer ke saath conflict nahi hoga ──
 const _badge = document.getElementById("speedBadge");
 let _holdTimer2 = null, _holdActive2 = false, _speedBefore2 = 1;
-function _startHold2() {
+function _startHold2(e) {
+  // Hold timer 400ms pe set karo
   _holdTimer2 = setTimeout(() => {
+    // Agar tap-handler already double-tap detect kar chuka hai toh skip
     _holdActive2 = true;
     _speedBefore2 = vid.playbackRate;
     vid.playbackRate = 2;
+    _badge.textContent = "▶▶ 2x";
     _badge.classList.add("show");
-  }, 400);
+  }, 450); // 450ms — tap DBL_TAP_MS (300) se zyada, toh double-tap detect hone ke baad fire hoga
 }
 function _endHold2() {
   clearTimeout(_holdTimer2);
@@ -920,13 +961,8 @@ function togglePlay() {
   if (vid.paused) { bufSpinner.classList.add("show"); vid.play(); } else vid.pause();
 }
 
-// Center play button — touchstart use karo (onclick tap zones se block hota tha)
+// Center play button — click only (touchstart + click dono hone se double-fire hoti thi mobile pe)
 const centerPlayBtn = document.getElementById("centerPlayBtn");
-centerPlayBtn.addEventListener("touchstart", (e) => {
-  e.stopPropagation();
-  vid.play();
-  showCtrls(1500);
-}, { passive: true });
 centerPlayBtn.addEventListener("click", (e) => {
   e.stopPropagation();
   vid.play();
@@ -963,7 +999,9 @@ function skipSec(s) {
   showToast(s<0?"⏪ -10 sec":"⏩ +10 sec");
 }
 
-// ── Progress bar drag (fixed: finger ke saath-saath chalega) ────────────
+// ── Progress bar drag (fixed: finger ke saath-saath chalega, landscape FS mein bhi) ────────────
+// NOTE: getSeekPct() already fresh getBoundingClientRect() call karta hai har event pe
+// Yeh landscape CSS-rotation mein bhi sahi kaam karta hai kyunki rect rotated coordinates reflect karta hai
 let _dragPct = -1; // drag ke dauran visual pct track karo (seek preview)
 
 function getSeekPct(e) {
@@ -1207,6 +1245,8 @@ function lockScreen() {
 
   // Locked tap zones enable karo (double-tap skip + hold 2x)
   enableLockedTapZones();
+  // rAF hold-check loop shuru karo (sirf locked state mein)
+  if (!_lockHoldRAF) _lockHoldRAF = requestAnimationFrame(_lockHoldCheck);
 }
 
 function unlockScreen() {
@@ -1218,6 +1258,8 @@ function unlockScreen() {
 
   // Locked tap zones disable karo
   disableLockedTapZones();
+  // rAF loop band karo
+  if (_lockHoldRAF) { cancelAnimationFrame(_lockHoldRAF); _lockHoldRAF = null; }
 }
 
 // ── Locked state: single tap = lock icon, double tap = skip, hold = 2x ────
@@ -1232,8 +1274,9 @@ const LOCK_HOLD_MS = 500;   // 500ms se zyada = hold
 const LOCK_DBL_MS = 300;    // 300ms ke andar dobaara tap = double tap
 
 // Locked hold anywhere = 2x speed
+// z-index: lock-icon-small (100) se neeche, lekin tap-zones (10) se upar
 const _lockOverlay = document.createElement("div");
-_lockOverlay.style.cssText = "position:absolute;inset:0;z-index:50;display:none;";
+_lockOverlay.style.cssText = "position:absolute;inset:0;z-index:30;display:none;";
 
 function enableLockedTapZones() {
   _lockOverlay.style.display = "block";
@@ -1318,7 +1361,10 @@ _lockOverlay.addEventListener("touchmove", () => {
 }, { passive: true });
 
 // Hold = 2x — touchstart ke baad 500ms tak finger press rahe
-(function _lockHoldCheck() {
+// rAF loop sirf locked state mein chalaao — warna battery drain hoti thi
+let _lockHoldRAF = null;
+function _lockHoldCheck() {
+  if (!_isLocked) { _lockHoldRAF = null; return; } // locked nahi — loop band karo
   if (_lockTouchStart > 0 && !_lockHoldActive && !_lockIsHold) {
     if (Date.now() - _lockTouchStart >= LOCK_HOLD_MS) {
       _lockHoldActive = true;
@@ -1330,8 +1376,9 @@ _lockOverlay.addEventListener("touchmove", () => {
       _lockTapSide = null;
     }
   }
-  requestAnimationFrame(_lockHoldCheck);
-})();
+  _lockHoldRAF = requestAnimationFrame(_lockHoldCheck);
+}
+// Loop sirf lockScreen() call hone par shuru hogi
 
 vw.appendChild(_lockOverlay);
 
@@ -1496,8 +1543,12 @@ if (vid.readyState >= 1) initAudioTracks();
 async function loadVariants() {
   const title = extractMovieTitle(FILE_NAME);
   if (!title) return;
+  // AbortController: 10 second timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
   try {
-    const res = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(title)}&limit=50`);
+    const res = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(title)}&limit=50`, { signal: controller.signal });
+    clearTimeout(timeoutId);
     const data = await res.json();
     if (!data.files || !data.files.length) return;
 
@@ -1687,7 +1738,15 @@ async function loadVariants() {
       }
     }
 
-  } catch(e) { console.error("Variants load failed:", e); showToast("⚠️ Quality/Language variants load nahi hue"); }
+  } catch(e) {
+    clearTimeout(timeoutId);
+    if (e.name === "AbortError") {
+      console.warn("Variants load timeout — server ne 10s mein respond nahi kiya");
+    } else {
+      console.error("Variants load failed:", e);
+      showToast("⚠️ Quality/Language variants load nahi hue");
+    }
+  }
 }
 
 async function switchVariant(fileId, chipEl, chipsContainerId) {
@@ -1796,8 +1855,8 @@ function renderComments() {
         <div class="comment-text">${escHtml(c.text)}</div>
         <div class="comment-time">${relTime(c.ts)}</div>
         <div class="comment-react">
-          <button class="c-react-btn" onclick="cLike(${origIdx})">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
+          <button class="c-react-btn" onclick="cLike(${origIdx})" style="${c.likedByMe ? 'color:#f39c12' : ''}">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="${c.likedByMe ? '#f39c12' : 'currentColor'}"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
             ${c.likes||0}
           </button>
         </div>
@@ -1813,7 +1872,14 @@ function relTime(ts) {
 }
 
 function cLike(idx) {
-  comments[idx].likes = (comments[idx].likes||0)+1;
+  // Toggle: agar already liked hai toh unlike karo
+  if (comments[idx].likedByMe) {
+    comments[idx].likes = Math.max(0, (comments[idx].likes||0) - 1);
+    comments[idx].likedByMe = false;
+  } else {
+    comments[idx].likes = (comments[idx].likes||0) + 1;
+    comments[idx].likedByMe = true;
+  }
   ls.set("comments", comments);
   renderComments();
 }
