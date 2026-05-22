@@ -136,9 +136,9 @@
     /* Hide all overlay controls in cinema mode */
     body.cinema-mode .yt-overlay { display:none !important; }
     body.cinema-mode .buf-spinner,
-    body.cinema-mode .skip-anim,
-    body.cinema-mode .speed-badge,
-    body.cinema-mode .tap-zone { display:none !important; }
+    body.cinema-mode .skip-anim { display:none !important; }
+    /* speed-badge cinema mein bhi dikhni chahiye (2x hold ke waqt) — display:none nahi */
+    /* tap-zone cinema mode mein bhi VISIBLE rakho — cinema overlay handle karega */
 
     /* Show only thin red progress bar at very bottom */
     body.cinema-mode .cinema-bar {
@@ -1001,6 +1001,8 @@ function hideEverything() {
   clearTimeout(ctrlTimer);
   document.body.style.overflow = "hidden";
   document.body.style.background = "#000";
+  // Cinema overlay enable karo (lock jaise features)
+  enableCinemaOverlay();
   // Show exit hint, then fade it out after 3s
   const hint = document.getElementById("cinemaHint");
   if (hint) {
@@ -1015,6 +1017,8 @@ function vidMinimize() {
   document.body.classList.remove("cinema-mode");
   document.body.style.overflow = "";
   document.body.style.background = "";
+  // Cinema overlay disable karo
+  disableCinemaOverlay();
 }
 
 // ── Skip ±10s ───────────────────────────────────
@@ -1453,7 +1457,108 @@ function _lockHoldCheck() {
 vw.appendChild(_lockOverlay);
 
 // ═══════════════════════════════════════════════
-// QUALITY BADGE DETECTION
+// CINEMA MODE OVERLAY
+// Lock mode jaise features: single-tap = exit, double-tap = skip ±10s, hold = 2x speed
+// ═══════════════════════════════════════════════
+const _cinemaOverlay = document.createElement("div");
+_cinemaOverlay.style.cssText = "position:absolute;inset:0;z-index:40;display:none;";
+
+let _cinemaTapCount = 0, _cinemaTapSide = null, _cinemaTapTimer = null;
+let _cinemaTouchStart = 0, _cinemaHoldActive = false, _cinemaSpeedBefore = 1, _cinemaIsHold = false;
+let _cinemaHoldRAF = null;
+
+function enableCinemaOverlay() {
+  _cinemaOverlay.style.display = "block";
+  if (!_cinemaHoldRAF) _cinemaHoldRAF = requestAnimationFrame(_cinemaHoldCheck);
+}
+function disableCinemaOverlay() {
+  _cinemaOverlay.style.display = "none";
+  clearTimeout(_cinemaTapTimer);
+  _cinemaTapCount = 0; _cinemaTapSide = null;
+  _cinemaIsHold = false; _cinemaTouchStart = 0;
+  if (_cinemaHoldActive) {
+    _cinemaHoldActive = false;
+    vid.playbackRate = _cinemaSpeedBefore;
+    document.getElementById("speedBadge").classList.remove("show");
+  }
+  if (_cinemaHoldRAF) { cancelAnimationFrame(_cinemaHoldRAF); _cinemaHoldRAF = null; }
+}
+
+function _cinemaHoldCheck() {
+  if (!_cinemaMode) { _cinemaHoldRAF = null; return; }
+  if (_cinemaTouchStart > 0 && !_cinemaHoldActive && !_cinemaIsHold) {
+    if (Date.now() - _cinemaTouchStart >= 500) {
+      _cinemaHoldActive = true;
+      _cinemaSpeedBefore = vid.playbackRate;
+      vid.playbackRate = 2;
+      document.getElementById("speedBadge").textContent = "▶▶ 2x";
+      document.getElementById("speedBadge").classList.add("show");
+      clearTimeout(_cinemaTapTimer);
+      _cinemaTapCount = 0; _cinemaTapSide = null;
+    }
+  }
+  _cinemaHoldRAF = requestAnimationFrame(_cinemaHoldCheck);
+}
+
+_cinemaOverlay.addEventListener("touchstart", (e) => {
+  const rect = vw.getBoundingClientRect();
+  const clientX = e.touches[0].clientX;
+  const side = (clientX - rect.left) / rect.width < 0.5 ? "L" : "R";
+
+  _cinemaTouchStart = Date.now();
+  _cinemaIsHold = false;
+
+  if (_cinemaTapSide !== side) {
+    clearTimeout(_cinemaTapTimer);
+    _cinemaTapCount = 0;
+  }
+  _cinemaTapSide = side;
+  _cinemaTapCount++;
+
+  if (_cinemaTapCount >= 2) {
+    // Double tap — skip ±10s (exit mat karo)
+    clearTimeout(_cinemaTapTimer);
+    _cinemaTapCount = 0; _cinemaTapSide = null;
+    if (side === "L") { skipSec(-10); } else { skipSec(10); }
+  }
+}, { passive: true });
+
+function _cinemaRelease() {
+  const held = Date.now() - _cinemaTouchStart;
+  _cinemaTouchStart = 0;
+
+  if (_cinemaHoldActive) {
+    // Hold release — speed wapas normal
+    _cinemaHoldActive = false;
+    _cinemaIsHold = true;
+    vid.playbackRate = _cinemaSpeedBefore;
+    document.getElementById("speedBadge").classList.remove("show");
+  } else if (held < 500 && _cinemaTapCount === 1) {
+    // Single tap — 310ms baad exit karo (double tap chance dene ke liye)
+    clearTimeout(_cinemaTapTimer);
+    _cinemaTapTimer = setTimeout(() => {
+      if (_cinemaTapCount === 1) {
+        _cinemaTapCount = 0; _cinemaTapSide = null;
+        vidMinimize(); // Cinema mode exit
+      }
+    }, 310);
+  }
+}
+
+_cinemaOverlay.addEventListener("touchend",    _cinemaRelease);
+_cinemaOverlay.addEventListener("touchcancel", _cinemaRelease);
+_cinemaOverlay.addEventListener("touchmove", () => {
+  _cinemaTouchStart = 0;
+  if (_cinemaHoldActive) {
+    _cinemaHoldActive = false;
+    vid.playbackRate = _cinemaSpeedBefore;
+    document.getElementById("speedBadge").classList.remove("show");
+  }
+}, { passive: true });
+
+vw.appendChild(_cinemaOverlay);
+
+
 // ═══════════════════════════════════════════════
 (function() {
   const m = FILE_NAME.match(/\b(2160p|4K|1080p|720p|480p|360p|240p)\b/i);
