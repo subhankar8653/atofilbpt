@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, memo, Component } from "react";
+import { useState, useEffect, useRef, useCallback, Component } from "react";
 
 // ── Error Boundary ────────────────────────────────────────────────────
 class ErrorBoundary extends Component {
@@ -151,23 +151,8 @@ function cleanFileName(name = "") {
 // FIX: Instead of clearing entire cache at 2000, drop oldest 200 entries (LRU-lite)
 const _titleCache = new Map();
 function extractMovieTitle(name = "") {
-  // FIX: Non-latin fallback — Korean/Japanese titles strip ho jaate hain toh original preserve karo
-  // Pehle check karo ki title mein non-latin chars hain
-  const hasNonLatin = /[^\x00-\x7F\u00C0-\u024F]/.test(name);
-  if (hasNonLatin) {
-    // Try to extract just the non-latin portion as the title
-    const nonLatinMatch = name.match(/^([^\x00-\x7F\u00C0-\u024F\s][^\x00-\x7F\u00C0-\u024F\s\d]*(?:\s+[^\x00-\x7F\u00C0-\u024F\s][^\x00-\x7F\u00C0-\u024F\s\d]*)*)/);
-    if (nonLatinMatch && nonLatinMatch[1].trim().length > 1) {
-      const nonLatinResult = nonLatinMatch[1].trim();
-      if (_titleCache.size >= 2000) {
-        const keys = _titleCache.keys();
-        for (let i = 0; i < 200; i++) { _titleCache.delete(keys.next().value); }
-      }
-      _titleCache.set(name, nonLatinResult);
-      return nonLatinResult;
-    }
-  }
-  if (_titleCache.has(name)) return _titleCache.get(name);  let n = stripPromotion(name);
+  if (_titleCache.has(name)) return _titleCache.get(name);
+  let n = stripPromotion(name);
   n = n.replace(/\.(mkv|mp4|avi|mov|webm)$/i, "");
   n = n.replace(/[\u24B6-\u24E9\u2460-\u24FF]/g, "");
   n = n.replace(/[\u{1F100}-\u{1F1FF}\u{1F170}-\u{1F171}\u{1F17E}-\u{1F17F}\u{1F191}-\u{1F19A}\u{1F200}-\u{1F2FF}]/gu, "");
@@ -296,8 +281,8 @@ async function fetchTrending(category = "all", limit = 12) {
 // ── TMDB Request Queue (throttle to avoid rate limits) ──────────────
 const _tmdbQueue = [];
 let _tmdbRunning = 0;
-const TMDB_CONCURRENCY = 3;
-const TMDB_DELAY_MS = 120;
+const TMDB_CONCURRENCY = 4;
+const TMDB_DELAY_MS = 80;
 
 function _tmdbEnqueue(fn) {
   return new Promise((resolve, reject) => {
@@ -339,7 +324,7 @@ async function tmdbGet(endpoint, params = {}) {
 }
 
 // ── SessionStorage Cache ──────────────────────────────────────────────
-const SESSION_CACHE_KEY = "suhani_home_v4";
+const SESSION_CACHE_KEY = "suhani_home_v5";
 function saveHomeCache(data) {
   try { sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ ts: Date.now(), data })); } catch {}
 }
@@ -460,35 +445,29 @@ const CATEGORY_LANG_FILTER = {
   hindi: /\bhindi\b/i, tamil: /\btamil\b/i, malayalam: /\bmalayalam\b/i,
   telugu: /\btelugu\b/i, kannada: /\bkannada\b/i, bengali: /\bbengali\b/i,
   english: /\benglish\b/i, series: null,
-  // Strict positive-match filters — sirf exact category content
-  cartoon: /\b(cartoon|animated|animation|doraemon|shin\s?chan|pokemon|tom[._\s]and[._\s]jerry|paw[._\s]patrol|peppa[._\s]pig|bluey|scooby[._\s-]?doo|looney[._\s]tunes|mickey[._\s]mouse|minions|despicable|kung\s?fu\s?panda|shrek|madagascar|ice\s?age|zootopia|moana|encanto|turning\s?red|lightyear|soul|luca|ratatouille|bolt|tangled|frozen|brave|coco|up|cars|toy\s?story|finding[._\s]nemo|finding[._\s]dory|incredibles|wreck[._\s]it\s?ralph|inside\s?out|elemental|wish|strange\s?world|turning\s?red|winnie|jungle\s?book|bambi|dumbo|cinderella|sleeping\s?beauty|snow\s?white|peter\s?pan|pinocchio|fantasia|mulan|hercules|tarzan|atlantis|treasure\s?planet|lilo|stitch|goofy|donald[._\s]duck|pluto|chip[._\s]n[._\s]dale|gummy|rescue\s?rangers|ducktales|darkwing|tiny[._\s]toons|animaniacs|flintstones|jetsons|yogi[._\s]bear|hanna[._\s]barbera|ben\s?10|avatar[._\s]the[._\s]last|korra|teen\s?titans|justice\s?league|batman[._\s]animated|superman[._\s]animated|spider[._\s]man[._\s]animated|x[._\s-]men[._\s]animated|transformers[._\s]animated|capt?ain[._\s]underpants|diary\s?of\s?a\s?wimpy|emoji\s?movie|boss\s?baby|trolls|sing|smurfs|garfield|snoopy|charlie\s?brown|peanuts|tom\s?jerry|roadrunner|daffy|bugs\s?bunny|tweety|sylvester|porky|elmer|speedy|gonzales|tazmanian)\b/i,
-  anime:   /\b(anime|naruto|dragon[._\s-]?ball|one[._\s]piece|bleach|attack[._\s]on[._\s]titan|shingeki|demon[._\s]slayer|kimetsu|jujutsu[._\s]kaisen|sword[._\s]art[._\s]online|hunter[._\s]x[._\s]hunter|fullmetal[._\s]alchemist|death[._\s]note|my[._\s]hero[._\s]academia|boku[._\s]no[._\s]hero|fairy[._\s]tail|black[._\s]clover|boruto|haikyuu|mob[._\s]psycho|tokyo[._\s]ghoul|overlord|re[._\s]?zero|konosuba|fate[._\s]stay|isekai|spy[._\s]x[._\s]family|chainsaw[._\s]man|vinland[._\s]saga|one[._\s]punch[._\s]man|steins[._\s]gate|code[._\s]geass|neon[._\s]genesis|evangelion|cowboy[._\s]bebop|trigun|inuyasha|ranma|sailor[._\s]moon|cardcaptor|dragon[._\s]quest|toradora|clannad|anohana|your[._\s]lie|violet[._\s]evergarden|made[._\s]in[._\s]abyss|promised[._\s]neverland|rising[._\s]of[._\s]the[._\s]shield|slime[._\s]isekai|that[._\s]time[._\s]i[._\s]got|mushoku[._\s]tensei|jobless[._\s]reincarnation|tokyo[._\s]revengers|blue[._\s]lock|jujutsu|dandadan|solo[._\s]leveling|frieren|dungeon[._\s]meshi|delicious[._\s]in[._\s]dungeon|oshi[._\s]no[._\s]ko|mashle|dr[._\s]stone|fire[._\s]force|noragami|erased|parasyte|aot|mha|bnha|snk)\b/i,
-  korean:  /\b(korean|kdrama|k[._\s-]drama|k[._\s-]pop|squid[._\s]game|crash[._\s]landing|its[._\s]okay|kingdom[._\s]korean|vagabond|vincenzo|mouse[._\s]korean|signal[._\s]korean|stranger[._\s]things[._\s]korean|sweet[._\s]home|all[._\s]of[._\s]us[._\s]are[._\s]dead|extraordinary[._\s]attorney|business[._\s]proposal|my[._\s]mister|reply[._\s]1988|goblin[._\s]kdrama|hotel[._\s]del[._\s]luna|strong[._\s]woman|record[._\s]of[._\s]youth|start[._\s]up[._\s]kdrama|nevertheless[._\s]kdrama|nevertheless|hometown[._\s]cha[._\s]cha|young[._\s]lady[._\s]and[._\s]gentleman|alchemy[._\s]of[._\s]souls|little[._\s]women[._\s]korean|reborn[._\s]rich|the[._\s]glory|moving[._\s]korean|mask[._\s]girl|my[._\s]demon|doctor[._\s]slump|lovely[._\s]runner|queen[._\s]of[._\s]tears|my[._\s]love[._\s]from[._\s]the[._\s]star|descendants[._\s]of[._\s]the[._\s]sun|boys[._\s]over[._\s]flowers|full[._\s]house[._\s]korean|secret[._\s]garden[._\s]korean|city[._\s]hunter[._\s]korean|heirs|pinocchio[._\s]korean|w[._\s]two[._\s]worlds|while[._\s]you[._\s]were[._\s]sleeping|are[._\s]you[._\s]human|what[._\s]is[._\s]wrong[._\s]with[._\s]secretary[._\s]kim|her[._\s]private[._\s]life|touch[._\s]your[._\s]heart|crash[._\s]course[._\s]in[._\s]romance|welcome[._\s]to[._\s]samdalri|my[._\s]girlfriend[._\s]is[._\s]a[._\s]gumiho|true[._\s]beauty[._\s]korean|webtoon[._\s]kdrama|webtoon[._\s]drama)\b/i,
+  cartoon: /\b(cartoon|animated|animation|doraemon|shin\s?chan|pokemon|tom[._\s]and[._\s]jerry|paw\s?patrol|peppa\s?pig|bluey|scooby|looney|mickey|minions|despicable|kung\s?fu\s?panda|shrek|madagascar|ice\s?age|zootopia|moana|encanto|frozen|brave|coco|toy\s?story|nemo|dory|incredibles|inside\s?out|elemental|winnie|jungle\s?book|cinderella|mulan|tarzan|lilo|stitch|ben\s?10|avatar\s?the\s?last|teen\s?titans|justice\s?league|batman\s?animated|transformers\s?animated|boss\s?baby|trolls|smurfs|garfield|snoopy|peanuts|bugs\s?bunny|daffy|tweety|sylvester|roadrunner)\b/i,
+  anime:   /\b(anime|naruto|dragon\s?ball|one\s?piece|bleach|attack\s?on\s?titan|demon\s?slayer|jujutsu|sword\s?art|hunter\s?x\s?hunter|fullmetal|death\s?note|my\s?hero\s?academia|fairy\s?tail|black\s?clover|boruto|haikyuu|mob\s?psycho|tokyo\s?ghoul|overlord|re\s?zero|konosuba|spy\s?x\s?family|chainsaw\s?man|vinland\s?saga|one\s?punch|steins\s?gate|code\s?geass|evangelion|cowboy\s?bebop|inuyasha|sailor\s?moon|toradora|clannad|violet\s?evergarden|made\s?in\s?abyss|promised\s?neverland|slime\s?isekai|mushoku|tokyo\s?revengers|blue\s?lock|solo\s?leveling|frieren|delicious\s?in\s?dungeon|oshi\s?no\s?ko|mashle|dr\s?stone|fire\s?force|aot|mha|bnha|snk)\b/i,
+  korean:  /\b(korean|kdrama|k-drama|squid\s?game|crash\s?landing|vincenzo|sweet\s?home|all\s?of\s?us\s?are\s?dead|extraordinary\s?attorney|business\s?proposal|goblin|hotel\s?del\s?luna|start\s?up|nevertheless|alchemy\s?of\s?souls|the\s?glory|moving|mask\s?girl|my\s?demon|doctor\s?slump|lovely\s?runner|queen\s?of\s?tears|descendants\s?of\s?the\s?sun|boys\s?over\s?flowers|city\s?hunter|heirs|true\s?beauty)\b/i,
 };
 const NON_BOLLYWOOD_PATTERNS = /\b(dubbed|dub|anime|doraemon|dragon\s?ball|naruto|one\s?piece|bleach|detective\s?conan|shin\s?chan|pokemon|hollywood|english|korean|chinese|japanese|kannada|telugu|tamil|malayalam|bengali)\b/i;
 const CATEGORY_SEARCH_QUERY = {
   hindi: "hindi", tamil: "tamil", malayalam: "malayalam", telugu: "telugu",
   kannada: "kannada", bengali: "bengali", english: "english", series: null, all: null,
-  // Multi-query: array means fetch multiple queries and merge
-  cartoon: ["cartoon", "animated", "animation", "doraemon", "pokemon", "disney"],
+  cartoon: ["cartoon", "animated", "doraemon", "pokemon", "disney"],
   anime:   ["anime", "naruto", "dragon ball", "one piece", "demon slayer", "jujutsu kaisen"],
   korean:  ["korean", "kdrama", "k-drama"],
 };
-
-// Strict categories — fallback KABHI nahi, sirf exact match chahiye
-const STRICT_CATEGORIES = new Set(["cartoon", "anime", "korean"]);
 
 async function fetchDBCategory(category, limit = 12, offset = 0) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20000);
     const searchQuery = CATEGORY_SEARCH_QUERY[category];
-
     let files = [];
     const pageNum = offset > 0 ? Math.floor(offset / API_FETCH_BATCH) + 1 : 1;
 
     if (Array.isArray(searchQuery)) {
-      // Multi-query: sab queries parallel fetch karo aur merge karo
+      // cartoon/anime/korean — multiple queries parallel fetch + deduplicate
       const fetches = await Promise.all(searchQuery.map(async q => {
         try {
           const params = new URLSearchParams({ q, quality: "All", language: "All", limit: API_FETCH_BATCH, page: pageNum });
@@ -498,7 +477,6 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
           return d.files || [];
         } catch { return []; }
       }));
-      // Merge and deduplicate by file_id
       const seen = new Set();
       for (const batch of fetches) {
         for (const f of batch) {
@@ -518,29 +496,25 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
       const data = await res.json();
       files = data.files || [];
     }
-
     clearTimeout(timer);
     const rawApiCount = files.length;
 
-    const _pMap = { "all": 26, "series": 32, "hindi": 38, "tamil": 44, "malayalam": 50, "telugu": 56, "kannada": 62, "bengali": 68, "english": 74, "cartoon": 78, "anime": 82, "korean": 86 };
-    const _mMap = { "all": "Loading trending...", "series": "Loading series...", "hindi": "Loading Bollywood...", "tamil": "Loading Tamil...", "malayalam": "Loading Malayalam...", "telugu": "Loading Telugu...", "kannada": "Loading Kannada...", "bengali": "Loading Bengali...", "english": "Loading English...", "cartoon": "Loading Cartoons...", "anime": "Loading Anime...", "korean": "Loading K-Dramas..." };
+    const _pMap = { "all": 26, "series": 32, "hindi": 38, "tamil": 44, "malayalam": 50, "telugu": 56, "kannada": 62, "bengali": 68, "english": 74 };
+    const _mMap = { "all": "Loading trending...", "series": "Loading series...", "hindi": "Loading Bollywood...", "tamil": "Loading Tamil...", "malayalam": "Loading Malayalam...", "telugu": "Loading Telugu...", "kannada": "Loading Kannada...", "bengali": "Loading Bengali...", "english": "Loading English..." };
     if (_pMap[category]) window.__splashProgress?.(_pMap[category], _mMap[category]);
 
     if (category === "series") files = files.filter(f => isSeries(f.file_name));
 
     const langFilter = CATEGORY_LANG_FILTER[category];
     if (langFilter) {
-      const filtered = files.filter(f => langFilter.test(f.file_name));
-      if (STRICT_CATEGORIES.has(category)) {
-        // Strict: filter ke baad bhi kuch nahi mila toh empty return karo — wrong content mat dikhao
-        files = filtered;
-      } else if (category === "hindi") {
-        let f2 = filtered.filter(f => !NON_BOLLYWOOD_PATTERNS.test(f.file_name.replace(/\bhindi\b/gi, "")));
-        if (f2.length < files.length * 0.05 && files.length > 0) f2 = filtered;
-        files = f2;
+      let filtered = files.filter(f => langFilter.test(f.file_name));
+      if (category === "hindi") {
+        filtered = filtered.filter(f => !NON_BOLLYWOOD_PATTERNS.test(f.file_name.replace(/\bhindi\b/gi, "")));
+        if (filtered.length < files.length * 0.05 && files.length > 0) filtered = files.filter(f => langFilter.test(f.file_name));
       } else {
-        files = filtered.length >= files.length * 0.1 ? filtered : filtered;
+        if (filtered.length < files.length * 0.1 && files.length > 0) filtered = files.filter(f => langFilter.test(f.file_name));
       }
+      files = filtered;
     }
 
     const seen = new Set();
@@ -571,7 +545,6 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
 const CATEGORY_TMDB_LANG = {
   hindi: "hi", tamil: "ta", malayalam: "ml", telugu: "te",
   kannada: "kn", bengali: "bn", english: "en", series: null, all: null,
-  cartoon: null, anime: "ja", korean: "ko",
 };
 const TMDB_DISCOVER_CACHE = new Map();
 
@@ -626,58 +599,36 @@ async function fetchByTMDBTitles(tmdbResults, alreadySeenTitles = new Set()) {
 }
 
 // ── TMDBCard ──────────────────────────────────────────────────────────
-const TMDBCard = memo(function TMDBCard({ item, onClick, gridMode = false }) {
+function TMDBCard({ item, onClick, gridMode = false }) {
   const [hov, setHov] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
   // FIX: initialise imgSrc from item.poster directly — no re-fetch if already available
   const [imgSrc, setImgSrc] = useState(item.poster || null);
   const [imgFailed, setImgFailed] = useState(false);
   const [inList, setInList] = useState(() => isInWatchlist(item.id));
-  const cardRef = useRef(null);
-  const fetchedRef = useRef(false);
   const hue = [...(item.title || "")].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
   const initials = (item.title || "").split(" ").slice(0, 2).map(w => w[0] || "").join("").toUpperCase();
 
-  // FIX: IntersectionObserver — off-screen cards TMDB fetch nahi karein
   useEffect(() => {
     setImgLoaded(false);
     setImgFailed(false);
-    fetchedRef.current = false;
     if (item.poster) {
       setImgSrc(item.poster);
-      fetchedRef.current = true;
-      return;
+    } else {
+      setImgSrc(null);
+      let cancelled = false;
+      // Staggered delay: saare cards ek saath API hit na karein
+      const delay = Math.floor(Math.random() * 600);
+      const timer = setTimeout(() => {
+        fetchPosterFromTMDB(item.title, item.year).then(data => {
+          if (!cancelled && data?.poster) setImgSrc(data.poster);
+        });
+      }, delay);
+      return () => { cancelled = true; clearTimeout(timer); };
     }
-    setImgSrc(null);
-    if (!cardRef.current) return;
-    const obs = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && !fetchedRef.current) {
-          fetchedRef.current = true;
-          obs.disconnect();
-          const delay = Math.floor(Math.random() * 400);
-          setTimeout(() => {
-            fetchPosterFromTMDB(item.title, item.year).then(data => {
-              if (data?.poster) setImgSrc(data.poster);
-            });
-          }, delay);
-        }
-      },
-      { rootMargin: "200px" }
-    );
-    obs.observe(cardRef.current);
-    return () => obs.disconnect();
   }, [item.poster, item.id, item.title, item.year]);
 
-  // FIX: Hover pe posterMd (w342) load karo — better quality
-  useEffect(() => {
-    if (hov && imgLoaded && imgSrc && imgSrc.includes("/w185/") && item.posterMd) {
-      setImgSrc(item.posterMd);
-    }
-  }, [hov, imgLoaded, imgSrc, item.posterMd]);
-
   const handleImgError = () => {
-    if (imgSrc && imgSrc.includes("/w342/")) { setImgSrc(imgSrc.replace("/w342/", "/w185/")); return; }
     if (imgSrc && imgSrc.includes("/w185/")) { setImgSrc(imgSrc.replace("/w185/", "/w92/")); return; }
     setImgFailed(true);
     setImgLoaded(false);
@@ -689,17 +640,8 @@ const TMDBCard = memo(function TMDBCard({ item, onClick, gridMode = false }) {
     setInList(added);
   };
 
-  // FIX: Rating badge color — green 7+, yellow 5-7, red <5
-  const ratingNum = parseFloat(item.rating);
-  const ratingColor = !isNaN(ratingNum)
-    ? ratingNum >= 7.0 ? "#27ae60"
-    : ratingNum >= 5.0 ? "#f39c12"
-    : "#e74c3c"
-    : "#f1c40f";
-
   return (
     <div
-      ref={cardRef}
       onClick={() => onClick(item)}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
@@ -747,9 +689,9 @@ const TMDBCard = memo(function TMDBCard({ item, onClick, gridMode = false }) {
           }}>{initials || "🎬"}</div>
         )}
         {item.rating && item.rating !== "0.0" && (
-          <div style={{ position: "absolute", bottom: 7, left: 7, zIndex: 3, background: "rgba(0,0,0,0.82)", borderRadius: 8, padding: "3px 7px", display: "flex", alignItems: "center", gap: 3, backdropFilter: "blur(8px)", border: `1px solid ${ratingColor}33` }}>
-            <span style={{ fontSize: 9, color: ratingColor }}>★</span>
-            <span style={{ fontSize: 10, fontWeight: 800, color: ratingColor }}>{item.rating}</span>
+          <div style={{ position: "absolute", bottom: 7, left: 7, zIndex: 3, background: "rgba(0,0,0,0.82)", borderRadius: 8, padding: "3px 7px", display: "flex", alignItems: "center", gap: 3, backdropFilter: "blur(8px)", border: "1px solid rgba(241,196,15,0.2)" }}>
+            <span style={{ fontSize: 9, color: "#f1c40f" }}>★</span>
+            <span style={{ fontSize: 10, fontWeight: 800, color: "#f1c40f" }}>{item.rating}</span>
           </div>
         )}
         {item.type === "series" && (
@@ -779,7 +721,7 @@ const TMDBCard = memo(function TMDBCard({ item, onClick, gridMode = false }) {
       </div>
     </div>
   );
-});
+}
 
 // ── Hero Banner Carousel ───────────────────────────────────────────────
 function HeroBannerCarousel({ items, onClick }) {
@@ -808,7 +750,7 @@ function HeroBannerCarousel({ items, onClick }) {
   const onTouchEnd = (e) => {
     if (touchStartX.current === null) return;
     const diff = touchStartX.current - e.changedTouches[0].clientX;
-    if (Math.abs(diff) > 30) goTo(diff > 0 ? (current + 1) % itemsLen : (current - 1 + itemsLen) % itemsLen);
+    if (Math.abs(diff) > 50) goTo(diff > 0 ? (current + 1) % itemsLen : (current - 1 + itemsLen) % itemsLen);
     touchStartX.current = null;
   };
 
@@ -1081,8 +1023,8 @@ function EpisodeQualityRow({ epFrom, epTo, isCombined, files, seriesTitle, seaso
 function TMDBCategoryRow({ title, items, onItemClick, onSeeAll }) {
   if (!items || !items.length) return null;
   const icons = {
-    "MOVIES": "🎬", "WEB SERIES": "📺", "ANIME": "⛩️",
-    "KOREAN DRAMAS": "🇰🇷", "CARTOONS": "🎨",
+    "MOVIES": "🎬", "WEB SERIES": "📺",
+    "ANIME": "⛩️", "KOREAN DRAMAS": "🇰🇷", "CARTOONS": "🎨",
   };
 
   return (
@@ -1091,7 +1033,6 @@ function TMDBCategoryRow({ title, items, onItemClick, onSeeAll }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 14 }}>{icons[title] || "🎬"}</span>
           <span style={{ fontSize: 13, fontWeight: 800, color: "#e8e8e8", letterSpacing: "0.5px" }}>{title}</span>
-          <span style={{ fontSize: 10, fontWeight: 700, color: "#444", background: "rgba(255,255,255,0.06)", padding: "2px 7px", borderRadius: 50, border: "1px solid rgba(255,255,255,0.07)" }}>{items.length}</span>
         </div>
         {onSeeAll && (<button onClick={onSeeAll} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "#f39c12", fontWeight: 600, padding: "4px 0" }}>See all ›</button>)}
       </div>
@@ -1118,7 +1059,7 @@ function OfflineBanner() {
   }, []);
   if (!offline) return null;
   return (
-    <div style={{ position: "fixed", top: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, zIndex: 9999, background: "#e74c3c", color: "#fff", fontSize: 12, fontWeight: 700, textAlign: "center", padding: "10px 16px 8px", letterSpacing: 0.5 }}>
+    <div style={{ position: "fixed", top: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, zIndex: 9999, background: "#e74c3c", color: "#fff", fontSize: 12, fontWeight: 700, textAlign: "center", padding: "8px 16px", letterSpacing: 0.5 }}>
       📡 Internet nahi hai — offline mode
     </div>
   );
@@ -1160,29 +1101,6 @@ function DetailModal({ file, onClose }) {
   const [inList, setInList] = useState(false);
   const [links, setLinks] = useState(null);       // { watch_url, download_url }
   const [linksLoading, setLinksLoading] = useState(false);
-
-  // FIX: Swipe-down-to-close gesture
-  const touchStartYRef = useRef(null);
-  const modalRef = useRef(null);
-  const [swipeDelta, setSwipeDelta] = useState(0);
-
-  const handleTouchStart = (e) => {
-    touchStartYRef.current = e.touches[0].clientY;
-    setSwipeDelta(0);
-  };
-  const handleTouchMove = (e) => {
-    if (touchStartYRef.current === null) return;
-    const delta = e.touches[0].clientY - touchStartYRef.current;
-    if (delta > 0) setSwipeDelta(delta);
-  };
-  const handleTouchEnd = () => {
-    if (swipeDelta > 80) {
-      onClose();
-    } else {
-      setSwipeDelta(0);
-    }
-    touchStartYRef.current = null;
-  };
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
@@ -1265,23 +1183,11 @@ function DetailModal({ file, onClose }) {
 
   return (
     <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.9)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1000, backdropFilter: bgLoaded ? "blur(6px)" : "blur(16px)", transition: "backdrop-filter 0.6s ease" }}>
-        <div
-          ref={modalRef}
-          onClick={e => e.stopPropagation()}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          style={{
-            background: "#111", borderRadius: "28px 28px 0 0", width: "100%", maxWidth: 480, overflow: "hidden",
-            animation: "slideUp .35s cubic-bezier(.32,1.4,.6,1)", maxHeight: "93vh", overflowY: "auto",
-            border: "1px solid rgba(255,255,255,0.06)", borderBottom: "none",
-            transform: swipeDelta > 0 ? `translateY(${swipeDelta}px)` : "none",
-            transition: swipeDelta > 0 ? "none" : "transform 0.3s ease",
-            opacity: swipeDelta > 0 ? Math.max(0.5, 1 - swipeDelta / 200) : 1,
-          }}>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.9)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(16px)" }}>
+        <div onClick={e => e.stopPropagation()}
+          style={{ background: "#111", borderRadius: "28px 28px 0 0", width: "100%", maxWidth: 480, overflow: "hidden", animation: "slideUp .35s cubic-bezier(.32,1.4,.6,1)", maxHeight: "93vh", overflowY: "auto", border: "1px solid rgba(255,255,255,0.06)", borderBottom: "none" }}>
           <div style={{ display: "flex", justifyContent: "center", padding: "12px 0 0" }}>
-            <div style={{ width: 40, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.2)" }} />
+            <div style={{ width: 40, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.12)" }} />
           </div>
 
           <div style={{ position: "relative", height: 290, background: `linear-gradient(135deg,hsl(${hue},35%,10%),hsl(${(hue + 60) % 360},25%,7%))` }}>
@@ -1398,7 +1304,7 @@ function FilterRow({ label, items, active, onSelect, accent }) {
   return (
     <div style={{ marginBottom: 14 }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: "#444", letterSpacing: "1.5px", marginBottom: 8 }}>{label}</div>
-      <div style={{ display: "flex", gap: 7, overflowX: "auto", paddingBottom: 2, scrollbarWidth: "none", scrollSnapType: "x mandatory" }}>
+      <div style={{ display: "flex", gap: 7, overflowX: "auto", paddingBottom: 2, scrollbarWidth: "none" }}>
         {items.map(item => {
           const on = active === item;
           return (
@@ -1410,7 +1316,6 @@ function FilterRow({ label, items, active, onSelect, accent }) {
               boxShadow: on && accent ? "0 4px 16px rgba(243,156,18,.35)" : "none",
               transform: on ? "scale(1.05)" : "scale(1)",
               border: on ? "none" : "1px solid rgba(255,255,255,0.06)",
-              scrollSnapAlign: "start",
             }}>{item}</button>
           );
         })}
@@ -1423,10 +1328,10 @@ function FilterRow({ label, items, active, onSelect, accent }) {
 function SkeletonCard() {
   return (
     <div style={{ width: 120, flexShrink: 0, borderRadius: 16, overflow: "hidden", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}>
-      <div style={{ height: 165, background: "rgba(255,255,255,0.03)", animation: "shimmer 1.8s ease infinite", backgroundImage: "linear-gradient(90deg,rgba(255,255,255,0.02) 0%,rgba(255,255,255,0.07) 50%,rgba(255,255,255,0.02) 100%)", backgroundSize: "200% 100%" }} />
+      <div style={{ height: 165, background: "rgba(255,255,255,0.03)", animation: "pulse 1.8s ease infinite" }} />
       <div style={{ padding: "10px 10px 14px" }}>
-        <div style={{ height: 10, background: "rgba(255,255,255,0.04)", borderRadius: 5, marginBottom: 6, animation: "shimmer 1.8s ease infinite", backgroundImage: "linear-gradient(90deg,rgba(255,255,255,0.02) 0%,rgba(255,255,255,0.07) 50%,rgba(255,255,255,0.02) 100%)", backgroundSize: "200% 100%" }} />
-        <div style={{ height: 10, background: "rgba(255,255,255,0.04)", borderRadius: 5, width: "60%", animation: "shimmer 1.8s ease infinite", backgroundImage: "linear-gradient(90deg,rgba(255,255,255,0.02) 0%,rgba(255,255,255,0.07) 50%,rgba(255,255,255,0.02) 100%)", backgroundSize: "200% 100%" }} />
+        <div style={{ height: 10, background: "rgba(255,255,255,0.04)", borderRadius: 5, marginBottom: 6, animation: "pulse 1.8s ease infinite" }} />
+        <div style={{ height: 10, background: "rgba(255,255,255,0.04)", borderRadius: 5, width: "60%", animation: "pulse 1.8s ease infinite" }} />
       </div>
     </div>
   );
@@ -1434,11 +1339,11 @@ function SkeletonCard() {
 function SkeletonFile() {
   return (
     <div style={{ display: "flex", gap: 14, padding: "14px 16px", background: "rgba(255,255,255,0.02)", borderRadius: 18, border: "1px solid rgba(255,255,255,0.04)" }}>
-      <div style={{ width: 68, height: 92, borderRadius: 12, flexShrink: 0, animation: "shimmer 1.8s ease infinite", backgroundImage: "linear-gradient(90deg,rgba(255,255,255,0.03) 0%,rgba(255,255,255,0.08) 50%,rgba(255,255,255,0.03) 100%)", backgroundSize: "200% 100%", background: "rgba(255,255,255,0.04)" }} />
+      <div style={{ width: 68, height: 92, borderRadius: 12, background: "rgba(255,255,255,0.04)", flexShrink: 0, animation: "pulse 1.8s ease infinite" }} />
       <div style={{ flex: 1 }}>
-        <div style={{ height: 13, borderRadius: 6, marginBottom: 8, animation: "shimmer 1.8s ease infinite", backgroundImage: "linear-gradient(90deg,rgba(255,255,255,0.03) 0%,rgba(255,255,255,0.08) 50%,rgba(255,255,255,0.03) 100%)", backgroundSize: "200% 100%", background: "rgba(255,255,255,0.04)" }} />
-        <div style={{ height: 13, borderRadius: 6, width: "75%", marginBottom: 10, animation: "shimmer 1.8s ease infinite", backgroundImage: "linear-gradient(90deg,rgba(255,255,255,0.03) 0%,rgba(255,255,255,0.08) 50%,rgba(255,255,255,0.03) 100%)", backgroundSize: "200% 100%", background: "rgba(255,255,255,0.04)" }} />
-        <div style={{ height: 20, borderRadius: 6, width: "35%", animation: "shimmer 1.8s ease infinite", backgroundImage: "linear-gradient(90deg,rgba(255,255,255,0.03) 0%,rgba(255,255,255,0.08) 50%,rgba(255,255,255,0.03) 100%)", backgroundSize: "200% 100%", background: "rgba(255,255,255,0.04)" }} />
+        <div style={{ height: 13, background: "rgba(255,255,255,0.04)", borderRadius: 6, marginBottom: 8, animation: "pulse 1.8s ease infinite" }} />
+        <div style={{ height: 13, background: "rgba(255,255,255,0.04)", borderRadius: 6, width: "75%", marginBottom: 10, animation: "pulse 1.8s ease infinite" }} />
+        <div style={{ height: 20, background: "rgba(255,255,255,0.04)", borderRadius: 6, width: "35%", animation: "pulse 1.8s ease infinite" }} />
       </div>
     </div>
   );
@@ -1457,12 +1362,6 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
   const seenIdsRef = useRef(new Set());
   const loadingMoreRef = useRef(false);
   const hasMoreRef = useRef(true);
-
-  // FIX: Back button pe smooth scroll to top
-  const handleBack = useCallback(() => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-    setTimeout(onBack, 220);
-  }, [onBack]);
 
   // FIX: initialItems reference equality issue — stringify karke compare karo ya length+category check use karo
   const initialItemsKey = initialItems ? `${category}_${initialItems.length}` : category;
@@ -1567,7 +1466,7 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
   return (
     <div style={{ paddingBottom: 80 }}>
       <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, position: "sticky", top: 56, zIndex: 50, background: "rgba(10,10,10,0.96)", backdropFilter: "blur(14px)", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-        <button onClick={handleBack} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "50%", width: 34, height: 34, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <button onClick={onBack} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "50%", width: 34, height: 34, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2.5" strokeLinecap="round"><path d="M19 12H5M12 5l-7 7 7 7" /></svg>
         </button>
         <span style={{ fontSize: 15, fontWeight: 900, color: "#e8e8e8", letterSpacing: 0.5 }}>{title}</span>
@@ -1678,14 +1577,7 @@ function WatchlistTab({ onItemClick }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
         {items.map((item, i) => (
           <div key={item.id} style={{ position: "relative", animation: `fadeIn .2s ease ${i * 0.04}s both` }}>
-            <TMDBCard item={item} onClick={(it) => {
-              // FIX: _file nahi hai toh crash bachao — title se search karo
-              if (it._file) {
-                onItemClick(it);
-              } else if (it.title) {
-                onItemClick(it.title);
-              }
-            }} gridMode />
+            <TMDBCard item={item} onClick={onItemClick} gridMode />
             <button onClick={() => remove(item.id)}
               style={{ position: "absolute", top: 7, right: 7, width: 22, height: 22, borderRadius: "50%", background: "rgba(231,76,60,0.9)", border: "none", color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10 }}>
               ✕
@@ -1820,9 +1712,8 @@ function App() {
   const [categoryPage, setCategoryPage] = useState(null);
 
   const [homeData, setHomeData] = useState({
-    nowPlaying: [], heroBannerItems: [],
-    moviesFils: [], seriesTrend: [],
-    animeFils: [], koreanFils: [], cartoonFils: [],
+    heroBannerItems: [], moviesFils: [],
+    seriesTrend: [], animeFils: [], koreanFils: [], cartoonFils: [],
   });
   const [homeLoading, setHomeLoading] = useState(true);
   const [homeSecondaryLoading, setHomeSecondaryLoading] = useState(false);
@@ -1832,29 +1723,11 @@ function App() {
 
   const inputRef = useRef(null);
   const searchAbortRef = useRef(null);
-  // FIX: Scroll position save — category page se back aane pe same position pe rehna
-  const homeScrollRef = useRef(0);
-
-  // Category page open hone se pehle scroll position save karo
-  const openCategoryPage = useCallback((pageData) => {
-    homeScrollRef.current = window.scrollY;
-    setCategoryPage(pageData);
-    window.scrollTo({ top: 0, behavior: "instant" });
-  }, []);
-
-  // Category page close hone par scroll position restore karo
-  const closeCategoryPage = useCallback(() => {
-    setCategoryPage(null);
-    requestAnimationFrame(() => {
-      window.scrollTo({ top: homeScrollRef.current, behavior: "instant" });
-    });
-  }, []);
 
   // ── Home load — FULLY PARALLEL: sab categories ek saath fetch, progressive render ────────────
   useEffect(() => {
     // Cache check — instant load agar cache fresh hai
     const cached = loadHomeCache();
-    // v4 cache validate karo — moviesFils hona chahiye
     if (cached && retryKey === 0 && cached.moviesFils) {
       setHomeData(cached);
       setHomeLoading(false);
@@ -1878,15 +1751,15 @@ function App() {
 
     window.__splashProgress?.(15, "Connecting to server...");
 
-    // Sirf 5 categories fetch karo — language rows hata diye
+
+    // Parallel fetch — all + 5 categories
     const allPromise     = fetchDBCategory("all",     50);
     const seriesPromise  = fetchDBCategory("series",  50);
     const cartoonPromise = fetchDBCategory("cartoon", 50);
     const animePromise   = fetchDBCategory("anime",   50);
     const koreanPromise  = fetchDBCategory("korean",  50);
 
-    // Movies = all languages merge — hindi + english + tamil + telugu + malayalam + kannada + bengali
-    // Parallel fetch sab, fir deduplicate karke ek "MOVIES" row banao
+    // Movies = 7 languages merge + deduplicate
     const moviesLangPromises = [
       fetchDBCategory("hindi",     50),
       fetchDBCategory("english",   50),
@@ -1897,14 +1770,13 @@ function App() {
       fetchDBCategory("bengali",   50),
     ];
 
-    // Step 1: "all" resolve hote hi hero + Movies row seedha dikhao — fast first paint
+    // Step 1: "all" resolve hote hi hero + quick movies dikhao — fastest first paint
     allPromise.then(({ items: latest }) => {
       clearTimeout(wakingTimer);
       const bannerItems = latest.filter(m => m.backdrop).slice(0, 5);
       if (bannerItems.length < 3) bannerItems.push(...latest.slice(0, 5 - bannerItems.length));
-      // Movies row ke liye "all" data use karo — series filter out karo
       const quickMovies = latest.filter(x => x.type !== "series").slice(0, 20);
-      setHomeData(prev => ({ ...prev, nowPlaying: latest, heroBannerItems: bannerItems, moviesFils: quickMovies }));
+      setHomeData(prev => ({ ...prev, heroBannerItems: bannerItems, moviesFils: quickMovies }));
       setHomeLoading(false);
       setHomeSecondaryLoading(true);
       setServerWaking(false);
@@ -1919,7 +1791,7 @@ function App() {
       window.__hideSplash?.();
     });
 
-    // Step 2: Har category apne time pe aate hi update karo
+    // Step 2: Har category apne time pe update karo
     const updateCat = (promise, key, transform) => {
       promise.then(result => {
         const items = transform ? transform(result) : result.items;
@@ -1932,21 +1804,16 @@ function App() {
     updateCat(animePromise,   "animeFils",   null);
     updateCat(koreanPromise,  "koreanFils",  null);
 
-    // Movies row: sab languages merge + deduplicate by title
+    // Movies: 7 languages merge hone pe update karo
     Promise.all(moviesLangPromises).then(results => {
       const seen = new Set();
       const merged = [];
       for (const { items } of results) {
         for (const item of items) {
-          const key = (item.title || "").toLowerCase().replace(/\s+/g, "");
-          if (key.length > 1 && !seen.has(key)) {
-            seen.add(key);
-            // Series wale items Movies row mein mat aao
-            if (item.type !== "series") merged.push(item);
-          }
+          const k = (item.title || "").toLowerCase().replace(/\s+/g, "");
+          if (k.length > 1 && !seen.has(k) && item.type !== "series") { seen.add(k); merged.push(item); }
         }
       }
-      // Shuffle slightly — ek hi language ke sab items saath saath na dikhein
       const shuffled = merged.sort(() => Math.random() - 0.48).slice(0, 50);
       setHomeData(prev => ({ ...prev, moviesFils: shuffled }));
     }).catch(() => {});
@@ -1971,7 +1838,6 @@ function App() {
       const shuffledMovies = mergedMovies.sort(() => Math.random() - 0.48).slice(0, 50);
 
       const completeData = {
-        nowPlaying:      allRes.items,
         heroBannerItems: bannerItems,
         moviesFils:      shuffledMovies,
         seriesTrend:     series.items,
@@ -2001,30 +1867,21 @@ function App() {
   const selectedRef    = useRef(selected);
   const categoryPageRef = useRef(categoryPage);
   const tabRef         = useRef(tab);
-  const closeCategoryPageRef = useRef(closeCategoryPage);
   useEffect(() => { selectedRef.current    = selected;     }, [selected]);
   useEffect(() => { categoryPageRef.current = categoryPage; }, [categoryPage]);
   useEffect(() => { tabRef.current         = tab;          }, [tab]);
-  useEffect(() => { closeCategoryPageRef.current = closeCategoryPage; }, [closeCategoryPage]);
 
   useEffect(() => {
     const handlePopState = () => {
       window.history.pushState({ page: "app" }, "");
       if (selectedRef.current)    { setSelected(null);      return; }
-      if (categoryPageRef.current){ closeCategoryPageRef.current?.();  return; }
+      if (categoryPageRef.current){ setCategoryPage(null);  return; }
       if (tabRef.current === "search") { setTab("home"); setQuery(""); setFiles([]); return; }
       if (tabRef.current !== "home")   { setTab("home"); return; }
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []); // FIX: empty deps — refs se latest values milti hain, stale closure nahi
-
-  // FIX: Search tab open hone pe autofocus
-  useEffect(() => {
-    if (tab === "search") {
-      setTimeout(() => inputRef.current?.focus(), 100);
-    }
-  }, [tab]);
 
   // FIX: requestId se sirf latest request ka result accept karo — race condition + "no result flash" khatam
   const searchRequestIdRef = useRef(0);
@@ -2072,13 +1929,13 @@ function App() {
     return () => clearTimeout(t);
   }, [doSearch, tab]);
 
-  const clearAll = useCallback(() => {
+  const clearAll = () => {
     setQuery(""); setQuality("All"); setLanguage("All");
     setFiles([]); setLoading(false);
     searchAbortRef.current?.abort();
     ++searchRequestIdRef.current; // FIX: pending requests ko invalidate karo
-  }, []);
-  const clearFilters = useCallback(() => { setQuality("All"); setLanguage("All"); }, []);
+  };
+  const clearFilters = () => { setQuality("All"); setLanguage("All"); };
 
   // FIX: handleTMDBCardClick — requestId guard lagaya, no "no result" flash
   const handleTMDBCardClick = useCallback((itemOrTitle) => {
@@ -2107,11 +1964,8 @@ function App() {
     doSearch(transcript, quality, language);
   }, language);
 
-  // FIX: useMemo — sirf wahi chips dikhao jinka title defined aur non-empty ho
-  const trendingChips = useMemo(
-    () => homeData.nowPlaying.filter(item => item.title && item.title.trim()).slice(0, 6),
-    [homeData.nowPlaying]
-  );
+  // FIX: sirf wahi chips dikhao jinka title defined aur non-empty ho
+  const trendingChips = homeData.moviesFils.filter(item => item.title && item.title.trim()).slice(0, 6);
 
   return (
     <div style={{ background: "#0a0a0a", minHeight: "100vh", fontFamily: "'DM Sans',sans-serif", color: "#eee", maxWidth: 480, margin: "0 auto", paddingBottom: 64 }}>
@@ -2211,13 +2065,12 @@ function App() {
                 <HeroBannerCarousel items={homeData.heroBannerItems} onClick={handleTMDBCardClick} />
               )}
 
-              {/* ── 5 Categories only ── */}
               {[
-                { title: "MOVIES",         items: homeData.moviesFils,  cat: "all",     icon: "🎬" },
-                { title: "WEB SERIES",     items: homeData.seriesTrend, cat: "series",  icon: "📺" },
-                { title: "ANIME",          items: homeData.animeFils,   cat: "anime",   icon: "⛩️" },
-                { title: "KOREAN DRAMAS",  items: homeData.koreanFils,  cat: "korean",  icon: "🇰🇷" },
-                { title: "CARTOONS",       items: homeData.cartoonFils, cat: "cartoon", icon: "🎨" },
+                { title: "MOVIES",        items: homeData.moviesFils,  cat: "all",     icon: "🎬" },
+                { title: "WEB SERIES",    items: homeData.seriesTrend, cat: "series",  icon: "📺" },
+                { title: "ANIME",         items: homeData.animeFils,   cat: "anime",   icon: "⛩️" },
+                { title: "KOREAN DRAMAS", items: homeData.koreanFils,  cat: "korean",  icon: "🇰🇷" },
+                { title: "CARTOONS",      items: homeData.cartoonFils, cat: "cartoon", icon: "🎨" },
               ].map(({ title, items, cat, icon }) =>
                 items.length > 0 ? (
                   <TMDBCategoryRow
@@ -2225,7 +2078,7 @@ function App() {
                     title={title}
                     items={items}
                     onItemClick={handleTMDBCardClick}
-                    onSeeAll={() => openCategoryPage({ title, category: cat, items })}
+                    onSeeAll={() => setCategoryPage({ title, category: cat, items })}
                   />
                 ) : homeSecondaryLoading ? (
                   <div key={title} style={{ marginBottom: 32 }}>
@@ -2252,7 +2105,7 @@ function App() {
           title={categoryPage.title}
           category={categoryPage.category}
           initialItems={categoryPage.items}
-          onBack={closeCategoryPage}
+          onBack={() => setCategoryPage(null)}
           onItemClick={handleTMDBCardClick}
         />
       )}
@@ -2402,7 +2255,7 @@ function App() {
       {/* ── BOTTOM NAV ── */}
       <BottomNav tab={tab} setTab={(t) => {
         setTab(t);
-        if (t !== "search") { closeCategoryPage(); searchAbortRef.current?.abort(); }
+        if (t !== "search") { setCategoryPage(null); searchAbortRef.current?.abort(); }
       }} />
 
       {selected && <DetailModal file={selected} onClose={() => setSelected(null)} />}
@@ -2416,7 +2269,6 @@ function App() {
         @keyframes fadeIn { from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)} }
         @keyframes slideUp { from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1} }
         @keyframes toastIn { from{opacity:0;transform:translateX(-50%) translateY(12px)}to{opacity:1;transform:translateX(-50%) translateY(0)} }
-        @keyframes shimmer { 0%{background-position:200% 0}100%{background-position:-200% 0} }
         input::placeholder { color: #3a3a3a; }
         div::-webkit-scrollbar { display: none; }
         button { font-family: inherit; }
