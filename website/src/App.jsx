@@ -183,6 +183,11 @@ function extractMovieTitle(name = "") {
   n = n.replace(/\d{1,2}:\d{2}/g, " ");
   n = n.replace(/\b(19|20)\d{2}\b.*/i, "").trim();
   n = n.replace(/\bS\d{2}E?\d*\b/gi, " ");
+  // FIX: Episode range patterns — "E07 To 13", "Ep07-13", "E60 mkv" etc strip karo
+  n = n.replace(/\bE[Pp]?\d{1,3}\s*([-–To]+\s*[Ee]?[Pp]?\d{1,3})?/gi, " ");
+  n = n.replace(/\b[Ee]pisode[s]?\s*\d{1,3}(\s*[-–To]+\s*\d{1,3})?/gi, " ");
+  // "To 13" orphan reh jaata hai — numbers after "To"/"Ep" strip karo
+  n = n.replace(/\b(To|Ep)\s+\d+\b/gi, " ");
   n = n.replace(/\b(480p|720p|1080p|2160p|4k|hdrip|webrip|web\s?dl|bluray|hdcam|dvdrip|tataplay|hotstar|zee5|sonyliv|hbomax|predvd|hdts|camrip|x264|x265|h264|h265|hevc|aac|dd5|dts|org|hq|esub|sub|proper|repack|imax|truehd|atmos|dolby|10bit|hdr|hdr10|ds4k|hmax|wmax)\b/gi, " ");
   const words = n.split(" ").filter(w => w.length > 0);
   const filtered = words.filter((w, idx) => {
@@ -202,8 +207,9 @@ function extractMovieTitle(name = "") {
 }
 
 function extractEpisodeInfo(name = "") {
-  const combined = name.match(/[Ss]?\d{0,2}[Ee](\d{1,3})[-–][Ee]?(\d{1,3})/i)
-    || name.match(/[Ee]pisodes?\s*(\d{1,3})[-–](\d{1,3})/i);
+  // Combined: E07-E13, E07–13, E07 To 13, Episodes 07-13, Ep07 To 13
+  const combined = name.match(/[Ss]?\d{0,2}[Ee]p?(\d{1,3})\s*[-–to]+\s*[Ee]?p?(\d{1,3})/i)
+    || name.match(/[Ee]pisodes?\s*(\d{1,3})\s*[-–to]+\s*(\d{1,3})/i);
   if (combined) return { type: "combined", from: parseInt(combined[1]), to: parseInt(combined[2]) };
   const single = name.match(/[Ss]\d{1,2}[Ee](\d{1,3})/i)
     || name.match(/\b[Ee][Pp]?(\d{1,3})\b/)
@@ -217,11 +223,11 @@ function extractEpisode(name = "") {
   return info.type === "combined" ? info.from : info.ep;
 }
 function extractSeason(name = "") {
-  const m = name.match(/[Ss](\d{1,2})[Ee]/i) || name.match(/[Ss]eason[\s._]*(\d{1,2})/i);
+  const m = name.match(/[Ss](\d{1,2})\s*[Ee]\d/i) || name.match(/[Ss]eason[\s._]*(\d{1,2})/i);
   return m ? parseInt(m[1], 10) : null;
 }
 function isSeries(name = "") {
-  return /[Ss]\d{1,2}[Ee]\d{1,3}|\b[Ee]pisode[\s._]?\d|\b[Ee][Pp]\d/i.test(name);
+  return /[Ss]\d{1,2}[Ee]\d{1,3}|\b[Ee]pisode[\s._]?\d|\b[Ee][Pp]\d|\b[Ee]\d{2,3}\s*([-–]|[Tt]o)\s*[Ee]?\d/i.test(name);
 }
 function extractLanguage(name = "") {
   name = stripPromotion(name);
@@ -401,6 +407,12 @@ async function enrichWithTMDB(title, year) {
         const data = await tmdbGet("/search/multi", { ...params, page: 1 });
         const found = (data?.results || []).find(r => r.poster_path);
         if (found) { result = found; break; }
+      }
+      // FIX: multi search miss → try TV search explicitly (series/anime/kdrama ke liye)
+      if (!result) {
+        const tvData = await tmdbGet("/search/tv", { query: title, page: 1 });
+        const tvFound = (tvData?.results || []).find(r => r.poster_path);
+        if (tvFound) result = { ...tvFound, media_type: "tv" };
       }
       if (!result) {
         if (tmdbCache.size >= TMDB_CACHE_MAX) tmdbCache.delete(tmdbCache.keys().next().value);
