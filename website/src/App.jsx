@@ -63,8 +63,8 @@ const TMDB_IMG_MD = "https://image.tmdb.org/t/p/w342";
 const TMDB_IMG_ORIG = "https://image.tmdb.org/t/p/original";
 
 // ── Timing Constants (magic numbers hata diye) ──────────────────────
-const SERVER_WAKING_DELAY_MS = 3000;
-const SERVER_TIMEOUT_MS = 90000; // Railway free server ko 60-90 sec lag sakta hai cold start mein
+const SERVER_WAKING_DELAY_MS = 5000;
+const SERVER_TIMEOUT_MS = 150000; // Railway cold start ke liye 150s
 const SEARCH_DEBOUNCE_MS = 350;
 const HOME_CACHE_TTL_MS = 30 * 60 * 1000;
 const TMDB_CACHE_MAX = 300;
@@ -493,7 +493,7 @@ const STRICT_CATEGORIES = new Set(["cartoon", "anime", "korean"]);
 async function fetchDBCategory(category, limit = 12, offset = 0) {
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 75000);
+    const timer = setTimeout(() => controller.abort(), 130000); // Railway cold start ke liye 130s
     const searchQuery = CATEGORY_SEARCH_QUERY[category];
 
     let files = [];
@@ -1923,9 +1923,10 @@ function App() {
       window.__hideSplash?.();
       window.__splashProgress?.(40, "Loading categories...");
     }).catch(() => {
-      // FIX: turant error mat dikhao — ek baar 5s baad auto-retry
+      // FIX: allPromise fail — waking message dikhate rehno, auto-retry 8s baad
       clearTimeout(wakingTimer);
-      // errorTimer chalte rehne do — agar retry bhi fail hua toh woh error dikhayega
+      setServerWaking(true); // "warm ho raha hai" message dikhao
+      // errorTimer chalte rehne do — agar 150s mein bhi nahi aaya toh error dikhega
     });
 
     // Step 2: Har category apne time pe aate hi state mein daal do — blank cards nahi dikhenge
@@ -2194,7 +2195,7 @@ function App() {
                   <div style={{ width: 18, height: 18, borderRadius: "50%", border: "2px solid rgba(243,156,18,0.3)", borderTopColor: "#f39c12", animation: "spin 0.9s linear infinite", flexShrink: 0 }} />
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#f39c12" }}>Server warm ho raha hai...</div>
-                    <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>Render free server 30-60 sec leta hai. Thoda wait karo 🙏</div>
+                    <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>Railway server start ho raha hai (30-90 sec). Please wait... 🙏</div>
                   </div>
                 </div>
               )}
