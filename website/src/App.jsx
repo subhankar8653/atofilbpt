@@ -445,37 +445,66 @@ const CATEGORY_LANG_FILTER = {
   hindi: /\bhindi\b/i, tamil: /\btamil\b/i, malayalam: /\bmalayalam\b/i,
   telugu: /\btelugu\b/i, kannada: /\bkannada\b/i, bengali: /\bbengali\b/i,
   english: /\benglish\b/i, series: null,
-  // New categories
-  cartoon: /\b(cartoon|animated|animation|doraemon|shin\s?chan|pokemon|tom\s?and\s?jerry|paw\s?patrol|peppa|bluey|scooby|looney|tunes|disney|pixar|dreamworks)\b/i,
-  anime:   /\b(anime|naruto|dragon\s?ball|one\s?piece|bleach|attack\s?on\s?titan|demon\s?slayer|jujutsu|sword\s?art|hunter\s?x\s?hunter|fullmetal|death\s?note|my\s?hero|fairy\s?tail|black\s?clover|boruto|shingeki|haikyuu|mob\s?psycho|tokyo\s?ghoul|overlord|re\s?zero|konosuba|fate|isekai)\b/i,
-  korean:  /\b(korean|kdrama|k-drama|k\s?drama)\b/i,
+  // Strict positive-match filters — sirf exact category content
+  cartoon: /\b(cartoon|animated|animation|doraemon|shin\s?chan|pokemon|tom[._\s]and[._\s]jerry|paw[._\s]patrol|peppa[._\s]pig|bluey|scooby[._\s-]?doo|looney[._\s]tunes|mickey[._\s]mouse|minions|despicable|kung\s?fu\s?panda|shrek|madagascar|ice\s?age|zootopia|moana|encanto|turning\s?red|lightyear|soul|luca|ratatouille|bolt|tangled|frozen|brave|coco|up|cars|toy\s?story|finding[._\s]nemo|finding[._\s]dory|incredibles|wreck[._\s]it\s?ralph|inside\s?out|elemental|wish|strange\s?world|turning\s?red|winnie|jungle\s?book|bambi|dumbo|cinderella|sleeping\s?beauty|snow\s?white|peter\s?pan|pinocchio|fantasia|mulan|hercules|tarzan|atlantis|treasure\s?planet|lilo|stitch|goofy|donald[._\s]duck|pluto|chip[._\s]n[._\s]dale|gummy|rescue\s?rangers|ducktales|darkwing|tiny[._\s]toons|animaniacs|flintstones|jetsons|yogi[._\s]bear|hanna[._\s]barbera|ben\s?10|avatar[._\s]the[._\s]last|korra|teen\s?titans|justice\s?league|batman[._\s]animated|superman[._\s]animated|spider[._\s]man[._\s]animated|x[._\s-]men[._\s]animated|transformers[._\s]animated|capt?ain[._\s]underpants|diary\s?of\s?a\s?wimpy|emoji\s?movie|boss\s?baby|trolls|sing|smurfs|garfield|snoopy|charlie\s?brown|peanuts|tom\s?jerry|roadrunner|daffy|bugs\s?bunny|tweety|sylvester|porky|elmer|speedy|gonzales|tazmanian)\b/i,
+  anime:   /\b(anime|naruto|dragon[._\s-]?ball|one[._\s]piece|bleach|attack[._\s]on[._\s]titan|shingeki|demon[._\s]slayer|kimetsu|jujutsu[._\s]kaisen|sword[._\s]art[._\s]online|hunter[._\s]x[._\s]hunter|fullmetal[._\s]alchemist|death[._\s]note|my[._\s]hero[._\s]academia|boku[._\s]no[._\s]hero|fairy[._\s]tail|black[._\s]clover|boruto|haikyuu|mob[._\s]psycho|tokyo[._\s]ghoul|overlord|re[._\s]?zero|konosuba|fate[._\s]stay|isekai|spy[._\s]x[._\s]family|chainsaw[._\s]man|vinland[._\s]saga|one[._\s]punch[._\s]man|steins[._\s]gate|code[._\s]geass|neon[._\s]genesis|evangelion|cowboy[._\s]bebop|trigun|inuyasha|ranma|sailor[._\s]moon|cardcaptor|dragon[._\s]quest|toradora|clannad|anohana|your[._\s]lie|violet[._\s]evergarden|made[._\s]in[._\s]abyss|promised[._\s]neverland|rising[._\s]of[._\s]the[._\s]shield|slime[._\s]isekai|that[._\s]time[._\s]i[._\s]got|mushoku[._\s]tensei|jobless[._\s]reincarnation|tokyo[._\s]revengers|blue[._\s]lock|jujutsu|dandadan|solo[._\s]leveling|frieren|dungeon[._\s]meshi|delicious[._\s]in[._\s]dungeon|oshi[._\s]no[._\s]ko|mashle|dr[._\s]stone|fire[._\s]force|noragami|erased|parasyte|aot|mha|bnha|snk)\b/i,
+  korean:  /\b(korean|kdrama|k[._\s-]drama|k[._\s-]pop|squid[._\s]game|crash[._\s]landing|its[._\s]okay|kingdom[._\s]korean|vagabond|vincenzo|mouse[._\s]korean|signal[._\s]korean|stranger[._\s]things[._\s]korean|sweet[._\s]home|all[._\s]of[._\s]us[._\s]are[._\s]dead|extraordinary[._\s]attorney|business[._\s]proposal|my[._\s]mister|reply[._\s]1988|goblin[._\s]kdrama|hotel[._\s]del[._\s]luna|strong[._\s]woman|record[._\s]of[._\s]youth|start[._\s]up[._\s]kdrama|nevertheless[._\s]kdrama|nevertheless|hometown[._\s]cha[._\s]cha|young[._\s]lady[._\s]and[._\s]gentleman|alchemy[._\s]of[._\s]souls|little[._\s]women[._\s]korean|reborn[._\s]rich|the[._\s]glory|moving[._\s]korean|mask[._\s]girl|my[._\s]demon|doctor[._\s]slump|lovely[._\s]runner|queen[._\s]of[._\s]tears|my[._\s]love[._\s]from[._\s]the[._\s]star|descendants[._\s]of[._\s]the[._\s]sun|boys[._\s]over[._\s]flowers|full[._\s]house[._\s]korean|secret[._\s]garden[._\s]korean|city[._\s]hunter[._\s]korean|heirs|pinocchio[._\s]korean|w[._\s]two[._\s]worlds|while[._\s]you[._\s]were[._\s]sleeping|are[._\s]you[._\s]human|what[._\s]is[._\s]wrong[._\s]with[._\s]secretary[._\s]kim|her[._\s]private[._\s]life|touch[._\s]your[._\s]heart|crash[._\s]course[._\s]in[._\s]romance|welcome[._\s]to[._\s]samdalri|my[._\s]girlfriend[._\s]is[._\s]a[._\s]gumiho|true[._\s]beauty[._\s]korean|webtoon[._\s]kdrama|webtoon[._\s]drama)\b/i,
 };
 const NON_BOLLYWOOD_PATTERNS = /\b(dubbed|dub|anime|doraemon|dragon\s?ball|naruto|one\s?piece|bleach|detective\s?conan|shin\s?chan|pokemon|hollywood|english|korean|chinese|japanese|kannada|telugu|tamil|malayalam|bengali)\b/i;
 const CATEGORY_SEARCH_QUERY = {
   hindi: "hindi", tamil: "tamil", malayalam: "malayalam", telugu: "telugu",
   kannada: "kannada", bengali: "bengali", english: "english", series: null, all: null,
-  cartoon: "cartoon", anime: "anime", korean: "korean",
+  // Multi-query: array means fetch multiple queries and merge
+  cartoon: ["cartoon", "animated", "animation", "doraemon", "pokemon", "disney"],
+  anime:   ["anime", "naruto", "dragon ball", "one piece", "demon slayer", "jujutsu kaisen"],
+  korean:  ["korean", "kdrama", "k-drama"],
 };
+
+// Strict categories — fallback KABHI nahi, sirf exact match chahiye
+const STRICT_CATEGORIES = new Set(["cartoon", "anime", "korean"]);
 
 async function fetchDBCategory(category, limit = 12, offset = 0) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20000);
     const searchQuery = CATEGORY_SEARCH_QUERY[category];
-    let res;
-    if (searchQuery) {
-      const pageNum = offset > 0 ? Math.floor(offset / API_FETCH_BATCH) + 1 : 1;
+
+    let files = [];
+    const pageNum = offset > 0 ? Math.floor(offset / API_FETCH_BATCH) + 1 : 1;
+
+    if (Array.isArray(searchQuery)) {
+      // Multi-query: sab queries parallel fetch karo aur merge karo
+      const fetches = await Promise.all(searchQuery.map(async q => {
+        try {
+          const params = new URLSearchParams({ q, quality: "All", language: "All", limit: API_FETCH_BATCH, page: pageNum });
+          const r = await fetch(`${API_BASE}/api/search?${params}`, { signal: controller.signal });
+          if (!r.ok) return [];
+          const d = await r.json();
+          return d.files || [];
+        } catch { return []; }
+      }));
+      // Merge and deduplicate by file_id
+      const seen = new Set();
+      for (const batch of fetches) {
+        for (const f of batch) {
+          if (!seen.has(f.file_id)) { seen.add(f.file_id); files.push(f); }
+        }
+      }
+    } else if (searchQuery) {
       const params = new URLSearchParams({ q: searchQuery, quality: "All", language: "All", limit: API_FETCH_BATCH, page: pageNum });
-      res = await fetch(`${API_BASE}/api/search?${params}`, { signal: controller.signal });
+      const res = await fetch(`${API_BASE}/api/search?${params}`, { signal: controller.signal });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      files = data.files || [];
     } else {
-      const pageNum = offset > 0 ? Math.floor(offset / API_FETCH_BATCH) + 1 : 1;
       const params = new URLSearchParams({ category, limit: API_FETCH_BATCH, page: pageNum });
-      res = await fetch(`${API_BASE}/api/trending?${params}`, { signal: controller.signal });
+      const res = await fetch(`${API_BASE}/api/trending?${params}`, { signal: controller.signal });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      files = data.files || [];
     }
+
     clearTimeout(timer);
-    if (!res.ok) throw new Error();
-    const data = await res.json();
-    let files = data.files || [];
     const rawApiCount = files.length;
 
     const _pMap = { "all": 26, "series": 32, "hindi": 38, "tamil": 44, "malayalam": 50, "telugu": 56, "kannada": 62, "bengali": 68, "english": 74, "cartoon": 78, "anime": 82, "korean": 86 };
@@ -486,14 +515,17 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
 
     const langFilter = CATEGORY_LANG_FILTER[category];
     if (langFilter) {
-      let filtered = files.filter(f => langFilter.test(f.file_name));
-      if (category === "hindi") {
-        filtered = filtered.filter(f => !NON_BOLLYWOOD_PATTERNS.test(f.file_name.replace(/\bhindi\b/gi, "")));
-        if (filtered.length < files.length * 0.05 && files.length > 0) filtered = files.filter(f => langFilter.test(f.file_name));
+      const filtered = files.filter(f => langFilter.test(f.file_name));
+      if (STRICT_CATEGORIES.has(category)) {
+        // Strict: filter ke baad bhi kuch nahi mila toh empty return karo — wrong content mat dikhao
+        files = filtered;
+      } else if (category === "hindi") {
+        let f2 = filtered.filter(f => !NON_BOLLYWOOD_PATTERNS.test(f.file_name.replace(/\bhindi\b/gi, "")));
+        if (f2.length < files.length * 0.05 && files.length > 0) f2 = filtered;
+        files = f2;
       } else {
-        if (filtered.length < files.length * 0.1 && files.length > 0) filtered = files.filter(f => langFilter.test(f.file_name));
+        files = filtered.length >= files.length * 0.1 ? filtered : filtered;
       }
-      files = filtered;
     }
 
     const seen = new Set();
