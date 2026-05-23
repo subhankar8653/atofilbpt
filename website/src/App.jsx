@@ -63,8 +63,8 @@ const TMDB_IMG_MD = "https://image.tmdb.org/t/p/w342";
 const TMDB_IMG_ORIG = "https://image.tmdb.org/t/p/original";
 
 // ── Timing Constants (magic numbers hata diye) ──────────────────────
-const SERVER_WAKING_DELAY_MS = 5000;
-const SERVER_TIMEOUT_MS = 150000; // Railway cold start ke liye 150s
+const SERVER_WAKING_DELAY_MS = 4000;
+const SERVER_TIMEOUT_MS = 35000;
 const SEARCH_DEBOUNCE_MS = 350;
 const HOME_CACHE_TTL_MS = 30 * 60 * 1000;
 const TMDB_CACHE_MAX = 300;
@@ -183,11 +183,6 @@ function extractMovieTitle(name = "") {
   n = n.replace(/\d{1,2}:\d{2}/g, " ");
   n = n.replace(/\b(19|20)\d{2}\b.*/i, "").trim();
   n = n.replace(/\bS\d{2}E?\d*\b/gi, " ");
-  // FIX: Episode range patterns — "E07 To 13", "Ep07-13", "E60 mkv" etc strip karo
-  n = n.replace(/\bE[Pp]?\d{1,3}\s*([-–To]+\s*[Ee]?[Pp]?\d{1,3})?/gi, " ");
-  n = n.replace(/\b[Ee]pisode[s]?\s*\d{1,3}(\s*[-–To]+\s*\d{1,3})?/gi, " ");
-  // "To 13" orphan reh jaata hai — numbers after "To"/"Ep" strip karo
-  n = n.replace(/\b(To|Ep)\s+\d+\b/gi, " ");
   n = n.replace(/\b(480p|720p|1080p|2160p|4k|hdrip|webrip|web\s?dl|bluray|hdcam|dvdrip|tataplay|hotstar|zee5|sonyliv|hbomax|predvd|hdts|camrip|x264|x265|h264|h265|hevc|aac|dd5|dts|org|hq|esub|sub|proper|repack|imax|truehd|atmos|dolby|10bit|hdr|hdr10|ds4k|hmax|wmax)\b/gi, " ");
   const words = n.split(" ").filter(w => w.length > 0);
   const filtered = words.filter((w, idx) => {
@@ -207,9 +202,8 @@ function extractMovieTitle(name = "") {
 }
 
 function extractEpisodeInfo(name = "") {
-  // Combined: E07-E13, E07–13, E07 To 13, Episodes 07-13, Ep07 To 13
-  const combined = name.match(/[Ss]?\d{0,2}[Ee]p?(\d{1,3})\s*[-–to]+\s*[Ee]?p?(\d{1,3})/i)
-    || name.match(/[Ee]pisodes?\s*(\d{1,3})\s*[-–to]+\s*(\d{1,3})/i);
+  const combined = name.match(/[Ss]?\d{0,2}[Ee](\d{1,3})[-–][Ee]?(\d{1,3})/i)
+    || name.match(/[Ee]pisodes?\s*(\d{1,3})[-–](\d{1,3})/i);
   if (combined) return { type: "combined", from: parseInt(combined[1]), to: parseInt(combined[2]) };
   const single = name.match(/[Ss]\d{1,2}[Ee](\d{1,3})/i)
     || name.match(/\b[Ee][Pp]?(\d{1,3})\b/)
@@ -223,11 +217,11 @@ function extractEpisode(name = "") {
   return info.type === "combined" ? info.from : info.ep;
 }
 function extractSeason(name = "") {
-  const m = name.match(/[Ss](\d{1,2})\s*[Ee]\d/i) || name.match(/[Ss]eason[\s._]*(\d{1,2})/i);
+  const m = name.match(/[Ss](\d{1,2})[Ee]/i) || name.match(/[Ss]eason[\s._]*(\d{1,2})/i);
   return m ? parseInt(m[1], 10) : null;
 }
 function isSeries(name = "") {
-  return /[Ss]\d{1,2}[Ee]\d{1,3}|\b[Ee]pisode[\s._]?\d|\b[Ee][Pp]\d|\b[Ee]\d{2,3}\s*([-–]|[Tt]o)\s*[Ee]?\d/i.test(name);
+  return /[Ss]\d{1,2}[Ee]\d{1,3}|\b[Ee]pisode[\s._]?\d|\b[Ee][Pp]\d/i.test(name);
 }
 function extractLanguage(name = "") {
   name = stripPromotion(name);
@@ -408,12 +402,6 @@ async function enrichWithTMDB(title, year) {
         const found = (data?.results || []).find(r => r.poster_path);
         if (found) { result = found; break; }
       }
-      // FIX: multi search miss → try TV search explicitly (series/anime/kdrama ke liye)
-      if (!result) {
-        const tvData = await tmdbGet("/search/tv", { query: title, page: 1 });
-        const tvFound = (tvData?.results || []).find(r => r.poster_path);
-        if (tvFound) result = { ...tvFound, media_type: "tv" };
-      }
       if (!result) {
         if (tmdbCache.size >= TMDB_CACHE_MAX) tmdbCache.delete(tmdbCache.keys().next().value);
         tmdbCache.set(key, null);
@@ -493,7 +481,7 @@ const STRICT_CATEGORIES = new Set(["cartoon", "anime", "korean"]);
 async function fetchDBCategory(category, limit = 12, offset = 0) {
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 130000); // Railway cold start ke liye 130s
+    const timer = setTimeout(() => controller.abort(), 20000);
     const searchQuery = CATEGORY_SEARCH_QUERY[category];
 
     let files = [];
@@ -1071,15 +1059,13 @@ function EpisodeQualityRow({ epFrom, epTo, isCombined, files, seriesTitle, seaso
         <div style={{ width: 56, height: 76, flexShrink: 0, borderRadius: 10, overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,.5)" }}>
           <Poster file={bestFile} seriesTitle={seriesTitle} />
         </div>
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 4 }}>
-          {/* FIX: Series title UPAR — bold aur prominent */}
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#e8e8e8", lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{seriesTitle}</div>
-          {/* FIX: Episode info NICHE — season badge + episode label */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 2 }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 5 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            {isCombined && (<span style={{ fontSize: 8, fontWeight: 900, color: "#fff", background: "linear-gradient(135deg,#27ae60,#1e8449)", borderRadius: 5, padding: "2px 8px", letterSpacing: 0.5 }}>COMPLETE PACK</span>)}
             {season && (<span style={{ fontSize: 8, fontWeight: 800, color: "#fff", background: "linear-gradient(135deg,#6366f1,#4f46e5)", borderRadius: 5, padding: "2px 8px", letterSpacing: 0.5 }}>S{String(season).padStart(2, "0")}</span>)}
-            {isCombined && (<span style={{ fontSize: 8, fontWeight: 900, color: "#fff", background: "linear-gradient(135deg,#27ae60,#1e8449)", borderRadius: 5, padding: "2px 8px", letterSpacing: 0.5 }}>PACK</span>)}
-            <span style={{ fontSize: 12, fontWeight: 700, color: isCombined ? "#2ecc71" : "#f39c12", letterSpacing: 0.3 }}>{epLabel}</span>
           </div>
+          <div style={{ fontSize: 12.5, fontWeight: 800, color: isCombined ? "#2ecc71" : "#f39c12", letterSpacing: 0.3 }}>{epLabel}</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#999", lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{seriesTitle}</div>
         </div>
       </div>
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
@@ -1923,10 +1909,12 @@ function App() {
       window.__hideSplash?.();
       window.__splashProgress?.(40, "Loading categories...");
     }).catch(() => {
-      // FIX: allPromise fail — waking message dikhate rehno, auto-retry 8s baad
       clearTimeout(wakingTimer);
-      setServerWaking(true); // "warm ho raha hai" message dikhao
-      // errorTimer chalte rehne do — agar 150s mein bhi nahi aaya toh error dikhega
+      clearTimeout(errorTimer);
+      setHomeLoading(false);
+      setLoadError(true);
+      setServerWaking(false);
+      window.__hideSplash?.();
     });
 
     // Step 2: Har category apne time pe aate hi state mein daal do — blank cards nahi dikhenge
@@ -2195,7 +2183,7 @@ function App() {
                   <div style={{ width: 18, height: 18, borderRadius: "50%", border: "2px solid rgba(243,156,18,0.3)", borderTopColor: "#f39c12", animation: "spin 0.9s linear infinite", flexShrink: 0 }} />
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#f39c12" }}>Server warm ho raha hai...</div>
-                    <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>Railway server start ho raha hai (30-90 sec). Please wait... 🙏</div>
+                    <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>Render free server 30-60 sec leta hai. Thoda wait karo 🙏</div>
                   </div>
                 </div>
               )}
