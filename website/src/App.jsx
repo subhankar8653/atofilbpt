@@ -43,10 +43,14 @@ const _TMDB_KEYS = [
 if (_TMDB_KEYS.length === 0) _TMDB_KEYS.push("");
 let _tmdbKeyIndex = 0;
 const _tmdbKeyFailCount = new Map();
+const TMDB_KEY_FAIL_THRESHOLD = 3; // FIX: itni failures ke baad key skip karo
+
 function getNextTMDBKey() {
-  // Round-robin rotation
-  const key = _TMDB_KEYS[_tmdbKeyIndex % _TMDB_KEYS.length];
-  _tmdbKeyIndex = (_tmdbKeyIndex + 1) % _TMDB_KEYS.length;
+  // FIX: failed keys skip karo — sirf working keys use karo
+  const availableKeys = _TMDB_KEYS.filter(k => (_tmdbKeyFailCount.get(k) || 0) < TMDB_KEY_FAIL_THRESHOLD);
+  const pool = availableKeys.length > 0 ? availableKeys : _TMDB_KEYS; // agar sab fail toh reset
+  const key = pool[_tmdbKeyIndex % pool.length];
+  _tmdbKeyIndex = (_tmdbKeyIndex + 1) % pool.length;
   return key;
 }
 function markKeyFailed(key) {
@@ -704,11 +708,8 @@ function HeroBannerCarousel({ items, onClick }) {
   const startTimer = useCallback(() => {
     clearInterval(intervalRef.current);
     intervalRef.current = setInterval(() => {
-      // FIX: setBgLoaded false sirf tab karo jab next image alag ho
-      setCurrent(c => {
-        const next = (c + 1) % itemsLen;
-        return next;
-      });
+      setCurrent(c => (c + 1) % itemsLen);
+      setBgLoaded(false); // FIX: har slide change pe reset karo taki nayi image fade-in properly dikhaye
     }, HERO_AUTOPLAY_MS);
   }, [itemsLen]);
 
@@ -718,7 +719,7 @@ function HeroBannerCarousel({ items, onClick }) {
     return () => clearInterval(intervalRef.current);
   }, [itemsLen, startTimer]);
 
-  const goTo = (i) => { setCurrent(i); startTimer(); };  // FIX: no flicker
+  const goTo = (i) => { setCurrent(i); setBgLoaded(false); startTimer(); }; // FIX: bgLoaded reset karo manual nav pe bhi
   const onTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
   const onTouchEnd = (e) => {
     if (touchStartX.current === null) return;
@@ -1338,6 +1339,9 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
   const loadingMoreRef = useRef(false);
   const hasMoreRef = useRef(true);
 
+  // FIX: initialItems reference equality issue — stringify karke compare karo ya length+category check use karo
+  const initialItemsKey = initialItems ? `${category}_${initialItems.length}` : category;
+
   useEffect(() => {
     if (!category) return;
     pageRef.current = 1;
@@ -1375,7 +1379,7 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
       hasMoreRef.current = more;
       setInitialLoading(false);
     });
-  }, [category, initialItems]);  // FIX: initialItems dependency add kiya
+  }, [category, initialItemsKey]);  // FIX: initialItemsKey use karo — reference nahi, stable string
 
   const loadMore = useCallback(async () => {
     if (loadingMoreRef.current || !hasMoreRef.current || !category) return;
@@ -1804,21 +1808,33 @@ function App() {
     window.history.pushState({ page: "app" }, "");
   }, []);
 
+  // FIX: useRef se latest values track karo — stale closure se bachne ke liye
+  const selectedRef    = useRef(selected);
+  const categoryPageRef = useRef(categoryPage);
+  const tabRef         = useRef(tab);
+  useEffect(() => { selectedRef.current    = selected;     }, [selected]);
+  useEffect(() => { categoryPageRef.current = categoryPage; }, [categoryPage]);
+  useEffect(() => { tabRef.current         = tab;          }, [tab]);
+
   useEffect(() => {
     const handlePopState = () => {
       window.history.pushState({ page: "app" }, "");
-      if (selected) { setSelected(null); return; }
-      if (categoryPage) { setCategoryPage(null); return; }
-      if (tab === "search") { setTab("home"); setQuery(""); setFiles([]); return; }
-      if (tab !== "home") { setTab("home"); return; }
+      if (selectedRef.current)    { setSelected(null);      return; }
+      if (categoryPageRef.current){ setCategoryPage(null);  return; }
+      if (tabRef.current === "search") { setTab("home"); setQuery(""); setFiles([]); return; }
+      if (tabRef.current !== "home")   { setTab("home"); return; }
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [selected, categoryPage, tab]);
+  }, []); // FIX: empty deps — refs se latest values milti hain, stale closure nahi
 
-  // FIX: doSearch — properly clears loading on abort
-  const doSearch = useCallback(async (q = query, qual = quality, lang = language) => {
-    if (!q.trim() && qual === "All" && lang === "All") {
+  // FIX: doSearch — useCallback dependencies hataye, params explicitly pass karo to avoid stale closure race condition
+  const doSearch = useCallback(async (q, qual, lang) => {
+    const searchQ    = q    !== undefined ? q    : query;
+    const searchQual = qual !== undefined ? qual : quality;
+    const searchLang = lang !== undefined ? lang : language;
+
+    if (!searchQ.trim() && searchQual === "All" && searchLang === "All") {
       setFiles([]);
       setLoading(false);
       return;
@@ -1828,9 +1844,8 @@ function App() {
     searchAbortRef.current = controller;
     setLoading(true);
     setFiles([]);
-    const results = await fetchFiles(q, qual, lang, 50, controller.signal);
+    const results = await fetchFiles(searchQ, searchQual, searchLang, 50, controller.signal);
     if (results !== null) {
-      // Search completed (not aborted)
       setFiles(results);
       setLoading(false);
     } else {
@@ -1881,7 +1896,8 @@ function App() {
     doSearch(transcript, quality, language);
   }, language);
 
-  const trendingChips = homeData.nowPlaying.slice(0, 6);
+  // FIX: sirf wahi chips dikhao jinka title defined aur non-empty ho
+  const trendingChips = homeData.nowPlaying.filter(item => item.title && item.title.trim()).slice(0, 6);
 
   return (
     <div style={{ background: "#0a0a0a", minHeight: "100vh", fontFamily: "'DM Sans',sans-serif", color: "#eee", maxWidth: 480, margin: "0 auto", paddingBottom: 64 }}>
