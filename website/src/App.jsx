@@ -339,7 +339,7 @@ async function tmdbGet(endpoint, params = {}) {
 }
 
 // ── SessionStorage Cache ──────────────────────────────────────────────
-const SESSION_CACHE_KEY = "suhani_home_v3";
+const SESSION_CACHE_KEY = "suhani_home_v4";
 function saveHomeCache(data) {
   try { sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ ts: Date.now(), data })); } catch {}
 }
@@ -1854,7 +1854,8 @@ function App() {
   useEffect(() => {
     // Cache check — instant load agar cache fresh hai
     const cached = loadHomeCache();
-    if (cached && retryKey === 0) {
+    // v4 cache validate karo — moviesFils hona chahiye
+    if (cached && retryKey === 0 && cached.moviesFils) {
       setHomeData(cached);
       setHomeLoading(false);
       setHomeSecondaryLoading(false);
@@ -1896,12 +1897,14 @@ function App() {
       fetchDBCategory("bengali",   50),
     ];
 
-    // Step 1: "all" resolve hote hi hero + nowPlaying dikhao
+    // Step 1: "all" resolve hote hi hero + Movies row seedha dikhao — fast first paint
     allPromise.then(({ items: latest }) => {
       clearTimeout(wakingTimer);
       const bannerItems = latest.filter(m => m.backdrop).slice(0, 5);
       if (bannerItems.length < 3) bannerItems.push(...latest.slice(0, 5 - bannerItems.length));
-      setHomeData(prev => ({ ...prev, nowPlaying: latest, heroBannerItems: bannerItems }));
+      // Movies row ke liye "all" data use karo — series filter out karo
+      const quickMovies = latest.filter(x => x.type !== "series").slice(0, 20);
+      setHomeData(prev => ({ ...prev, nowPlaying: latest, heroBannerItems: bannerItems, moviesFils: quickMovies }));
       setHomeLoading(false);
       setHomeSecondaryLoading(true);
       setServerWaking(false);
