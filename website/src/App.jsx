@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, Component } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, memo, Component } from "react";
 
 // ── Error Boundary ────────────────────────────────────────────────────
 class ErrorBoundary extends Component {
@@ -151,8 +151,23 @@ function cleanFileName(name = "") {
 // FIX: Instead of clearing entire cache at 2000, drop oldest 200 entries (LRU-lite)
 const _titleCache = new Map();
 function extractMovieTitle(name = "") {
-  if (_titleCache.has(name)) return _titleCache.get(name);
-  let n = stripPromotion(name);
+  // FIX: Non-latin fallback — Korean/Japanese titles strip ho jaate hain toh original preserve karo
+  // Pehle check karo ki title mein non-latin chars hain
+  const hasNonLatin = /[^\x00-\x7F\u00C0-\u024F]/.test(name);
+  if (hasNonLatin) {
+    // Try to extract just the non-latin portion as the title
+    const nonLatinMatch = name.match(/^([^\x00-\x7F\u00C0-\u024F\s][^\x00-\x7F\u00C0-\u024F\s\d]*(?:\s+[^\x00-\x7F\u00C0-\u024F\s][^\x00-\x7F\u00C0-\u024F\s\d]*)*)/);
+    if (nonLatinMatch && nonLatinMatch[1].trim().length > 1) {
+      const nonLatinResult = nonLatinMatch[1].trim();
+      if (_titleCache.size >= 2000) {
+        const keys = _titleCache.keys();
+        for (let i = 0; i < 200; i++) { _titleCache.delete(keys.next().value); }
+      }
+      _titleCache.set(name, nonLatinResult);
+      return nonLatinResult;
+    }
+  }
+  if (_titleCache.has(name)) return _titleCache.get(name);  let n = stripPromotion(name);
   n = n.replace(/\.(mkv|mp4|avi|mov|webm)$/i, "");
   n = n.replace(/[\u24B6-\u24E9\u2460-\u24FF]/g, "");
   n = n.replace(/[\u{1F100}-\u{1F1FF}\u{1F170}-\u{1F171}\u{1F17E}-\u{1F17F}\u{1F191}-\u{1F19A}\u{1F200}-\u{1F2FF}]/gu, "");
@@ -281,8 +296,8 @@ async function fetchTrending(category = "all", limit = 12) {
 // ── TMDB Request Queue (throttle to avoid rate limits) ──────────────
 const _tmdbQueue = [];
 let _tmdbRunning = 0;
-const TMDB_CONCURRENCY = 4;
-const TMDB_DELAY_MS = 80;
+const TMDB_CONCURRENCY = 3;
+const TMDB_DELAY_MS = 120;
 
 function _tmdbEnqueue(fn) {
   return new Promise((resolve, reject) => {
@@ -324,7 +339,7 @@ async function tmdbGet(endpoint, params = {}) {
 }
 
 // ── SessionStorage Cache ──────────────────────────────────────────────
-const SESSION_CACHE_KEY = "suhani_home_v2";
+const SESSION_CACHE_KEY = "suhani_home_v3";
 function saveHomeCache(data) {
   try { sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ ts: Date.now(), data })); } catch {}
 }
@@ -611,36 +626,58 @@ async function fetchByTMDBTitles(tmdbResults, alreadySeenTitles = new Set()) {
 }
 
 // ── TMDBCard ──────────────────────────────────────────────────────────
-function TMDBCard({ item, onClick, gridMode = false }) {
+const TMDBCard = memo(function TMDBCard({ item, onClick, gridMode = false }) {
   const [hov, setHov] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
   // FIX: initialise imgSrc from item.poster directly — no re-fetch if already available
   const [imgSrc, setImgSrc] = useState(item.poster || null);
   const [imgFailed, setImgFailed] = useState(false);
   const [inList, setInList] = useState(() => isInWatchlist(item.id));
+  const cardRef = useRef(null);
+  const fetchedRef = useRef(false);
   const hue = [...(item.title || "")].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
   const initials = (item.title || "").split(" ").slice(0, 2).map(w => w[0] || "").join("").toUpperCase();
 
+  // FIX: IntersectionObserver — off-screen cards TMDB fetch nahi karein
   useEffect(() => {
     setImgLoaded(false);
     setImgFailed(false);
+    fetchedRef.current = false;
     if (item.poster) {
       setImgSrc(item.poster);
-    } else {
-      setImgSrc(null);
-      let cancelled = false;
-      // Staggered delay: saare cards ek saath API hit na karein
-      const delay = Math.floor(Math.random() * 600);
-      const timer = setTimeout(() => {
-        fetchPosterFromTMDB(item.title, item.year).then(data => {
-          if (!cancelled && data?.poster) setImgSrc(data.poster);
-        });
-      }, delay);
-      return () => { cancelled = true; clearTimeout(timer); };
+      fetchedRef.current = true;
+      return;
     }
+    setImgSrc(null);
+    if (!cardRef.current) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !fetchedRef.current) {
+          fetchedRef.current = true;
+          obs.disconnect();
+          const delay = Math.floor(Math.random() * 400);
+          setTimeout(() => {
+            fetchPosterFromTMDB(item.title, item.year).then(data => {
+              if (data?.poster) setImgSrc(data.poster);
+            });
+          }, delay);
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    obs.observe(cardRef.current);
+    return () => obs.disconnect();
   }, [item.poster, item.id, item.title, item.year]);
 
+  // FIX: Hover pe posterMd (w342) load karo — better quality
+  useEffect(() => {
+    if (hov && imgLoaded && imgSrc && imgSrc.includes("/w185/") && item.posterMd) {
+      setImgSrc(item.posterMd);
+    }
+  }, [hov, imgLoaded, imgSrc, item.posterMd]);
+
   const handleImgError = () => {
+    if (imgSrc && imgSrc.includes("/w342/")) { setImgSrc(imgSrc.replace("/w342/", "/w185/")); return; }
     if (imgSrc && imgSrc.includes("/w185/")) { setImgSrc(imgSrc.replace("/w185/", "/w92/")); return; }
     setImgFailed(true);
     setImgLoaded(false);
@@ -652,8 +689,17 @@ function TMDBCard({ item, onClick, gridMode = false }) {
     setInList(added);
   };
 
+  // FIX: Rating badge color — green 7+, yellow 5-7, red <5
+  const ratingNum = parseFloat(item.rating);
+  const ratingColor = !isNaN(ratingNum)
+    ? ratingNum >= 7.0 ? "#27ae60"
+    : ratingNum >= 5.0 ? "#f39c12"
+    : "#e74c3c"
+    : "#f1c40f";
+
   return (
     <div
+      ref={cardRef}
       onClick={() => onClick(item)}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
@@ -701,9 +747,9 @@ function TMDBCard({ item, onClick, gridMode = false }) {
           }}>{initials || "🎬"}</div>
         )}
         {item.rating && item.rating !== "0.0" && (
-          <div style={{ position: "absolute", bottom: 7, left: 7, zIndex: 3, background: "rgba(0,0,0,0.82)", borderRadius: 8, padding: "3px 7px", display: "flex", alignItems: "center", gap: 3, backdropFilter: "blur(8px)", border: "1px solid rgba(241,196,15,0.2)" }}>
-            <span style={{ fontSize: 9, color: "#f1c40f" }}>★</span>
-            <span style={{ fontSize: 10, fontWeight: 800, color: "#f1c40f" }}>{item.rating}</span>
+          <div style={{ position: "absolute", bottom: 7, left: 7, zIndex: 3, background: "rgba(0,0,0,0.82)", borderRadius: 8, padding: "3px 7px", display: "flex", alignItems: "center", gap: 3, backdropFilter: "blur(8px)", border: `1px solid ${ratingColor}33` }}>
+            <span style={{ fontSize: 9, color: ratingColor }}>★</span>
+            <span style={{ fontSize: 10, fontWeight: 800, color: ratingColor }}>{item.rating}</span>
           </div>
         )}
         {item.type === "series" && (
@@ -733,7 +779,7 @@ function TMDBCard({ item, onClick, gridMode = false }) {
       </div>
     </div>
   );
-}
+});
 
 // ── Hero Banner Carousel ───────────────────────────────────────────────
 function HeroBannerCarousel({ items, onClick }) {
@@ -762,7 +808,7 @@ function HeroBannerCarousel({ items, onClick }) {
   const onTouchEnd = (e) => {
     if (touchStartX.current === null) return;
     const diff = touchStartX.current - e.changedTouches[0].clientX;
-    if (Math.abs(diff) > 50) goTo(diff > 0 ? (current + 1) % itemsLen : (current - 1 + itemsLen) % itemsLen);
+    if (Math.abs(diff) > 30) goTo(diff > 0 ? (current + 1) % itemsLen : (current - 1 + itemsLen) % itemsLen);
     touchStartX.current = null;
   };
 
@@ -1048,6 +1094,7 @@ function TMDBCategoryRow({ title, items, onItemClick, onSeeAll }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 14 }}>{icons[title] || "🎬"}</span>
           <span style={{ fontSize: 13, fontWeight: 800, color: "#e8e8e8", letterSpacing: "0.5px" }}>{title}</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: "#444", background: "rgba(255,255,255,0.06)", padding: "2px 7px", borderRadius: 50, border: "1px solid rgba(255,255,255,0.07)" }}>{items.length}</span>
         </div>
         {onSeeAll && (<button onClick={onSeeAll} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "#f39c12", fontWeight: 600, padding: "4px 0" }}>See all ›</button>)}
       </div>
@@ -1074,7 +1121,7 @@ function OfflineBanner() {
   }, []);
   if (!offline) return null;
   return (
-    <div style={{ position: "fixed", top: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, zIndex: 9999, background: "#e74c3c", color: "#fff", fontSize: 12, fontWeight: 700, textAlign: "center", padding: "8px 16px", letterSpacing: 0.5 }}>
+    <div style={{ position: "fixed", top: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, zIndex: 9999, background: "#e74c3c", color: "#fff", fontSize: 12, fontWeight: 700, textAlign: "center", padding: "10px 16px 8px", letterSpacing: 0.5 }}>
       📡 Internet nahi hai — offline mode
     </div>
   );
@@ -1116,6 +1163,29 @@ function DetailModal({ file, onClose }) {
   const [inList, setInList] = useState(false);
   const [links, setLinks] = useState(null);       // { watch_url, download_url }
   const [linksLoading, setLinksLoading] = useState(false);
+
+  // FIX: Swipe-down-to-close gesture
+  const touchStartYRef = useRef(null);
+  const modalRef = useRef(null);
+  const [swipeDelta, setSwipeDelta] = useState(0);
+
+  const handleTouchStart = (e) => {
+    touchStartYRef.current = e.touches[0].clientY;
+    setSwipeDelta(0);
+  };
+  const handleTouchMove = (e) => {
+    if (touchStartYRef.current === null) return;
+    const delta = e.touches[0].clientY - touchStartYRef.current;
+    if (delta > 0) setSwipeDelta(delta);
+  };
+  const handleTouchEnd = () => {
+    if (swipeDelta > 80) {
+      onClose();
+    } else {
+      setSwipeDelta(0);
+    }
+    touchStartYRef.current = null;
+  };
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
@@ -1198,11 +1268,23 @@ function DetailModal({ file, onClose }) {
 
   return (
     <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.9)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(16px)" }}>
-        <div onClick={e => e.stopPropagation()}
-          style={{ background: "#111", borderRadius: "28px 28px 0 0", width: "100%", maxWidth: 480, overflow: "hidden", animation: "slideUp .35s cubic-bezier(.32,1.4,.6,1)", maxHeight: "93vh", overflowY: "auto", border: "1px solid rgba(255,255,255,0.06)", borderBottom: "none" }}>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.9)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1000, backdropFilter: bgLoaded ? "blur(6px)" : "blur(16px)", transition: "backdrop-filter 0.6s ease" }}>
+        <div
+          ref={modalRef}
+          onClick={e => e.stopPropagation()}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          style={{
+            background: "#111", borderRadius: "28px 28px 0 0", width: "100%", maxWidth: 480, overflow: "hidden",
+            animation: "slideUp .35s cubic-bezier(.32,1.4,.6,1)", maxHeight: "93vh", overflowY: "auto",
+            border: "1px solid rgba(255,255,255,0.06)", borderBottom: "none",
+            transform: swipeDelta > 0 ? `translateY(${swipeDelta}px)` : "none",
+            transition: swipeDelta > 0 ? "none" : "transform 0.3s ease",
+            opacity: swipeDelta > 0 ? Math.max(0.5, 1 - swipeDelta / 200) : 1,
+          }}>
           <div style={{ display: "flex", justifyContent: "center", padding: "12px 0 0" }}>
-            <div style={{ width: 40, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.12)" }} />
+            <div style={{ width: 40, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.2)" }} />
           </div>
 
           <div style={{ position: "relative", height: 290, background: `linear-gradient(135deg,hsl(${hue},35%,10%),hsl(${(hue + 60) % 360},25%,7%))` }}>
@@ -1319,7 +1401,7 @@ function FilterRow({ label, items, active, onSelect, accent }) {
   return (
     <div style={{ marginBottom: 14 }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: "#444", letterSpacing: "1.5px", marginBottom: 8 }}>{label}</div>
-      <div style={{ display: "flex", gap: 7, overflowX: "auto", paddingBottom: 2, scrollbarWidth: "none" }}>
+      <div style={{ display: "flex", gap: 7, overflowX: "auto", paddingBottom: 2, scrollbarWidth: "none", scrollSnapType: "x mandatory" }}>
         {items.map(item => {
           const on = active === item;
           return (
@@ -1331,6 +1413,7 @@ function FilterRow({ label, items, active, onSelect, accent }) {
               boxShadow: on && accent ? "0 4px 16px rgba(243,156,18,.35)" : "none",
               transform: on ? "scale(1.05)" : "scale(1)",
               border: on ? "none" : "1px solid rgba(255,255,255,0.06)",
+              scrollSnapAlign: "start",
             }}>{item}</button>
           );
         })}
@@ -1343,10 +1426,10 @@ function FilterRow({ label, items, active, onSelect, accent }) {
 function SkeletonCard() {
   return (
     <div style={{ width: 120, flexShrink: 0, borderRadius: 16, overflow: "hidden", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}>
-      <div style={{ height: 165, background: "rgba(255,255,255,0.03)", animation: "pulse 1.8s ease infinite" }} />
+      <div style={{ height: 165, background: "rgba(255,255,255,0.03)", animation: "shimmer 1.8s ease infinite", backgroundImage: "linear-gradient(90deg,rgba(255,255,255,0.02) 0%,rgba(255,255,255,0.07) 50%,rgba(255,255,255,0.02) 100%)", backgroundSize: "200% 100%" }} />
       <div style={{ padding: "10px 10px 14px" }}>
-        <div style={{ height: 10, background: "rgba(255,255,255,0.04)", borderRadius: 5, marginBottom: 6, animation: "pulse 1.8s ease infinite" }} />
-        <div style={{ height: 10, background: "rgba(255,255,255,0.04)", borderRadius: 5, width: "60%", animation: "pulse 1.8s ease infinite" }} />
+        <div style={{ height: 10, background: "rgba(255,255,255,0.04)", borderRadius: 5, marginBottom: 6, animation: "shimmer 1.8s ease infinite", backgroundImage: "linear-gradient(90deg,rgba(255,255,255,0.02) 0%,rgba(255,255,255,0.07) 50%,rgba(255,255,255,0.02) 100%)", backgroundSize: "200% 100%" }} />
+        <div style={{ height: 10, background: "rgba(255,255,255,0.04)", borderRadius: 5, width: "60%", animation: "shimmer 1.8s ease infinite", backgroundImage: "linear-gradient(90deg,rgba(255,255,255,0.02) 0%,rgba(255,255,255,0.07) 50%,rgba(255,255,255,0.02) 100%)", backgroundSize: "200% 100%" }} />
       </div>
     </div>
   );
@@ -1354,11 +1437,11 @@ function SkeletonCard() {
 function SkeletonFile() {
   return (
     <div style={{ display: "flex", gap: 14, padding: "14px 16px", background: "rgba(255,255,255,0.02)", borderRadius: 18, border: "1px solid rgba(255,255,255,0.04)" }}>
-      <div style={{ width: 68, height: 92, borderRadius: 12, background: "rgba(255,255,255,0.04)", flexShrink: 0, animation: "pulse 1.8s ease infinite" }} />
+      <div style={{ width: 68, height: 92, borderRadius: 12, flexShrink: 0, animation: "shimmer 1.8s ease infinite", backgroundImage: "linear-gradient(90deg,rgba(255,255,255,0.03) 0%,rgba(255,255,255,0.08) 50%,rgba(255,255,255,0.03) 100%)", backgroundSize: "200% 100%", background: "rgba(255,255,255,0.04)" }} />
       <div style={{ flex: 1 }}>
-        <div style={{ height: 13, background: "rgba(255,255,255,0.04)", borderRadius: 6, marginBottom: 8, animation: "pulse 1.8s ease infinite" }} />
-        <div style={{ height: 13, background: "rgba(255,255,255,0.04)", borderRadius: 6, width: "75%", marginBottom: 10, animation: "pulse 1.8s ease infinite" }} />
-        <div style={{ height: 20, background: "rgba(255,255,255,0.04)", borderRadius: 6, width: "35%", animation: "pulse 1.8s ease infinite" }} />
+        <div style={{ height: 13, borderRadius: 6, marginBottom: 8, animation: "shimmer 1.8s ease infinite", backgroundImage: "linear-gradient(90deg,rgba(255,255,255,0.03) 0%,rgba(255,255,255,0.08) 50%,rgba(255,255,255,0.03) 100%)", backgroundSize: "200% 100%", background: "rgba(255,255,255,0.04)" }} />
+        <div style={{ height: 13, borderRadius: 6, width: "75%", marginBottom: 10, animation: "shimmer 1.8s ease infinite", backgroundImage: "linear-gradient(90deg,rgba(255,255,255,0.03) 0%,rgba(255,255,255,0.08) 50%,rgba(255,255,255,0.03) 100%)", backgroundSize: "200% 100%", background: "rgba(255,255,255,0.04)" }} />
+        <div style={{ height: 20, borderRadius: 6, width: "35%", animation: "shimmer 1.8s ease infinite", backgroundImage: "linear-gradient(90deg,rgba(255,255,255,0.03) 0%,rgba(255,255,255,0.08) 50%,rgba(255,255,255,0.03) 100%)", backgroundSize: "200% 100%", background: "rgba(255,255,255,0.04)" }} />
       </div>
     </div>
   );
@@ -1377,6 +1460,12 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
   const seenIdsRef = useRef(new Set());
   const loadingMoreRef = useRef(false);
   const hasMoreRef = useRef(true);
+
+  // FIX: Back button pe smooth scroll to top
+  const handleBack = useCallback(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setTimeout(onBack, 220);
+  }, [onBack]);
 
   // FIX: initialItems reference equality issue — stringify karke compare karo ya length+category check use karo
   const initialItemsKey = initialItems ? `${category}_${initialItems.length}` : category;
@@ -1481,7 +1570,7 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
   return (
     <div style={{ paddingBottom: 80 }}>
       <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, position: "sticky", top: 56, zIndex: 50, background: "rgba(10,10,10,0.96)", backdropFilter: "blur(14px)", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-        <button onClick={onBack} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "50%", width: 34, height: 34, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <button onClick={handleBack} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "50%", width: 34, height: 34, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2.5" strokeLinecap="round"><path d="M19 12H5M12 5l-7 7 7 7" /></svg>
         </button>
         <span style={{ fontSize: 15, fontWeight: 900, color: "#e8e8e8", letterSpacing: 0.5 }}>{title}</span>
@@ -1592,7 +1681,14 @@ function WatchlistTab({ onItemClick }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
         {items.map((item, i) => (
           <div key={item.id} style={{ position: "relative", animation: `fadeIn .2s ease ${i * 0.04}s both` }}>
-            <TMDBCard item={item} onClick={onItemClick} gridMode />
+            <TMDBCard item={item} onClick={(it) => {
+              // FIX: _file nahi hai toh crash bachao — title se search karo
+              if (it._file) {
+                onItemClick(it);
+              } else if (it.title) {
+                onItemClick(it.title);
+              }
+            }} gridMode />
             <button onClick={() => remove(item.id)}
               style={{ position: "absolute", top: 7, right: 7, width: 22, height: 22, borderRadius: "50%", background: "rgba(231,76,60,0.9)", border: "none", color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10 }}>
               ✕
@@ -1741,6 +1837,23 @@ function App() {
 
   const inputRef = useRef(null);
   const searchAbortRef = useRef(null);
+  // FIX: Scroll position save — category page se back aane pe same position pe rehna
+  const homeScrollRef = useRef(0);
+
+  // Category page open hone se pehle scroll position save karo
+  const openCategoryPage = useCallback((pageData) => {
+    homeScrollRef.current = window.scrollY;
+    setCategoryPage(pageData);
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, []);
+
+  // Category page close hone par scroll position restore karo
+  const closeCategoryPage = useCallback(() => {
+    setCategoryPage(null);
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: homeScrollRef.current, behavior: "instant" });
+    });
+  }, []);
 
   // ── Home load — FULLY PARALLEL: sab categories ek saath fetch, progressive render ────────────
   useEffect(() => {
@@ -1898,21 +2011,30 @@ function App() {
   const selectedRef    = useRef(selected);
   const categoryPageRef = useRef(categoryPage);
   const tabRef         = useRef(tab);
+  const closeCategoryPageRef = useRef(closeCategoryPage);
   useEffect(() => { selectedRef.current    = selected;     }, [selected]);
   useEffect(() => { categoryPageRef.current = categoryPage; }, [categoryPage]);
   useEffect(() => { tabRef.current         = tab;          }, [tab]);
+  useEffect(() => { closeCategoryPageRef.current = closeCategoryPage; }, [closeCategoryPage]);
 
   useEffect(() => {
     const handlePopState = () => {
       window.history.pushState({ page: "app" }, "");
       if (selectedRef.current)    { setSelected(null);      return; }
-      if (categoryPageRef.current){ setCategoryPage(null);  return; }
+      if (categoryPageRef.current){ closeCategoryPageRef.current?.();  return; }
       if (tabRef.current === "search") { setTab("home"); setQuery(""); setFiles([]); return; }
       if (tabRef.current !== "home")   { setTab("home"); return; }
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []); // FIX: empty deps — refs se latest values milti hain, stale closure nahi
+
+  // FIX: Search tab open hone pe autofocus
+  useEffect(() => {
+    if (tab === "search") {
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, [tab]);
 
   // FIX: requestId se sirf latest request ka result accept karo — race condition + "no result flash" khatam
   const searchRequestIdRef = useRef(0);
@@ -1960,13 +2082,13 @@ function App() {
     return () => clearTimeout(t);
   }, [doSearch, tab]);
 
-  const clearAll = () => {
+  const clearAll = useCallback(() => {
     setQuery(""); setQuality("All"); setLanguage("All");
     setFiles([]); setLoading(false);
     searchAbortRef.current?.abort();
     ++searchRequestIdRef.current; // FIX: pending requests ko invalidate karo
-  };
-  const clearFilters = () => { setQuality("All"); setLanguage("All"); };
+  }, []);
+  const clearFilters = useCallback(() => { setQuality("All"); setLanguage("All"); }, []);
 
   // FIX: handleTMDBCardClick — requestId guard lagaya, no "no result" flash
   const handleTMDBCardClick = useCallback((itemOrTitle) => {
@@ -1995,8 +2117,11 @@ function App() {
     doSearch(transcript, quality, language);
   }, language);
 
-  // FIX: sirf wahi chips dikhao jinka title defined aur non-empty ho
-  const trendingChips = homeData.nowPlaying.filter(item => item.title && item.title.trim()).slice(0, 6);
+  // FIX: useMemo — sirf wahi chips dikhao jinka title defined aur non-empty ho
+  const trendingChips = useMemo(
+    () => homeData.nowPlaying.filter(item => item.title && item.title.trim()).slice(0, 6),
+    [homeData.nowPlaying]
+  );
 
   return (
     <div style={{ background: "#0a0a0a", minHeight: "100vh", fontFamily: "'DM Sans',sans-serif", color: "#eee", maxWidth: 480, margin: "0 auto", paddingBottom: 64 }}>
@@ -2095,7 +2220,7 @@ function App() {
               {homeData.heroBannerItems.length > 0 && (
                 <HeroBannerCarousel items={homeData.heroBannerItems} onClick={handleTMDBCardClick} />
               )}
-              <TMDBCategoryRow title="NOW PLAYING" items={homeData.nowPlaying} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "NOW PLAYING", category: "all", items: homeData.nowPlaying })} />
+              <TMDBCategoryRow title="NOW PLAYING" items={homeData.nowPlaying} onItemClick={handleTMDBCardClick} onSeeAll={() => openCategoryPage({ title: "NOW PLAYING", category: "all", items: homeData.nowPlaying })} />
 
               {/* FIX: Progressive rendering — har category apne time pe show hoti hai skeleton ke saath */}
               {[
@@ -2119,7 +2244,7 @@ function App() {
                     title={title}
                     items={items}
                     onItemClick={handleTMDBCardClick}
-                    onSeeAll={() => setCategoryPage({ title, category: cat, items })}
+                    onSeeAll={() => openCategoryPage({ title, category: cat, items })}
                   />
                 ) : homeSecondaryLoading ? (
                   // Skeleton placeholder — blank cards ki jagah animated skeleton dikhao
@@ -2147,7 +2272,7 @@ function App() {
           title={categoryPage.title}
           category={categoryPage.category}
           initialItems={categoryPage.items}
-          onBack={() => setCategoryPage(null)}
+          onBack={closeCategoryPage}
           onItemClick={handleTMDBCardClick}
         />
       )}
@@ -2297,7 +2422,7 @@ function App() {
       {/* ── BOTTOM NAV ── */}
       <BottomNav tab={tab} setTab={(t) => {
         setTab(t);
-        if (t !== "search") { setCategoryPage(null); searchAbortRef.current?.abort(); }
+        if (t !== "search") { closeCategoryPage(); searchAbortRef.current?.abort(); }
       }} />
 
       {selected && <DetailModal file={selected} onClose={() => setSelected(null)} />}
@@ -2311,6 +2436,7 @@ function App() {
         @keyframes fadeIn { from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)} }
         @keyframes slideUp { from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1} }
         @keyframes toastIn { from{opacity:0;transform:translateX(-50%) translateY(12px)}to{opacity:1;transform:translateX(-50%) translateY(0)} }
+        @keyframes shimmer { 0%{background-position:200% 0}100%{background-position:-200% 0} }
         input::placeholder { color: #3a3a3a; }
         div::-webkit-scrollbar { display: none; }
         button { font-family: inherit; }
