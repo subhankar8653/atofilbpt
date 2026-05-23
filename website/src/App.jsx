@@ -492,8 +492,14 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
     const unique = [];
     for (const f of files) {
       const title = extractMovieTitle(f.file_name);
-      const key = title.toLowerCase().replace(/\s+/g, "");
-      if (key.length > 2 && !seen.has(key)) { seen.add(key); unique.push({ ...f, _title: title, _year: extractYear(f.file_name) }); }
+      // Dedup key: season/episode info hata ke sirf base title se compare karo
+      // "Attack on Titan S3 Ep 13" + "Attack on Titan S3 Ep 12" → same key "attackontitan"
+      const baseTitle = title
+        .replace(/\b(season|s)\s*\d{1,2}\b/gi, "")
+        .replace(/\b(episode|ep|e)\s*\d{1,3}\b/gi, "")
+        .replace(/\s+/g, " ").trim();
+      const key = baseTitle.toLowerCase().replace(/\s+/g, "");
+      if (key.length > 2 && !seen.has(key)) { seen.add(key); unique.push({ ...f, _title: baseTitle || title, _year: extractYear(f.file_name) }); }
     }
 
     const sliced = unique.slice(0, limit);
