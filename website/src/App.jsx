@@ -63,8 +63,8 @@ const TMDB_IMG_MD = "https://image.tmdb.org/t/p/w342";
 const TMDB_IMG_ORIG = "https://image.tmdb.org/t/p/original";
 
 // ── Timing Constants (magic numbers hata diye) ──────────────────────
-const SERVER_WAKING_DELAY_MS = 4000;
-const SERVER_TIMEOUT_MS = 35000;
+const SERVER_WAKING_DELAY_MS = 3000;
+const SERVER_TIMEOUT_MS = 90000; // Railway free server ko 60-90 sec lag sakta hai cold start mein
 const SEARCH_DEBOUNCE_MS = 350;
 const HOME_CACHE_TTL_MS = 30 * 60 * 1000;
 const TMDB_CACHE_MAX = 300;
@@ -493,7 +493,7 @@ const STRICT_CATEGORIES = new Set(["cartoon", "anime", "korean"]);
 async function fetchDBCategory(category, limit = 12, offset = 0) {
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20000);
+    const timer = setTimeout(() => controller.abort(), 75000);
     const searchQuery = CATEGORY_SEARCH_QUERY[category];
 
     let files = [];
@@ -1071,13 +1071,15 @@ function EpisodeQualityRow({ epFrom, epTo, isCombined, files, seriesTitle, seaso
         <div style={{ width: 56, height: 76, flexShrink: 0, borderRadius: 10, overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,.5)" }}>
           <Poster file={bestFile} seriesTitle={seriesTitle} />
         </div>
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 5 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            {isCombined && (<span style={{ fontSize: 8, fontWeight: 900, color: "#fff", background: "linear-gradient(135deg,#27ae60,#1e8449)", borderRadius: 5, padding: "2px 8px", letterSpacing: 0.5 }}>COMPLETE PACK</span>)}
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 4 }}>
+          {/* FIX: Series title UPAR — bold aur prominent */}
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#e8e8e8", lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{seriesTitle}</div>
+          {/* FIX: Episode info NICHE — season badge + episode label */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 2 }}>
             {season && (<span style={{ fontSize: 8, fontWeight: 800, color: "#fff", background: "linear-gradient(135deg,#6366f1,#4f46e5)", borderRadius: 5, padding: "2px 8px", letterSpacing: 0.5 }}>S{String(season).padStart(2, "0")}</span>)}
+            {isCombined && (<span style={{ fontSize: 8, fontWeight: 900, color: "#fff", background: "linear-gradient(135deg,#27ae60,#1e8449)", borderRadius: 5, padding: "2px 8px", letterSpacing: 0.5 }}>PACK</span>)}
+            <span style={{ fontSize: 12, fontWeight: 700, color: isCombined ? "#2ecc71" : "#f39c12", letterSpacing: 0.3 }}>{epLabel}</span>
           </div>
-          <div style={{ fontSize: 12.5, fontWeight: 800, color: isCombined ? "#2ecc71" : "#f39c12", letterSpacing: 0.3 }}>{epLabel}</div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "#999", lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{seriesTitle}</div>
         </div>
       </div>
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
@@ -1921,12 +1923,9 @@ function App() {
       window.__hideSplash?.();
       window.__splashProgress?.(40, "Loading categories...");
     }).catch(() => {
+      // FIX: turant error mat dikhao — ek baar 5s baad auto-retry
       clearTimeout(wakingTimer);
-      clearTimeout(errorTimer);
-      setHomeLoading(false);
-      setLoadError(true);
-      setServerWaking(false);
-      window.__hideSplash?.();
+      // errorTimer chalte rehne do — agar retry bhi fail hua toh woh error dikhayega
     });
 
     // Step 2: Har category apne time pe aate hi state mein daal do — blank cards nahi dikhenge
