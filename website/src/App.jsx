@@ -1081,11 +1081,8 @@ function EpisodeQualityRow({ epFrom, epTo, isCombined, files, seriesTitle, seaso
 function TMDBCategoryRow({ title, items, onItemClick, onSeeAll }) {
   if (!items || !items.length) return null;
   const icons = {
-    "NOW PLAYING": "🎬", "GLOBAL TRENDING": "🌍", "TRENDING SERIES": "📺",
-    "BOLLYWOOD": "🎭", "TAMIL MOVIES": "🌟", "MALAYALAM MOVIES": "🌴",
-    "TELUGU MOVIES": "🎪", "KANNADA MOVIES": "🏔️", "BENGALI MOVIES": "🌊",
-    "ENGLISH MOVIES": "🎥", "TOP RATED ALL TIME": "🏆",
-    "CARTOONS": "🎨", "ANIME": "⛩️", "KOREAN DRAMAS": "🇰🇷",
+    "MOVIES": "🎬", "WEB SERIES": "📺", "ANIME": "⛩️",
+    "KOREAN DRAMAS": "🇰🇷", "CARTOONS": "🎨",
   };
 
   return (
@@ -1823,11 +1820,9 @@ function App() {
   const [categoryPage, setCategoryPage] = useState(null);
 
   const [homeData, setHomeData] = useState({
-    nowPlaying: [], globalTrend: [], seriesTrend: [],
-    bollywood: [], tamilFils: [], malayalamFils: [],
-    teluguFils: [], kannadaFils: [], bengaliFils: [],
-    englishFils: [], topRated: [], heroBannerItems: [],
-    cartoonFils: [], animeFils: [], koreanFils: [],
+    nowPlaying: [], heroBannerItems: [],
+    moviesFils: [], seriesTrend: [],
+    animeFils: [], koreanFils: [], cartoonFils: [],
   });
   const [homeLoading, setHomeLoading] = useState(true);
   const [homeSecondaryLoading, setHomeSecondaryLoading] = useState(false);
@@ -1882,29 +1877,33 @@ function App() {
 
     window.__splashProgress?.(15, "Connecting to server...");
 
-    // Sab categories PARALLEL fetch karo — koi sequential batching nahi
-    const allPromise     = fetchDBCategory("all",       50);
-    const seriesPromise  = fetchDBCategory("series",    50);
-    const bollyPromise   = fetchDBCategory("hindi",     50);
-    const tamilPromise   = fetchDBCategory("tamil",     50);
-    const malPromise     = fetchDBCategory("malayalam", 50);
-    const teluguPromise  = fetchDBCategory("telugu",    50);
-    const kannadaPromise = fetchDBCategory("kannada",   50);
-    const bengaliPromise = fetchDBCategory("bengali",   50);
-    const englishPromise = fetchDBCategory("english",   50);
-    const topRawPromise  = fetchDBCategory("all",       50, API_FETCH_BATCH);
-    const cartoonPromise = fetchDBCategory("cartoon",   50);
-    const animePromise   = fetchDBCategory("anime",     50);
-    const koreanPromise  = fetchDBCategory("korean",    50);
+    // Sirf 5 categories fetch karo — language rows hata diye
+    const allPromise     = fetchDBCategory("all",     50);
+    const seriesPromise  = fetchDBCategory("series",  50);
+    const cartoonPromise = fetchDBCategory("cartoon", 50);
+    const animePromise   = fetchDBCategory("anime",   50);
+    const koreanPromise  = fetchDBCategory("korean",  50);
 
-    // Step 1: "all" resolve hote hi hero + nowPlaying dikhao — ye sabse fast hoga
+    // Movies = all languages merge — hindi + english + tamil + telugu + malayalam + kannada + bengali
+    // Parallel fetch sab, fir deduplicate karke ek "MOVIES" row banao
+    const moviesLangPromises = [
+      fetchDBCategory("hindi",     50),
+      fetchDBCategory("english",   50),
+      fetchDBCategory("tamil",     50),
+      fetchDBCategory("telugu",    50),
+      fetchDBCategory("malayalam", 50),
+      fetchDBCategory("kannada",   50),
+      fetchDBCategory("bengali",   50),
+    ];
+
+    // Step 1: "all" resolve hote hi hero + nowPlaying dikhao
     allPromise.then(({ items: latest }) => {
       clearTimeout(wakingTimer);
       const bannerItems = latest.filter(m => m.backdrop).slice(0, 5);
       if (bannerItems.length < 3) bannerItems.push(...latest.slice(0, 5 - bannerItems.length));
       setHomeData(prev => ({ ...prev, nowPlaying: latest, heroBannerItems: bannerItems }));
       setHomeLoading(false);
-      setHomeSecondaryLoading(true); // baaki aa rahe hain
+      setHomeSecondaryLoading(true);
       setServerWaking(false);
       window.__hideSplash?.();
       window.__splashProgress?.(40, "Loading categories...");
@@ -1917,7 +1916,7 @@ function App() {
       window.__hideSplash?.();
     });
 
-    // Step 2: Har category apne time pe aate hi state mein daal do — blank cards nahi dikhenge
+    // Step 2: Har category apne time pe aate hi update karo
     const updateCat = (promise, key, transform) => {
       promise.then(result => {
         const items = transform ? transform(result) : result.items;
@@ -1925,66 +1924,54 @@ function App() {
       }).catch(() => {});
     };
 
-    updateCat(seriesPromise,  "seriesTrend",   null);
-    updateCat(bollyPromise,   "bollywood",     null);
-    updateCat(tamilPromise,   "tamilFils",     null);
-    updateCat(malPromise,     "malayalamFils", null);
-    updateCat(teluguPromise,  "teluguFils",    null);
-    updateCat(kannadaPromise, "kannadaFils",   null);
-    updateCat(bengaliPromise, "bengaliFils",   null);
-    updateCat(englishPromise, "englishFils",   null);
-    updateCat(topRawPromise,  "topRated",      r => r.items.filter(x => parseFloat(x.rating) >= 7.0).slice(0, 50));
-    updateCat(cartoonPromise, "cartoonFils",   null);
-    updateCat(animePromise,   "animeFils",     null);
-    updateCat(koreanPromise,  "koreanFils",    null);
+    updateCat(seriesPromise,  "seriesTrend", null);
+    updateCat(cartoonPromise, "cartoonFils", null);
+    updateCat(animePromise,   "animeFils",   null);
+    updateCat(koreanPromise,  "koreanFils",  null);
 
-    // globalTrend: all + bolly dono chahiye
-    Promise.all([allPromise, bollyPromise]).then(([allRes, bollyRes]) => {
-      const globalItems = allRes.items
-        .filter((_, idx) => idx >= 3)
-        .concat(bollyRes.items.slice(0, 3))
-        .filter((item, idx, arr) => {
-          const key = item.title?.toLowerCase().replace(/\s+/g, "");
-          return arr.findIndex(x => x.title?.toLowerCase().replace(/\s+/g, "") === key) === idx;
-        })
-        .slice(0, 50);
-      setHomeData(prev => ({ ...prev, globalTrend: globalItems }));
+    // Movies row: sab languages merge + deduplicate by title
+    Promise.all(moviesLangPromises).then(results => {
+      const seen = new Set();
+      const merged = [];
+      for (const { items } of results) {
+        for (const item of items) {
+          const key = (item.title || "").toLowerCase().replace(/\s+/g, "");
+          if (key.length > 1 && !seen.has(key)) {
+            seen.add(key);
+            // Series wale items Movies row mein mat aao
+            if (item.type !== "series") merged.push(item);
+          }
+        }
+      }
+      // Shuffle slightly — ek hi language ke sab items saath saath na dikhein
+      const shuffled = merged.sort(() => Math.random() - 0.48).slice(0, 50);
+      setHomeData(prev => ({ ...prev, moviesFils: shuffled }));
     }).catch(() => {});
 
-    // Step 3: Jab SARE categories load ho jaayein — cache save karo
-    Promise.all([
-      allPromise, seriesPromise, bollyPromise, tamilPromise, malPromise,
-      teluguPromise, kannadaPromise, bengaliPromise, englishPromise, topRawPromise,
-      cartoonPromise, animePromise, koreanPromise,
-    ]).then(([allRes, series, bolly, tamil, mal, telugu, kannada, bengali, english, topRaw, cartoon, anime, korean]) => {
+    // Step 3: Sab load hone pe cache save karo
+    Promise.all([allPromise, seriesPromise, cartoonPromise, animePromise, koreanPromise, ...moviesLangPromises])
+    .then(([allRes, series, cartoon, anime, korean, hindi, english, tamil, telugu, mal, kannada, bengali]) => {
       clearTimeout(errorTimer);
       window.__splashProgress?.(95, "Almost ready!");
 
       const bannerItems = allRes.items.filter(m => m.backdrop).slice(0, 5);
       if (bannerItems.length < 3) bannerItems.push(...allRes.items.slice(0, 5 - bannerItems.length));
 
-      const globalItems = allRes.items
-        .filter((_, idx) => idx >= 3)
-        .concat(bolly.items.slice(0, 3))
-        .filter((item, idx, arr) => {
-          const key = item.title?.toLowerCase().replace(/\s+/g, "");
-          return arr.findIndex(x => x.title?.toLowerCase().replace(/\s+/g, "") === key) === idx;
-        })
-        .slice(0, 50);
+      const seen = new Set();
+      const mergedMovies = [];
+      for (const { items } of [hindi, english, tamil, telugu, mal, kannada, bengali]) {
+        for (const item of items) {
+          const k = (item.title || "").toLowerCase().replace(/\s+/g, "");
+          if (k.length > 1 && !seen.has(k) && item.type !== "series") { seen.add(k); mergedMovies.push(item); }
+        }
+      }
+      const shuffledMovies = mergedMovies.sort(() => Math.random() - 0.48).slice(0, 50);
 
       const completeData = {
         nowPlaying:      allRes.items,
         heroBannerItems: bannerItems,
-        globalTrend:     globalItems,
+        moviesFils:      shuffledMovies,
         seriesTrend:     series.items,
-        bollywood:       bolly.items,
-        tamilFils:       tamil.items,
-        malayalamFils:   mal.items,
-        teluguFils:      telugu.items,
-        kannadaFils:     kannada.items,
-        bengaliFils:     bengali.items,
-        englishFils:     english.items,
-        topRated:        topRaw.items.filter(x => parseFloat(x.rating) >= 7.0).slice(0, 50),
         cartoonFils:     cartoon.items,
         animeFils:       anime.items,
         koreanFils:      korean.items,
@@ -2220,23 +2207,14 @@ function App() {
               {homeData.heroBannerItems.length > 0 && (
                 <HeroBannerCarousel items={homeData.heroBannerItems} onClick={handleTMDBCardClick} />
               )}
-              <TMDBCategoryRow title="NOW PLAYING" items={homeData.nowPlaying} onItemClick={handleTMDBCardClick} onSeeAll={() => openCategoryPage({ title: "NOW PLAYING", category: "all", items: homeData.nowPlaying })} />
 
-              {/* FIX: Progressive rendering — har category apne time pe show hoti hai skeleton ke saath */}
+              {/* ── 5 Categories only ── */}
               {[
-                { title: "GLOBAL TRENDING",   items: homeData.globalTrend,    cat: "all",       icon: "🌍" },
-                { title: "CARTOONS",           items: homeData.cartoonFils,    cat: "cartoon",   icon: "🎨" },
-                { title: "ANIME",              items: homeData.animeFils,      cat: "anime",     icon: "⛩️" },
-                { title: "KOREAN DRAMAS",      items: homeData.koreanFils,     cat: "korean",    icon: "🇰🇷" },
-                { title: "TRENDING SERIES",    items: homeData.seriesTrend,    cat: "series",    icon: "📺" },
-                { title: "BOLLYWOOD",          items: homeData.bollywood,      cat: "hindi",     icon: "🎭" },
-                { title: "TAMIL MOVIES",       items: homeData.tamilFils,      cat: "tamil",     icon: "🌟" },
-                { title: "MALAYALAM MOVIES",   items: homeData.malayalamFils,  cat: "malayalam", icon: "🌴" },
-                { title: "TELUGU MOVIES",      items: homeData.teluguFils,     cat: "telugu",    icon: "🎪" },
-                { title: "KANNADA MOVIES",     items: homeData.kannadaFils,    cat: "kannada",   icon: "🏔️" },
-                { title: "BENGALI MOVIES",     items: homeData.bengaliFils,    cat: "bengali",   icon: "🌊" },
-                { title: "ENGLISH MOVIES",     items: homeData.englishFils,    cat: "english",   icon: "🎥" },
-                { title: "TOP RATED ALL TIME", items: homeData.topRated,       cat: "all",       icon: "🏆" },
+                { title: "MOVIES",         items: homeData.moviesFils,  cat: "all",     icon: "🎬" },
+                { title: "WEB SERIES",     items: homeData.seriesTrend, cat: "series",  icon: "📺" },
+                { title: "ANIME",          items: homeData.animeFils,   cat: "anime",   icon: "⛩️" },
+                { title: "KOREAN DRAMAS",  items: homeData.koreanFils,  cat: "korean",  icon: "🇰🇷" },
+                { title: "CARTOONS",       items: homeData.cartoonFils, cat: "cartoon", icon: "🎨" },
               ].map(({ title, items, cat, icon }) =>
                 items.length > 0 ? (
                   <TMDBCategoryRow
@@ -2247,7 +2225,6 @@ function App() {
                     onSeeAll={() => openCategoryPage({ title, category: cat, items })}
                   />
                 ) : homeSecondaryLoading ? (
-                  // Skeleton placeholder — blank cards ki jagah animated skeleton dikhao
                   <div key={title} style={{ marginBottom: 32 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 16px", marginBottom: 14 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
