@@ -324,7 +324,7 @@ async function tmdbGet(endpoint, params = {}) {
 }
 
 // ── SessionStorage Cache ──────────────────────────────────────────────
-const SESSION_CACHE_KEY = "suhani_home_v2";
+const SESSION_CACHE_KEY = "suhani_home_v3";
 function saveHomeCache(data) {
   try { sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ ts: Date.now(), data })); } catch {}
 }
@@ -442,14 +442,17 @@ async function fetchTrailerKey(tmdbId, type = "movie") {
 }
 
 const CATEGORY_LANG_FILTER = {
-  hindi: /\bhindi\b/i, tamil: /\btamil\b/i, malayalam: /\bmalayalam\b/i,
-  telugu: /\btelugu\b/i, kannada: /\bkannada\b/i, bengali: /\bbengali\b/i,
-  english: /\benglish\b/i, series: null,
+  movies: null, webseries: null, anime: null, cartoon: null, korean: null,
 };
-const NON_BOLLYWOOD_PATTERNS = /\b(dubbed|dub|anime|doraemon|dragon\s?ball|naruto|one\s?piece|bleach|detective\s?conan|shin\s?chan|pokemon|hollywood|english|korean|chinese|japanese|kannada|telugu|tamil|malayalam|bengali)\b/i;
+const CATEGORY_CONTENT_FILTER = {
+  movies:    (f) => !isSeries(f.file_name) && !/\b(anime|cartoon|doraemon|dragon\s?ball|naruto|one\s?piece|bleach|shin\s?chan|pokemon|korean\s?drama|kdrama|k-drama)\b/i.test(f.file_name),
+  webseries: (f) => isSeries(f.file_name) && !/\b(anime|cartoon|doraemon|dragon\s?ball|naruto|one\s?piece|bleach|shin\s?chan|pokemon)\b/i.test(f.file_name),
+  anime:     (f) => /\b(anime|naruto|one\s?piece|dragon\s?ball|bleach|attack\s?on\s?titan|demon\s?slayer|jujutsu|my\s?hero\s?academia|death\s?note|fullmetal|fairy\s?tail|sword\s?art)\b/i.test(f.file_name),
+  cartoon:   (f) => /\b(cartoon|doraemon|shin\s?chan|pokemon|paw\s?patrol|tom\s?and\s?jerry|looney|disney|pixar|frozen|toy\s?story|minions|despicable)\b/i.test(f.file_name),
+  korean:    (f) => /\b(korean|kdrama|k-drama|k drama)\b/i.test(f.file_name) || /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:S\d|Season)\b/.test(f.file_name) && /\b(korean)\b/i.test(f.file_name),
+};
 const CATEGORY_SEARCH_QUERY = {
-  hindi: "hindi", tamil: "tamil", malayalam: "malayalam", telugu: "telugu",
-  kannada: "kannada", bengali: "bengali", english: "english", series: null, all: null,
+  movies: null, webseries: null, anime: "anime", cartoon: "cartoon", korean: "korean drama", all: null,
 };
 
 async function fetchDBCategory(category, limit = 12, offset = 0) {
@@ -473,22 +476,16 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
     let files = data.files || [];
     const rawApiCount = files.length;
 
-    const _pMap = { "all": 26, "series": 32, "hindi": 38, "tamil": 44, "malayalam": 50, "telugu": 56, "kannada": 62, "bengali": 68, "english": 74 };
-    const _mMap = { "all": "Loading trending...", "series": "Loading series...", "hindi": "Loading Bollywood...", "tamil": "Loading Tamil...", "malayalam": "Loading Malayalam...", "telugu": "Loading Telugu...", "kannada": "Loading Kannada...", "bengali": "Loading Bengali...", "english": "Loading English..." };
+    const _pMap = { "all": 26, "movies": 32, "webseries": 38, "anime": 44, "cartoon": 50, "korean": 56 };
+    const _mMap = { "all": "Loading trending...", "movies": "Loading Movies...", "webseries": "Loading Web Series...", "anime": "Loading Anime...", "cartoon": "Loading Cartoons...", "korean": "Loading Korean Drama..." };
     if (_pMap[category]) window.__splashProgress?.(_pMap[category], _mMap[category]);
 
-    if (category === "series") files = files.filter(f => isSeries(f.file_name));
-
-    const langFilter = CATEGORY_LANG_FILTER[category];
-    if (langFilter) {
-      let filtered = files.filter(f => langFilter.test(f.file_name));
-      if (category === "hindi") {
-        filtered = filtered.filter(f => !NON_BOLLYWOOD_PATTERNS.test(f.file_name.replace(/\bhindi\b/gi, "")));
-        if (filtered.length < files.length * 0.05 && files.length > 0) filtered = files.filter(f => langFilter.test(f.file_name));
-      } else {
-        if (filtered.length < files.length * 0.1 && files.length > 0) filtered = files.filter(f => langFilter.test(f.file_name));
-      }
-      files = filtered;
+    // Content-type filter — language nahi, type pe filter karo
+    const contentFilter = CATEGORY_CONTENT_FILTER[category];
+    if (contentFilter) {
+      const filtered = files.filter(contentFilter);
+      // Agar filtered bahut kam hai toh fallback to all
+      if (filtered.length >= 3 || files.length === 0) files = filtered;
     }
 
     const seen = new Set();
@@ -517,8 +514,7 @@ async function fetchDBCategory(category, limit = 12, offset = 0) {
 
 // ── TMDB Discover ─────────────────────────────────────────────────────
 const CATEGORY_TMDB_LANG = {
-  hindi: "hi", tamil: "ta", malayalam: "ml", telugu: "te",
-  kannada: "kn", bengali: "bn", english: "en", series: null, all: null,
+  movies: null, webseries: null, anime: "ja", cartoon: null, korean: "ko", all: null,
 };
 const TMDB_DISCOVER_CACHE = new Map();
 
@@ -527,7 +523,7 @@ async function fetchTMDBDiscover(category, tmdbPage = 1) {
   if (TMDB_DISCOVER_CACHE.has(cacheKey)) return TMDB_DISCOVER_CACHE.get(cacheKey);
   try {
     const origLang = CATEGORY_TMDB_LANG[category];
-    const isTV = category === "series";
+    const isTV = category === "webseries" || category === "korean";
     const endpoint = isTV ? "/discover/tv" : "/discover/movie";
     const params = { sort_by: "popularity.desc", page: tmdbPage, "vote_count.gte": 50, ...(origLang ? { with_original_language: origLang } : {}) };
     const data = await tmdbGet(endpoint, params);
@@ -1688,10 +1684,9 @@ function App() {
   const [categoryPage, setCategoryPage] = useState(null);
 
   const [homeData, setHomeData] = useState({
-    nowPlaying: [], globalTrend: [], seriesTrend: [],
-    bollywood: [], tamilFils: [], malayalamFils: [],
-    teluguFils: [], kannadaFils: [], bengaliFils: [],
-    englishFils: [], topRated: [], heroBannerItems: [],
+    nowPlaying: [], globalTrend: [], heroBannerItems: [],
+    moviesFils: [], webseriesFils: [], animeFils: [],
+    cartoonFils: [], koreanFils: [], topRated: [],
   });
   const [homeLoading, setHomeLoading] = useState(true);
   const [homeSecondaryLoading, setHomeSecondaryLoading] = useState(false);
@@ -1730,16 +1725,13 @@ function App() {
     window.__splashProgress?.(15, "Connecting to server...");
 
     // Sab categories PARALLEL fetch karo — koi sequential batching nahi
-    const allPromise     = fetchDBCategory("all",       50);
-    const seriesPromise  = fetchDBCategory("series",    50);
-    const bollyPromise   = fetchDBCategory("hindi",     50);
-    const tamilPromise   = fetchDBCategory("tamil",     50);
-    const malPromise     = fetchDBCategory("malayalam", 50);
-    const teluguPromise  = fetchDBCategory("telugu",    50);
-    const kannadaPromise = fetchDBCategory("kannada",   50);
-    const bengaliPromise = fetchDBCategory("bengali",   50);
-    const englishPromise = fetchDBCategory("english",   50);
-    const topRawPromise  = fetchDBCategory("all",       50, API_FETCH_BATCH);
+    const allPromise      = fetchDBCategory("all",       50);
+    const moviesPromise   = fetchDBCategory("movies",    50);
+    const webseriesPromise= fetchDBCategory("webseries", 50);
+    const animePromise    = fetchDBCategory("anime",     50);
+    const cartoonPromise  = fetchDBCategory("cartoon",   50);
+    const koreanPromise   = fetchDBCategory("korean",    50);
+    const topRawPromise   = fetchDBCategory("all",       50, API_FETCH_BATCH);
 
     // Step 1: "all" resolve hote hi hero + nowPlaying dikhao — ye sabse fast hoga
     allPromise.then(({ items: latest }) => {
@@ -1769,21 +1761,18 @@ function App() {
       }).catch(() => {});
     };
 
-    updateCat(seriesPromise,  "seriesTrend",   null);
-    updateCat(bollyPromise,   "bollywood",     null);
-    updateCat(tamilPromise,   "tamilFils",     null);
-    updateCat(malPromise,     "malayalamFils", null);
-    updateCat(teluguPromise,  "teluguFils",    null);
-    updateCat(kannadaPromise, "kannadaFils",   null);
-    updateCat(bengaliPromise, "bengaliFils",   null);
-    updateCat(englishPromise, "englishFils",   null);
-    updateCat(topRawPromise,  "topRated",      r => r.items.filter(x => parseFloat(x.rating) >= 7.0).slice(0, 50));
+    updateCat(moviesPromise,    "moviesFils",    null);
+    updateCat(webseriesPromise, "webseriesFils", null);
+    updateCat(animePromise,     "animeFils",     null);
+    updateCat(cartoonPromise,   "cartoonFils",   null);
+    updateCat(koreanPromise,    "koreanFils",    null);
+    updateCat(topRawPromise,    "topRated",      r => r.items.filter(x => parseFloat(x.rating) >= 7.0).slice(0, 50));
 
-    // globalTrend: all + bolly dono chahiye
-    Promise.all([allPromise, bollyPromise]).then(([allRes, bollyRes]) => {
+    // globalTrend: all + movies dono chahiye
+    Promise.all([allPromise, moviesPromise]).then(([allRes, moviesRes]) => {
       const globalItems = allRes.items
         .filter((_, idx) => idx >= 3)
-        .concat(bollyRes.items.slice(0, 3))
+        .concat(moviesRes.items.slice(0, 3))
         .filter((item, idx, arr) => {
           const key = item.title?.toLowerCase().replace(/\s+/g, "");
           return arr.findIndex(x => x.title?.toLowerCase().replace(/\s+/g, "") === key) === idx;
@@ -1794,9 +1783,8 @@ function App() {
 
     // Step 3: Jab SARE categories load ho jaayein — cache save karo
     Promise.all([
-      allPromise, seriesPromise, bollyPromise, tamilPromise, malPromise,
-      teluguPromise, kannadaPromise, bengaliPromise, englishPromise, topRawPromise,
-    ]).then(([allRes, series, bolly, tamil, mal, telugu, kannada, bengali, english, topRaw]) => {
+      allPromise, moviesPromise, webseriesPromise, animePromise, cartoonPromise, koreanPromise, topRawPromise,
+    ]).then(([allRes, movies, webseries, anime, cartoon, korean, topRaw]) => {
       clearTimeout(errorTimer);
       window.__splashProgress?.(95, "Almost ready!");
 
@@ -1805,7 +1793,7 @@ function App() {
 
       const globalItems = allRes.items
         .filter((_, idx) => idx >= 3)
-        .concat(bolly.items.slice(0, 3))
+        .concat(movies.items.slice(0, 3))
         .filter((item, idx, arr) => {
           const key = item.title?.toLowerCase().replace(/\s+/g, "");
           return arr.findIndex(x => x.title?.toLowerCase().replace(/\s+/g, "") === key) === idx;
@@ -1816,14 +1804,11 @@ function App() {
         nowPlaying:      allRes.items,
         heroBannerItems: bannerItems,
         globalTrend:     globalItems,
-        seriesTrend:     series.items,
-        bollywood:       bolly.items,
-        tamilFils:       tamil.items,
-        malayalamFils:   mal.items,
-        teluguFils:      telugu.items,
-        kannadaFils:     kannada.items,
-        bengaliFils:     bengali.items,
-        englishFils:     english.items,
+        moviesFils:      movies.items,
+        webseriesFils:   webseries.items,
+        animeFils:       anime.items,
+        cartoonFils:     cartoon.items,
+        koreanFils:      korean.items,
         topRated:        topRaw.items.filter(x => parseFloat(x.rating) >= 7.0).slice(0, 50),
       };
 
@@ -2037,14 +2022,11 @@ function App() {
               {/* FIX: Progressive rendering — har category apne time pe show hoti hai skeleton ke saath */}
               {[
                 { title: "GLOBAL TRENDING",   items: homeData.globalTrend,    cat: "all",       icon: "🌍" },
-                { title: "TRENDING SERIES",    items: homeData.seriesTrend,    cat: "series",    icon: "📺" },
-                { title: "BOLLYWOOD",          items: homeData.bollywood,      cat: "hindi",     icon: "🎭" },
-                { title: "TAMIL MOVIES",       items: homeData.tamilFils,      cat: "tamil",     icon: "🌟" },
-                { title: "MALAYALAM MOVIES",   items: homeData.malayalamFils,  cat: "malayalam", icon: "🌴" },
-                { title: "TELUGU MOVIES",      items: homeData.teluguFils,     cat: "telugu",    icon: "🎪" },
-                { title: "KANNADA MOVIES",     items: homeData.kannadaFils,    cat: "kannada",   icon: "🏔️" },
-                { title: "BENGALI MOVIES",     items: homeData.bengaliFils,    cat: "bengali",   icon: "🌊" },
-                { title: "ENGLISH MOVIES",     items: homeData.englishFils,    cat: "english",   icon: "🎥" },
+                { title: "MOVIES",             items: homeData.moviesFils,     cat: "movies",    icon: "🎬" },
+                { title: "WEB SERIES",         items: homeData.webseriesFils,  cat: "webseries", icon: "📺" },
+                { title: "ANIME",              items: homeData.animeFils,      cat: "anime",     icon: "⛩️" },
+                { title: "CARTOON",            items: homeData.cartoonFils,    cat: "cartoon",   icon: "🎨" },
+                { title: "KOREAN DRAMA",       items: homeData.koreanFils,     cat: "korean",    icon: "🇰🇷" },
                 { title: "TOP RATED ALL TIME", items: homeData.topRated,       cat: "all",       icon: "🏆" },
               ].map(({ title, items, cat, icon }) =>
                 items.length > 0 ? (
