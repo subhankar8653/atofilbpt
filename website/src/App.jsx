@@ -1702,95 +1702,56 @@ function App() {
   const inputRef = useRef(null);
   const searchAbortRef = useRef(null);
 
-  // ── Home load — 2-phase: primary fast, secondary in bg ────────────
+  // ── Home load — FULLY PARALLEL: sab categories ek saath fetch, progressive render ────────────
   useEffect(() => {
+    // Cache check — instant load agar cache fresh hai
     const cached = loadHomeCache();
     if (cached && retryKey === 0) {
       setHomeData(cached);
       setHomeLoading(false);
+      setHomeSecondaryLoading(false);
       window.__hideSplash?.();
       return;
     }
 
     setHomeLoading(true);
+    setHomeSecondaryLoading(false);
     setServerWaking(false);
     setLoadError(false);
 
     const wakingTimer = setTimeout(() => setServerWaking(true), SERVER_WAKING_DELAY_MS);
-    const errorTimer = setTimeout(() => {
+    const errorTimer  = setTimeout(() => {
       setHomeLoading(false);
       setLoadError(true);
       setServerWaking(false);
       window.__hideSplash?.();
     }, SERVER_TIMEOUT_MS);
 
-    window.__splashProgress?.(20, "Connecting to server...");
+    window.__splashProgress?.(15, "Connecting to server...");
 
-    fetchDBCategory("all", 50).then(({ items: latest }) => {
+    // Sab categories PARALLEL fetch karo — koi sequential batching nahi
+    const allPromise     = fetchDBCategory("all",       50);
+    const seriesPromise  = fetchDBCategory("series",    50);
+    const bollyPromise   = fetchDBCategory("hindi",     50);
+    const tamilPromise   = fetchDBCategory("tamil",     50);
+    const malPromise     = fetchDBCategory("malayalam", 50);
+    const teluguPromise  = fetchDBCategory("telugu",    50);
+    const kannadaPromise = fetchDBCategory("kannada",   50);
+    const bengaliPromise = fetchDBCategory("bengali",   50);
+    const englishPromise = fetchDBCategory("english",   50);
+    const topRawPromise  = fetchDBCategory("all",       50, API_FETCH_BATCH);
+
+    // Step 1: "all" resolve hote hi hero + nowPlaying dikhao — ye sabse fast hoga
+    allPromise.then(({ items: latest }) => {
       clearTimeout(wakingTimer);
-      window.__splashProgress?.(40, "Loading trending...");
-
       const bannerItems = latest.filter(m => m.backdrop).slice(0, 5);
       if (bannerItems.length < 3) bannerItems.push(...latest.slice(0, 5 - bannerItems.length));
-
       setHomeData(prev => ({ ...prev, nowPlaying: latest, heroBannerItems: bannerItems }));
       setHomeLoading(false);
+      setHomeSecondaryLoading(true); // baaki aa rahe hain
       setServerWaking(false);
       window.__hideSplash?.();
-
-      // Phase 2: FIX — sequential batches of 3 to reduce free-server overload
-      setHomeSecondaryLoading(true);
-      (async () => {
-        try {
-          const [series, bolly, tamil] = await Promise.all([
-            fetchDBCategory("series", 50),
-            fetchDBCategory("hindi", 50),
-            fetchDBCategory("tamil", 50),
-          ]);
-          const [mal, telugu, kannada] = await Promise.all([
-            fetchDBCategory("malayalam", 50),
-            fetchDBCategory("telugu", 50),
-            fetchDBCategory("kannada", 50),
-          ]);
-          const [bengali, english, topRatedRaw] = await Promise.all([
-            fetchDBCategory("bengali", 50),
-            fetchDBCategory("english", 50),
-            fetchDBCategory("all", 50, API_FETCH_BATCH),
-          ]);
-
-          clearTimeout(errorTimer);
-          window.__splashProgress?.(95, "Almost ready!");
-
-          const globalItems = latest
-            .filter((_, idx) => idx >= 3)
-            .concat(bolly.items.slice(0, 3))
-            .filter((item, idx, arr) => {
-              const key = item.title?.toLowerCase().replace(/\s+/g, "");
-              return arr.findIndex(x => x.title?.toLowerCase().replace(/\s+/g, "") === key) === idx;
-            })
-            .slice(0, 50);
-
-          const topRated = topRatedRaw.items.filter(x => parseFloat(x.rating) >= 7.0).slice(0, 50);
-
-          const newHomeData = {
-            nowPlaying: latest, globalTrend: globalItems,
-            seriesTrend: series.items, bollywood: bolly.items,
-            tamilFils: tamil.items, malayalamFils: mal.items,
-            teluguFils: telugu.items, kannadaFils: kannada.items,
-            bengaliFils: bengali.items, englishFils: english.items,
-            topRated, heroBannerItems: bannerItems,
-          };
-
-          saveHomeCache(newHomeData);
-          setHomeData(newHomeData);
-          setHomeSecondaryLoading(false);
-          setLoadError(false);
-        } catch {
-          clearTimeout(errorTimer);
-          setHomeSecondaryLoading(false);
-        }
-      })();
-
+      window.__splashProgress?.(40, "Loading categories...");
     }).catch(() => {
       clearTimeout(wakingTimer);
       clearTimeout(errorTimer);
@@ -1798,6 +1759,81 @@ function App() {
       setLoadError(true);
       setServerWaking(false);
       window.__hideSplash?.();
+    });
+
+    // Step 2: Har category apne time pe aate hi state mein daal do — blank cards nahi dikhenge
+    const updateCat = (promise, key, transform) => {
+      promise.then(result => {
+        const items = transform ? transform(result) : result.items;
+        setHomeData(prev => ({ ...prev, [key]: items }));
+      }).catch(() => {});
+    };
+
+    updateCat(seriesPromise,  "seriesTrend",   null);
+    updateCat(bollyPromise,   "bollywood",     null);
+    updateCat(tamilPromise,   "tamilFils",     null);
+    updateCat(malPromise,     "malayalamFils", null);
+    updateCat(teluguPromise,  "teluguFils",    null);
+    updateCat(kannadaPromise, "kannadaFils",   null);
+    updateCat(bengaliPromise, "bengaliFils",   null);
+    updateCat(englishPromise, "englishFils",   null);
+    updateCat(topRawPromise,  "topRated",      r => r.items.filter(x => parseFloat(x.rating) >= 7.0).slice(0, 50));
+
+    // globalTrend: all + bolly dono chahiye
+    Promise.all([allPromise, bollyPromise]).then(([allRes, bollyRes]) => {
+      const globalItems = allRes.items
+        .filter((_, idx) => idx >= 3)
+        .concat(bollyRes.items.slice(0, 3))
+        .filter((item, idx, arr) => {
+          const key = item.title?.toLowerCase().replace(/\s+/g, "");
+          return arr.findIndex(x => x.title?.toLowerCase().replace(/\s+/g, "") === key) === idx;
+        })
+        .slice(0, 50);
+      setHomeData(prev => ({ ...prev, globalTrend: globalItems }));
+    }).catch(() => {});
+
+    // Step 3: Jab SARE categories load ho jaayein — cache save karo
+    Promise.all([
+      allPromise, seriesPromise, bollyPromise, tamilPromise, malPromise,
+      teluguPromise, kannadaPromise, bengaliPromise, englishPromise, topRawPromise,
+    ]).then(([allRes, series, bolly, tamil, mal, telugu, kannada, bengali, english, topRaw]) => {
+      clearTimeout(errorTimer);
+      window.__splashProgress?.(95, "Almost ready!");
+
+      const bannerItems = allRes.items.filter(m => m.backdrop).slice(0, 5);
+      if (bannerItems.length < 3) bannerItems.push(...allRes.items.slice(0, 5 - bannerItems.length));
+
+      const globalItems = allRes.items
+        .filter((_, idx) => idx >= 3)
+        .concat(bolly.items.slice(0, 3))
+        .filter((item, idx, arr) => {
+          const key = item.title?.toLowerCase().replace(/\s+/g, "");
+          return arr.findIndex(x => x.title?.toLowerCase().replace(/\s+/g, "") === key) === idx;
+        })
+        .slice(0, 50);
+
+      const completeData = {
+        nowPlaying:      allRes.items,
+        heroBannerItems: bannerItems,
+        globalTrend:     globalItems,
+        seriesTrend:     series.items,
+        bollywood:       bolly.items,
+        tamilFils:       tamil.items,
+        malayalamFils:   mal.items,
+        teluguFils:      telugu.items,
+        kannadaFils:     kannada.items,
+        bengaliFils:     bengali.items,
+        englishFils:     english.items,
+        topRated:        topRaw.items.filter(x => parseFloat(x.rating) >= 7.0).slice(0, 50),
+      };
+
+      saveHomeCache(completeData);
+      setHomeData(completeData);
+      setHomeSecondaryLoading(false);
+      setLoadError(false);
+    }).catch(() => {
+      clearTimeout(errorTimer);
+      setHomeSecondaryLoading(false);
     });
 
     return () => { clearTimeout(wakingTimer); clearTimeout(errorTimer); };
@@ -1998,28 +2034,41 @@ function App() {
               )}
               <TMDBCategoryRow title="NOW PLAYING" items={homeData.nowPlaying} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "NOW PLAYING", category: "all", items: homeData.nowPlaying })} />
 
-              {homeSecondaryLoading && homeData.globalTrend.length === 0 ? (
-                [1, 2].map(i => (
-                  <div key={i} style={{ marginBottom: 32, paddingLeft: 16 }}>
-                    <div style={{ height: 14, width: 160, borderRadius: 6, background: "rgba(255,255,255,0.04)", marginBottom: 14, animation: "pulse 1.8s ease infinite" }} />
-                    <div style={{ display: "flex", gap: 10 }}>
+              {/* FIX: Progressive rendering — har category apne time pe show hoti hai skeleton ke saath */}
+              {[
+                { title: "GLOBAL TRENDING",   items: homeData.globalTrend,    cat: "all",       icon: "🌍" },
+                { title: "TRENDING SERIES",    items: homeData.seriesTrend,    cat: "series",    icon: "📺" },
+                { title: "BOLLYWOOD",          items: homeData.bollywood,      cat: "hindi",     icon: "🎭" },
+                { title: "TAMIL MOVIES",       items: homeData.tamilFils,      cat: "tamil",     icon: "🌟" },
+                { title: "MALAYALAM MOVIES",   items: homeData.malayalamFils,  cat: "malayalam", icon: "🌴" },
+                { title: "TELUGU MOVIES",      items: homeData.teluguFils,     cat: "telugu",    icon: "🎪" },
+                { title: "KANNADA MOVIES",     items: homeData.kannadaFils,    cat: "kannada",   icon: "🏔️" },
+                { title: "BENGALI MOVIES",     items: homeData.bengaliFils,    cat: "bengali",   icon: "🌊" },
+                { title: "ENGLISH MOVIES",     items: homeData.englishFils,    cat: "english",   icon: "🎥" },
+                { title: "TOP RATED ALL TIME", items: homeData.topRated,       cat: "all",       icon: "🏆" },
+              ].map(({ title, items, cat, icon }) =>
+                items.length > 0 ? (
+                  <TMDBCategoryRow
+                    key={title}
+                    title={title}
+                    items={items}
+                    onItemClick={handleTMDBCardClick}
+                    onSeeAll={() => setCategoryPage({ title, category: cat, items })}
+                  />
+                ) : homeSecondaryLoading ? (
+                  // Skeleton placeholder — blank cards ki jagah animated skeleton dikhao
+                  <div key={title} style={{ marginBottom: 32 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 16px", marginBottom: 14 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 14 }}>{icon}</span>
+                        <div style={{ width: 120, height: 13, borderRadius: 6, background: "rgba(255,255,255,0.04)", animation: "pulse 1.8s ease infinite" }} />
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 10, overflowX: "hidden", paddingLeft: 16 }}>
                       {[1, 2, 3].map(j => <SkeletonCard key={j} />)}
                     </div>
                   </div>
-                ))
-              ) : (
-                <>
-                  <TMDBCategoryRow title="GLOBAL TRENDING" items={homeData.globalTrend} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "GLOBAL TRENDING", category: "all", items: homeData.globalTrend })} />
-                  <TMDBCategoryRow title="TRENDING SERIES" items={homeData.seriesTrend} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "TRENDING SERIES", category: "series", items: homeData.seriesTrend })} />
-                  <TMDBCategoryRow title="BOLLYWOOD" items={homeData.bollywood} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "BOLLYWOOD", category: "hindi", items: homeData.bollywood })} />
-                  <TMDBCategoryRow title="TAMIL MOVIES" items={homeData.tamilFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "TAMIL MOVIES", category: "tamil", items: homeData.tamilFils })} />
-                  <TMDBCategoryRow title="MALAYALAM MOVIES" items={homeData.malayalamFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "MALAYALAM MOVIES", category: "malayalam", items: homeData.malayalamFils })} />
-                  <TMDBCategoryRow title="TELUGU MOVIES" items={homeData.teluguFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "TELUGU MOVIES", category: "telugu", items: homeData.teluguFils })} />
-                  <TMDBCategoryRow title="KANNADA MOVIES" items={homeData.kannadaFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "KANNADA MOVIES", category: "kannada", items: homeData.kannadaFils })} />
-                  <TMDBCategoryRow title="BENGALI MOVIES" items={homeData.bengaliFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "BENGALI MOVIES", category: "bengali", items: homeData.bengaliFils })} />
-                  <TMDBCategoryRow title="ENGLISH MOVIES" items={homeData.englishFils} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "ENGLISH MOVIES", category: "english", items: homeData.englishFils })} />
-                  <TMDBCategoryRow title="TOP RATED ALL TIME" items={homeData.topRated} onItemClick={handleTMDBCardClick} onSeeAll={() => setCategoryPage({ title: "TOP RATED ALL TIME", category: "all", items: homeData.topRated })} />
-                </>
+                ) : null
               )}
             </>
           )}
