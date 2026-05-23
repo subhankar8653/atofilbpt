@@ -1864,7 +1864,9 @@ function App() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []); // FIX: empty deps — refs se latest values milti hain, stale closure nahi
 
-  // FIX: doSearch — useCallback dependencies hataye, params explicitly pass karo to avoid stale closure race condition
+  // FIX: requestId se sirf latest request ka result accept karo — race condition + "no result flash" khatam
+  const searchRequestIdRef = useRef(0);
+
   const doSearch = useCallback(async (q, qual, lang) => {
     const searchQ    = q    !== undefined ? q    : query;
     const searchQual = qual !== undefined ? qual : quality;
@@ -1875,23 +1877,35 @@ function App() {
       setLoading(false);
       return;
     }
+
+    // Purana request abort karo
     searchAbortRef.current?.abort();
     const controller = new AbortController();
     searchAbortRef.current = controller;
+
+    // Unique ID assign karo — sirf latest request ka result accept hoga
+    const myId = ++searchRequestIdRef.current;
+
     setLoading(true);
-    setFiles([]);
+    // FIX: setFiles([]) mat karo abhi — warna purane results hatne se "No results" flash dikhega
+    // Files tab clear hongi jab naya result aa jaaye
+
     const results = await fetchFiles(searchQ, searchQual, searchLang, 50, controller.signal);
+
+    // Agar ye request latest nahi hai toh ignore karo — koi state change nahi
+    if (myId !== searchRequestIdRef.current) return;
+
     if (results !== null) {
       setFiles(results);
-      setLoading(false);
     } else {
-      // FIX: aborted — clear loading so UI doesn't stay stuck
-      setLoading(false);
+      setFiles([]); // genuinely empty result
     }
+    setLoading(false);
   }, [query, quality, language]);
 
   useEffect(() => {
     if (tab !== "search") return;
+    // FIX: debounce sirf query change pe — quality/language pe instant search
     const t = setTimeout(() => doSearch(), SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [doSearch, tab]);
@@ -1900,28 +1914,27 @@ function App() {
     setQuery(""); setQuality("All"); setLanguage("All");
     setFiles([]); setLoading(false);
     searchAbortRef.current?.abort();
+    ++searchRequestIdRef.current; // FIX: pending requests ko invalidate karo
   };
   const clearFilters = () => { setQuality("All"); setLanguage("All"); };
 
-  // FIX: handleTMDBCardClick — no double fetch, single fetchFiles call
+  // FIX: handleTMDBCardClick — requestId guard lagaya, no "no result" flash
   const handleTMDBCardClick = useCallback((itemOrTitle) => {
     const movieTitle = typeof itemOrTitle === "string" ? itemOrTitle : itemOrTitle.title;
     setQuality("All");
     setLanguage("All");
     setTab("search");
-    setFiles([]);
     setQuery(movieTitle);
     setLoading(true);
+    // FIX: setFiles([]) mat karo — flash bachane ke liye
     searchAbortRef.current?.abort();
     const controller = new AbortController();
     searchAbortRef.current = controller;
+    const myId = ++searchRequestIdRef.current;
     fetchFiles(movieTitle, "All", "All", 50, controller.signal).then(results => {
-      if (results !== null) {
-        setFiles(results || []);
-        setLoading(false);
-      } else {
-        setLoading(false);
-      }
+      if (myId !== searchRequestIdRef.current) return; // stale response ignore
+      setFiles(results || []);
+      setLoading(false);
     });
   }, []);
 
