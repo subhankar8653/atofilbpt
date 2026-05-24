@@ -562,6 +562,24 @@ def get_readable_time(seconds):
             result.append(f'{int(period_value)}{period_name}')
     return ' '.join(result)  
 
+async def get_shortlink_custom(api_key: str, base_url: str, link: str) -> str:
+    """Custom shortener jo specific API aur URL use kare (EarnMode ke liye)."""
+    try:
+        if base_url == "api.shareus.io":
+            url = f'https://{base_url}/easy_api'
+            params = {"key": api_key, "link": link}
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, raise_for_status=True, ssl=False) as response:
+                    data = await response.text()
+                    return data
+        else:
+            shortzy = Shortzy(api_key=api_key, base_site=base_url)
+            return await shortzy.convert(link)
+    except Exception as e:
+        logger.error(f"get_shortlink_custom error: {e}")
+        return link
+
+
 async def get_shortlink(chat_id, link):
     settings = await get_settings(chat_id) #fetching settings for group
     if 'shortlink' in settings.keys():

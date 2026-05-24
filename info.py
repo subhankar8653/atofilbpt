@@ -99,6 +99,24 @@ TUTORIAL = environ.get('TUTORIAL', 'https://t.me/How_to_Download_7x/30')  # Tuto
 IS_TUTORIAL = is_enabled(environ.get('IS_TUTORIAL', "False"), False)
 
 # ============================
+# Multi Shortener (EarnMode ke liye - max 3 companies)
+# Format: "api1@url1 api2@url2 api3@url3"
+# ============================
+_multi_raw = environ.get('MULTI_SHORTLINK', '')
+MULTI_SHORTLINK = []
+if _multi_raw:
+    for _entry in _multi_raw.strip().split():
+        if '@' in _entry:
+            _api, _url = _entry.split('@', 1)
+            MULTI_SHORTLINK.append({'api': _api.strip(), 'url': _url.strip()})
+
+# ============================
+# Bot Mode Configuration
+# ============================
+# BOT_MODE options: "free" | "normal" | "earn"
+BOT_MODE = environ.get('BOT_MODE', 'free').lower().strip()
+
+# ============================
 # Channel & Group Links Configuration
 # ============================
 GRP_LNK = environ.get('GRP_LNK', 'https://t.me/SuhaniBots')
