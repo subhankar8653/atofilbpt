@@ -5,7 +5,7 @@ from pyrogram.types import ChatJoinRequest
 from database.users_chats_db import db
 from info import ADMINS, AUTH_CHANNEL
 
-# ── ALL channels join request track karo + auto approve ──
+# ── ALL channels join request track karo ──
 @Client.on_chat_join_request()
 async def join_reqs(client, message: ChatJoinRequest):
     uid = message.from_user.id
@@ -18,12 +18,6 @@ async def join_reqs(client, message: ChatJoinRequest):
     if AUTH_CHANNEL and cid == AUTH_CHANNEL:
         if not await db.find_join_req(uid):
             await db.add_join_req(uid)
-
-    # Auto approve — admin ko manually accept nahi karna padega
-    try:
-        await client.approve_chat_join_request(cid, uid)
-    except Exception:
-        pass
 
 
 @Client.on_message(filters.command("delreq") & filters.private & filters.user(ADMINS))

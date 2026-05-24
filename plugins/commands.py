@@ -608,7 +608,7 @@ async def start(client, message):
                 try:
                     chat_obj = await client.get_chat(ch_id)
                     if mode == "on" and not chat_obj.username:
-                        # Private channel + request mode
+                        # Private channel + request mode — creates_join_request=True
                         inv = await client.create_chat_invite_link(
                             chat_id=ch_id,
                             creates_join_request=True
