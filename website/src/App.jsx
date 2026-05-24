@@ -28,6 +28,7 @@ class ErrorBoundary extends Component {
 // Multiple TMDB keys ke liye: VITE_TMDB_KEY_1, VITE_TMDB_KEY_2, etc.
 // ═══════════════════════════════════════════════════════════════════
 const BOT_USERNAME = import.meta.env.VITE_BOT_USERNAME || "My_Suhani_bot";
+const CHANNEL_USERNAME = import.meta.env.VITE_CHANNEL_USERNAME || "SuhaniMoviesBot";
 
 // FIX: https:// ensure karo API_BASE mein
 const _RAW_API_BASE = import.meta.env.VITE_API_BASE || "atofilbpt-production.up.railway.app";
@@ -526,39 +527,43 @@ async function fetchTMDBDiscover(category, tmdbPage = 1) {
   } catch { return []; }
 }
 
-async function fetchByTMDBTitles(tmdbResults, alreadySeenTitles = new Set()) {
-  const candidates = tmdbResults.filter(r => {
-    const t = (r.title || r.name || "").toLowerCase().replace(/\s+/g, "");
-    return t.length > 1 && !alreadySeenTitles.has(t);
-  });
-  if (!candidates.length) return [];
-  const BATCH = 5;
-  const matched = [];
-  for (let i = 0; i < candidates.length; i += BATCH) {
-    const batch = candidates.slice(i, i + BATCH);
-    const results = await Promise.all(batch.map(async (tmdbItem) => {
-      const title = tmdbItem.title || tmdbItem.name || "";
-      const year = (tmdbItem.release_date || tmdbItem.first_air_date || "").slice(0, 4);
-      const titleKey = title.toLowerCase().replace(/\s+/g, "");
-      if (alreadySeenTitles.has(titleKey)) return null;
-      const files = await fetchFiles(title, "All", "All", 5);
-      if (!files || files.length === 0) return null;
-      alreadySeenTitles.add(titleKey);
-      return {
-        id: tmdbItem.id, tmdbId: tmdbItem.id, title,
-        poster: tmdbItem.poster_path ? `${TMDB_IMG}${tmdbItem.poster_path}` : null,
-        posterMd: tmdbItem.poster_path ? `${TMDB_IMG_MD}${tmdbItem.poster_path}` : null,
-        backdrop: tmdbItem.backdrop_path ? `${TMDB_IMG_ORIG}${tmdbItem.backdrop_path}` : null,
-        rating: tmdbItem.vote_average ? tmdbItem.vote_average.toFixed(1) : null,
-        year, overview: tmdbItem.overview || null,
-        type: tmdbItem.first_air_date ? "series" : "movie",
-        genreIds: tmdbItem.genre_ids || [],
-        _file: files[0],
-      };
-    }));
-    matched.push(...results.filter(Boolean));
-  }
-  return matched;
+// ── Pure TMDB home fetch — no bot DB involved ─────────────────────────
+const HOME_TMDB_CONFIG = {
+  all:       { endpoint: "/trending/all/week",  params: {} },
+  movies:    { endpoint: "/trending/movie/week", params: {} },
+  webseries: { endpoint: "/trending/tv/week",    params: {} },
+  anime:     { endpoint: "/discover/tv",         params: { sort_by: "popularity.desc", with_original_language: "ja", with_genres: "16" } },
+  cartoon:   { endpoint: "/discover/movie",      params: { sort_by: "popularity.desc", with_genres: "16" } },
+  korean:    { endpoint: "/discover/tv",         params: { sort_by: "popularity.desc", with_original_language: "ko" } },
+  toprated:  { endpoint: "/movie/top_rated",     params: {} },
+};
+
+async function fetchTMDBHomeCategory(category, page = 1, limit = 20) {
+  const cacheKey = `home_${category}_${page}`;
+  if (TMDB_DISCOVER_CACHE.has(cacheKey)) return TMDB_DISCOVER_CACHE.get(cacheKey);
+  try {
+    const cfg = HOME_TMDB_CONFIG[category] || HOME_TMDB_CONFIG.all;
+    const data = await tmdbGet(cfg.endpoint, { ...cfg.params, page });
+    const results = (data?.results || [])
+      .filter(r => r.poster_path)
+      .slice(0, limit)
+      .map(r => ({
+        id: r.id,
+        tmdbId: r.id,
+        title: r.title || r.name || "",
+        poster: `${TMDB_IMG}${r.poster_path}`,
+        posterMd: `${TMDB_IMG_MD}${r.poster_path}`,
+        backdrop: r.backdrop_path ? `${TMDB_IMG_ORIG}${r.backdrop_path}` : null,
+        rating: r.vote_average ? r.vote_average.toFixed(1) : null,
+        year: (r.release_date || r.first_air_date || "").slice(0, 4),
+        overview: r.overview || null,
+        type: (r.media_type === "tv" || r.first_air_date) ? "series" : "movie",
+        genreIds: r.genre_ids || [],
+        _tmdbOnly: true,
+      }));
+    TMDB_DISCOVER_CACHE.set(cacheKey, results);
+    return results;
+  } catch { return []; }
 }
 
 // ── TMDBCard ──────────────────────────────────────────────────────────
@@ -1357,13 +1362,13 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
     setHasMore(true);
     hasMoreRef.current = true;
 
-    fetchDBCategory(category, PAGE_SIZE, 0).then(({ items: fresh, rawApiCount }) => {
+    fetchTMDBHomeCategory(category, 1, PAGE_SIZE).then(fresh => {
       fresh.forEach(x => {
         seenIdsRef.current.add(String(x.id));
         seenTitlesRef.current.add((x.title || "").toLowerCase().replace(/\s+/g, ""));
       });
       setItems(fresh);
-      const more = rawApiCount >= API_FETCH_BATCH || fresh.length >= 8;
+      const more = fresh.length >= 8;
       setHasMore(more);
       hasMoreRef.current = more;
       setInitialLoading(false);
@@ -1377,37 +1382,14 @@ function CategoryPage({ title, category, initialItems, onBack, onItemClick }) {
 
     try {
       pageRef.current += 1;
-      const tmdbResults = await fetchTMDBDiscover(category, pageRef.current);
-      let newCards = [];
-      if (tmdbResults.length > 0) newCards = await fetchByTMDBTitles(tmdbResults, seenTitlesRef.current);
-
-      if (newCards.length === 0) {
-        dbPageRef.current += 1;
-        const nextOffset = (dbPageRef.current - 1) * API_FETCH_BATCH;
-        const { items: dbItems, rawApiCount } = await fetchDBCategory(category, PAGE_SIZE, nextOffset);
-        const fresh = dbItems.filter(x => !seenIdsRef.current.has(String(x.id)));
-        fresh.forEach(x => {
-          seenIdsRef.current.add(String(x.id));
-          seenTitlesRef.current.add((x.title || "").toLowerCase().replace(/\s+/g, ""));
-        });
-        newCards = fresh;
-        if (rawApiCount < API_FETCH_BATCH && newCards.length === 0) {
-          setHasMore(false); hasMoreRef.current = false;
-          loadingMoreRef.current = false; setLoadingMore(false);
-          return;
-        }
-      }
-
-      if (newCards.length > 0) {
-        const deduped = newCards.filter(x => !seenIdsRef.current.has(String(x.id)));
-        deduped.forEach(x => {
-          seenIdsRef.current.add(String(x.id));
-          seenTitlesRef.current.add((x.title || "").toLowerCase().replace(/\s+/g, ""));
-        });
-        if (deduped.length > 0) setItems(prev => [...prev, ...deduped]);
-      }
-
-      const more = pageRef.current < 20;
+      const newCards = await fetchTMDBHomeCategory(category, pageRef.current, PAGE_SIZE);
+      const deduped = newCards.filter(x => !seenIdsRef.current.has(String(x.id)));
+      deduped.forEach(x => {
+        seenIdsRef.current.add(String(x.id));
+        seenTitlesRef.current.add((x.title || "").toLowerCase().replace(/\s+/g, ""));
+      });
+      if (deduped.length > 0) setItems(prev => [...prev, ...deduped]);
+      const more = pageRef.current < 10 && deduped.length > 0;
       setHasMore(more);
       hasMoreRef.current = more;
     } catch {
@@ -1690,9 +1672,8 @@ function App() {
   const inputRef = useRef(null);
   const searchAbortRef = useRef(null);
 
-  // ── Home load — FULLY PARALLEL: sab categories ek saath fetch, progressive render ────────────
+  // ── Home load — Pure TMDB, no bot DB ────────────────────────────────
   useEffect(() => {
-    // Cache check — instant load agar cache fresh hai
     const cached = loadHomeCache();
     if (cached && retryKey === 0) {
       setHomeData(cached);
@@ -1707,114 +1688,101 @@ function App() {
     setServerWaking(false);
     setLoadError(false);
 
-    const wakingTimer = setTimeout(() => setServerWaking(true), SERVER_WAKING_DELAY_MS);
-    const errorTimer  = setTimeout(() => {
+    const errorTimer = setTimeout(() => {
       setHomeLoading(false);
       setLoadError(true);
-      setServerWaking(false);
       window.__hideSplash?.();
     }, SERVER_TIMEOUT_MS);
 
-    window.__splashProgress?.(15, "Connecting to server...");
+    window.__splashProgress?.(15, "Loading trending...");
 
-    // Sab categories PARALLEL fetch karo — koi sequential batching nahi
-    const allPromise      = fetchDBCategory("all",       50);
-    const moviesPromise   = fetchDBCategory("movies",    50);
-    const webseriesPromise= fetchDBCategory("webseries", 50);
-    const animePromise    = fetchDBCategory("anime",     50);
-    const cartoonPromise  = fetchDBCategory("cartoon",   50);
-    const koreanPromise   = fetchDBCategory("korean",    50);
-    const topRawPromise   = fetchDBCategory("all",       50, API_FETCH_BATCH);
+    // Sab TMDB calls parallel — instant, no bot DB
+    const allP       = fetchTMDBHomeCategory("all",       1, 20);
+    const moviesP    = fetchTMDBHomeCategory("movies",    1, 20);
+    const webseriesP = fetchTMDBHomeCategory("webseries", 1, 20);
+    const animeP     = fetchTMDBHomeCategory("anime",     1, 20);
+    const cartoonP   = fetchTMDBHomeCategory("cartoon",   1, 20);
+    const koreanP    = fetchTMDBHomeCategory("korean",    1, 20);
+    const topRatedP  = fetchTMDBHomeCategory("toprated",  1, 20);
 
-    // Step 1: "all" resolve hote hi hero + nowPlaying dikhao — ye sabse fast hoga
-    allPromise.then(({ items: latest }) => {
-      clearTimeout(wakingTimer);
+    // Step 1: "all" resolve hote hi hero + nowPlaying seedha dikhao
+    allP.then(latest => {
+      clearTimeout(errorTimer);
       const bannerItems = latest.filter(m => m.backdrop).slice(0, 5);
       if (bannerItems.length < 3) bannerItems.push(...latest.slice(0, 5 - bannerItems.length));
       setHomeData(prev => ({ ...prev, nowPlaying: latest, heroBannerItems: bannerItems }));
       setHomeLoading(false);
-      setHomeSecondaryLoading(true); // baaki aa rahe hain
+      setHomeSecondaryLoading(true);
       setServerWaking(false);
       window.__hideSplash?.();
       window.__splashProgress?.(40, "Loading categories...");
     }).catch(() => {
-      clearTimeout(wakingTimer);
       clearTimeout(errorTimer);
       setHomeLoading(false);
       setLoadError(true);
-      setServerWaking(false);
       window.__hideSplash?.();
     });
 
-    // Step 2: Har category apne time pe aate hi state mein daal do — blank cards nahi dikhenge
-    const updateCat = (promise, key, transform) => {
-      promise.then(result => {
-        const items = transform ? transform(result) : result.items;
-        setHomeData(prev => ({ ...prev, [key]: items }));
-      }).catch(() => {});
+    // Step 2: har category apne time pe set karo
+    const setCat = (promise, key) => {
+      promise.then(items => setHomeData(prev => ({ ...prev, [key]: items }))).catch(() => {});
     };
+    setCat(moviesP,    "moviesFils");
+    setCat(webseriesP, "webseriesFils");
+    setCat(animeP,     "animeFils");
+    setCat(cartoonP,   "cartoonFils");
+    setCat(koreanP,    "koreanFils");
 
-    updateCat(moviesPromise,    "moviesFils",    null);
-    updateCat(webseriesPromise, "webseriesFils", null);
-    updateCat(animePromise,     "animeFils",     null);
-    updateCat(cartoonPromise,   "cartoonFils",   null);
-    updateCat(koreanPromise,    "koreanFils",    null);
-    updateCat(topRawPromise,    "topRated",      r => r.items.filter(x => parseFloat(x.rating) >= 7.0).slice(0, 50));
-
-    // globalTrend: all + movies dono chahiye
-    Promise.all([allPromise, moviesPromise]).then(([allRes, moviesRes]) => {
-      const globalItems = allRes.items
-        .filter((_, idx) => idx >= 3)
-        .concat(moviesRes.items.slice(0, 3))
-        .filter((item, idx, arr) => {
-          const key = item.title?.toLowerCase().replace(/\s+/g, "");
-          return arr.findIndex(x => x.title?.toLowerCase().replace(/\s+/g, "") === key) === idx;
-        })
-        .slice(0, 50);
+    // globalTrend = all + movies mix
+    Promise.all([allP, moviesP]).then(([allRes, moviesRes]) => {
+      const seen = new Set();
+      const globalItems = [...allRes, ...moviesRes].filter(item => {
+        const k = item.title?.toLowerCase().replace(/\s+/g, "");
+        if (seen.has(k)) return false;
+        seen.add(k); return true;
+      }).slice(0, 20);
       setHomeData(prev => ({ ...prev, globalTrend: globalItems }));
     }).catch(() => {});
 
-    // Step 3: Jab SARE categories load ho jaayein — cache save karo
-    Promise.all([
-      allPromise, moviesPromise, webseriesPromise, animePromise, cartoonPromise, koreanPromise, topRawPromise,
-    ]).then(([allRes, movies, webseries, anime, cartoon, korean, topRaw]) => {
-      clearTimeout(errorTimer);
-      window.__splashProgress?.(95, "Almost ready!");
+    // topRated — rating >= 7.0 filter
+    topRatedP.then(items => {
+      setHomeData(prev => ({ ...prev, topRated: items.filter(x => parseFloat(x.rating) >= 7.0) }));
+    }).catch(() => {});
 
-      const bannerItems = allRes.items.filter(m => m.backdrop).slice(0, 5);
-      if (bannerItems.length < 3) bannerItems.push(...allRes.items.slice(0, 5 - bannerItems.length));
+    // Step 3: sab aa jaayein toh cache save karo
+    Promise.all([allP, moviesP, webseriesP, animeP, cartoonP, koreanP, topRatedP])
+      .then(([allRes, movies, webseries, anime, cartoon, korean, topRaw]) => {
+        clearTimeout(errorTimer);
+        window.__splashProgress?.(95, "Almost ready!");
+        const bannerItems = allRes.filter(m => m.backdrop).slice(0, 5);
+        if (bannerItems.length < 3) bannerItems.push(...allRes.slice(0, 5 - bannerItems.length));
+        const seen = new Set();
+        const globalItems = [...allRes, ...movies].filter(item => {
+          const k = item.title?.toLowerCase().replace(/\s+/g, "");
+          if (seen.has(k)) return false;
+          seen.add(k); return true;
+        }).slice(0, 20);
+        const completeData = {
+          nowPlaying:      allRes,
+          heroBannerItems: bannerItems,
+          globalTrend:     globalItems,
+          moviesFils:      movies,
+          webseriesFils:   webseries,
+          animeFils:       anime,
+          cartoonFils:     cartoon,
+          koreanFils:      korean,
+          topRated:        topRaw.filter(x => parseFloat(x.rating) >= 7.0),
+        };
+        saveHomeCache(completeData);
+        setHomeData(completeData);
+        setHomeSecondaryLoading(false);
+        setLoadError(false);
+      }).catch(() => {
+        clearTimeout(errorTimer);
+        setHomeSecondaryLoading(false);
+      });
 
-      const globalItems = allRes.items
-        .filter((_, idx) => idx >= 3)
-        .concat(movies.items.slice(0, 3))
-        .filter((item, idx, arr) => {
-          const key = item.title?.toLowerCase().replace(/\s+/g, "");
-          return arr.findIndex(x => x.title?.toLowerCase().replace(/\s+/g, "") === key) === idx;
-        })
-        .slice(0, 50);
-
-      const completeData = {
-        nowPlaying:      allRes.items,
-        heroBannerItems: bannerItems,
-        globalTrend:     globalItems,
-        moviesFils:      movies.items,
-        webseriesFils:   webseries.items,
-        animeFils:       anime.items,
-        cartoonFils:     cartoon.items,
-        koreanFils:      korean.items,
-        topRated:        topRaw.items.filter(x => parseFloat(x.rating) >= 7.0).slice(0, 50),
-      };
-
-      saveHomeCache(completeData);
-      setHomeData(completeData);
-      setHomeSecondaryLoading(false);
-      setLoadError(false);
-    }).catch(() => {
-      clearTimeout(errorTimer);
-      setHomeSecondaryLoading(false);
-    });
-
-    return () => { clearTimeout(wakingTimer); clearTimeout(errorTimer); };
+    return () => { clearTimeout(errorTimer); };
   }, [retryKey]);
 
   // FIX: Android hardware back button — pushState sirf once mount pe
@@ -2162,11 +2130,40 @@ function App() {
             })()}
 
             {!loading && files.length === 0 && (query || quality !== "All" || language !== "All") && (
-              <div style={{ textAlign: "center", padding: "70px 20px" }}>
-                <div style={{ fontSize: 56, marginBottom: 16 }}>🎬</div>
-                <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 8, color: "#ccc" }}>No results found</div>
-                <div style={{ fontSize: 13, color: "#444", lineHeight: 1.6 }}>Try different keywords or change filters</div>
-                <button onClick={clearFilters} style={{ marginTop: 20, padding: "11px 26px", borderRadius: 50, background: "linear-gradient(135deg,#f39c12,#e74c3c)", border: "none", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Reset Filters</button>
+              <div style={{ textAlign: "center", padding: "50px 20px" }}>
+                <div style={{ fontSize: 52, marginBottom: 14 }}>😔</div>
+                <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 8, color: "#ccc" }}>
+                  "{query}" nahi mila
+                </div>
+                <div style={{ fontSize: 13, color: "#555", lineHeight: 1.7, marginBottom: 24 }}>
+                  Ye content abhi hamare bot mein available nahi hai.<br />
+                  Niche request karo — admin jald upload kar dega! 🙏
+                </div>
+                {/* Request button — channel pe le jao */}
+                <a
+                  href={`https://t.me/${CHANNEL_USERNAME}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 10,
+                    padding: "14px 28px", borderRadius: 50,
+                    background: "linear-gradient(135deg,#229ED9,#1a7aab)",
+                    color: "#fff", fontWeight: 800, fontSize: 14,
+                    textDecoration: "none",
+                    boxShadow: "0 6px 24px rgba(34,158,217,0.35)",
+                    marginBottom: 14,
+                  }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-2.03 9.571c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.893.65z" />
+                  </svg>
+                  Channel pe Request Karo
+                </a>
+                <div style={{ marginTop: 8 }}>
+                  <button onClick={clearFilters} style={{ background: "none", border: "none", color: "#444", fontSize: 12, cursor: "pointer", fontWeight: 600, textDecoration: "underline" }}>
+                    Ya filters reset karo
+                  </button>
+                </div>
               </div>
             )}
             {!loading && files.length === 0 && !query && quality === "All" && language === "All" && (
