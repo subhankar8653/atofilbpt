@@ -255,6 +255,95 @@ class Database:
         "expiry_time": {"$gt": datetime.datetime.now()}
         })
         return count
+
+    # ── Bot Mode: Link Count Tracking ──────────────────────────────────────────
+    # Normal mode: 24hrs mein kitne links open kiye
+    # Earn mode: 24hrs mein kitne shorteners complete kiye (per company)
+
+    async def get_link_count(self, user_id: int) -> dict:
+        """24 hours ke andar user ne kitne links access kiye - Normal mode ke liye."""
+        user_data = await self.col.find_one({'id': int(user_id)})
+        if not user_data:
+            return {'count': 0, 'reset_at': None}
+        lc = user_data.get('link_count', {})
+        reset_at = lc.get('reset_at')
+        if reset_at and datetime.datetime.now() > reset_at:
+            # 24 hours guzar gaye, reset karo
+            await self.col.update_one({'id': int(user_id)}, {'$set': {'link_count': {'count': 0, 'reset_at': None}}})
+            return {'count': 0, 'reset_at': None}
+        return {'count': lc.get('count', 0), 'reset_at': reset_at}
+
+    async def increment_link_count(self, user_id: int):
+        """Link access count badha do. Pehli baar 24hr timer start karo."""
+        lc = await self.get_link_count(user_id)
+        new_count = lc['count'] + 1
+        reset_at = lc['reset_at'] or (datetime.datetime.now() + datetime.timedelta(hours=24))
+        await self.col.update_one(
+            {'id': int(user_id)},
+            {'$set': {'link_count': {'count': new_count, 'reset_at': reset_at}}},
+            upsert=True
+        )
+
+    async def get_earn_shortener_done(self, user_id: int) -> dict:
+        """Earn mode: 24hrs mein user ne kaunse shortener company complete kiye."""
+        user_data = await self.col.find_one({'id': int(user_id)})
+        if not user_data:
+            return {'done': [], 'reset_at': None}
+        es = user_data.get('earn_shortener', {})
+        reset_at = es.get('reset_at')
+        if reset_at and datetime.datetime.now() > reset_at:
+            await self.col.update_one({'id': int(user_id)}, {'$set': {'earn_shortener': {'done': [], 'reset_at': None}}})
+            return {'done': [], 'reset_at': None}
+        return {'done': es.get('done', []), 'reset_at': reset_at}
+
+    async def mark_earn_shortener_done(self, user_id: int, shortener_url: str):
+        """Earn mode: ek shortener URL complete mark karo."""
+        es = await self.get_earn_shortener_done(user_id)
+        done_list = es['done']
+        if shortener_url not in done_list:
+            done_list.append(shortener_url)
+        reset_at = es['reset_at'] or (datetime.datetime.now() + datetime.timedelta(hours=24))
+        await self.col.update_one(
+            {'id': int(user_id)},
+            {'$set': {'earn_shortener': {'done': done_list, 'reset_at': reset_at}}},
+            upsert=True
+        )
+
+    # ── Fake Link (from linkbot logic) ────────────────────────────────────────
+    async def get_fake_link(self):
+        """Fake link config fetch karo (agar set kiya hua ho)."""
+        try:
+            config = await self.col.database['fake_link'].find_one({"_id": "fake_link_config"}) if hasattr(self.col, 'database') else None
+            if config:
+                return config
+        except Exception:
+            pass
+        # Fallback: botcol mein check karo
+        try:
+            config = await self.botcol.find_one({"_id": "fake_link_config"})
+            return config
+        except Exception:
+            return None
+
+    async def set_fake_link(self, url: str, button_text: str) -> bool:
+        """Fake link set karo."""
+        try:
+            await self.botcol.update_one(
+                {"_id": "fake_link_config"},
+                {"$set": {"_id": "fake_link_config", "url": url, "button_text": button_text}},
+                upsert=True
+            )
+            return True
+        except Exception:
+            return False
+
+    async def remove_fake_link(self) -> bool:
+        """Fake link remove karo."""
+        try:
+            await self.botcol.delete_one({"_id": "fake_link_config"})
+            return True
+        except Exception:
+            return False
     
     async def get_bot_setting(self, bot_id, setting_key, default_value):
         bot = await self.botcol.find_one({'id': int(bot_id)}, {setting_key: 1, '_id': 0})
