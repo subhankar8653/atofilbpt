@@ -522,6 +522,26 @@ async def start(client, message):
             await k.edit("<b>ʏᴏᴜʀ ᴍᴇꜱꜱᴀɢᴇ ɪꜱ ᴅᴇʟᴇᴛᴇᴅ !\nᴋɪɴᴅʟʏ ꜱᴇᴀʀᴄʜ ᴀɢᴀɪɴ.</b>")
             return   
     user = message.from_user.id
+
+    # ── Access control: only the user who searched can get this file ──
+    if pre in ("file", "filep", "files"):
+        _original_requester = temp.FILE_REQ.get(file_id, 0)
+        _is_authorized = (
+            _original_requester == 0 or
+            user == _original_requester or
+            str(user) in ADMINS
+        )
+        if not _is_authorized:
+            await message.reply_text(
+                f"⚠️ <b>Hey {message.from_user.mention},</b>\n\n"
+                "This file does not belong to your search result.\n\n"
+                "Please go to our group, search for the file yourself, "
+                "and then click on the result to get it. 👇",
+                disable_web_page_preview=True
+            )
+            return
+    # ──────────────────────────────────────────────────────────────────
+
     files_ = await get_file_details(file_id)        
     if not files_:
         pre, file_id = ((base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))).decode("ascii")).split("_", 1)
