@@ -370,9 +370,6 @@ class Database:
     async def update_movie_update_status(self, bot_id, enable):
         await self.update_bot_setting(bot_id, 'MOVIE_UPDATE_NOTIFICATION', enable)
 
-        
-db = Database(DATABASE_URI, DATABASE_NAME)
-db2 = Database(DATABASE_URI2, DATABASE_NAME)
 
     # ═══════════════════════════════════════════════════════════
     # FSUB CHANNEL MANAGEMENT (Link-sharing-bot style)
@@ -497,3 +494,7 @@ db2 = Database(DATABASE_URI2, DATABASE_NAME)
             {"channel_id": int(channel_id)},
             {"$pull": {"user_ids": int(user_id)}}
         )
+
+
+db = Database(DATABASE_URI, DATABASE_NAME)
+db2 = Database(DATABASE_URI2, DATABASE_NAME)
