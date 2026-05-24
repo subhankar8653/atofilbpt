@@ -562,23 +562,30 @@ async def start(client, message):
             buttons = []
 
             async def is_member(ch_id):
-                try:
-                    m = await client.get_chat_member(ch_id, uid)
-                    if m.status == CMS.BANNED:
+                # Telegram cache delay ke liye 2 baar try karo
+                for attempt in range(2):
+                    try:
+                        m = await client.get_chat_member(ch_id, uid)
+                        if m.status == CMS.BANNED:
+                            return False
+                        return m.status in {
+                            CMS.OWNER, CMS.ADMINISTRATOR, CMS.MEMBER
+                        }
+                    except UserNotParticipant:
+                        if attempt == 0:
+                            await asyncio.sleep(1)  # 1 sec wait, phir retry
+                            continue
                         return False
-                    return m.status in {
-                        CMS.OWNER, CMS.ADMINISTRATOR, CMS.MEMBER
-                    }
-                except UserNotParticipant:
-                    return False
-                except Exception:
-                    return True  # Error = assume joined (safe fallback)
+                    except Exception:
+                        return True  # Error = assume joined (safe fallback)
+                return False
 
             for ch_id in channels:
+                mode = await db.get_channel_mode(ch_id)
                 joined = await is_member(ch_id)
+
                 if joined:
                     # Joined tha, pending request ho to clean up
-                    mode = await db.get_channel_mode(ch_id)
                     if mode == "on":
                         try:
                             await db.req_user_del(ch_id, uid)
@@ -586,13 +593,11 @@ async def start(client, message):
                             pass
                     continue
 
-                # Request mode check
-                mode = await db.get_channel_mode(ch_id)
+                # Request mode: check karo user ne request submit ki thi
                 if mode == "on":
-                    # Check karo user ne request submit ki thi
                     req_pending = await db.req_user_exist(ch_id, uid)
                     if req_pending:
-                        continue  # Request pending hai = treat as joined
+                        continue  # Request pending = treat as joined
 
                 # User ne join nahi kiya — button banana hai
                 try:
