@@ -326,3 +326,174 @@ async def cb_bot_mode(client, query: CallbackQuery):
         await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(btns))
     except Exception:
         pass
+
+
+# ═══════════════════════════════════════════════════════════════
+# FSUB CHANNEL MANAGEMENT COMMANDS (Link-sharing-bot style)
+# /addfsub <channel_id>
+# /removefsub <channel_id>
+# /listfsub
+# /fsubmode <channel_id> on|off   (request mode toggle)
+# /fsubmodeall on|off             (saare channels ek saath)
+# ═══════════════════════════════════════════════════════════════
+
+from database.users_chats_db import db as _db
+
+
+@Client.on_message(
+    filters.command("addfsub") & filters.private & filters.user(ADMINS)
+)
+async def cmd_add_fsub(client, message):
+    """
+    Usage: /addfsub <channel_id>
+    Bot ko pehle us channel mein admin banana padega.
+    """
+    args = message.command[1:]
+    if not args:
+        return await message.reply(
+            "<b>Usage:</b> <code>/addfsub -100xxxxxxxxxx</code>\n\n"
+            "Bot ko channel mein admin hona chahiye."
+        )
+    try:
+        ch_id = int(args[0])
+    except ValueError:
+        return await message.reply("❌ Valid channel ID do (e.g. <code>-1001234567890</code>)")
+
+    try:
+        chat = await client.get_chat(ch_id)
+    except Exception as e:
+        return await message.reply(f"❌ Channel fetch nahi ho saka:\n<code>{e}</code>")
+
+    await _db.add_fsub_channel(ch_id)
+    await message.reply(
+        f"✅ <b>{chat.title}</b> ko FSub list mein add kar diya!\n"
+        f"<i>Default mode: Normal Join (request OFF)</i>\n\n"
+        f"Request mode ON karne ke liye:\n"
+        f"<code>/fsubmode {ch_id} on</code>"
+    )
+
+
+@Client.on_message(
+    filters.command("removefsub") & filters.private & filters.user(ADMINS)
+)
+async def cmd_remove_fsub(client, message):
+    """Usage: /removefsub <channel_id>"""
+    args = message.command[1:]
+    if not args:
+        return await message.reply("<b>Usage:</b> <code>/removefsub -100xxxxxxxxxx</code>")
+    try:
+        ch_id = int(args[0])
+    except ValueError:
+        return await message.reply("❌ Valid channel ID do")
+
+    removed = await _db.remove_fsub_channel(ch_id)
+    if removed:
+        await message.reply(f"✅ Channel <code>{ch_id}</code> FSub list se remove ho gaya.")
+    else:
+        await message.reply(f"⚠️ Channel <code>{ch_id}</code> list mein tha hi nahi.")
+
+
+@Client.on_message(
+    filters.command("listfsub") & filters.private & filters.user(ADMINS)
+)
+async def cmd_list_fsub(client, message):
+    """Saare FSub channels ki list + unka mode."""
+    channels = await _db.get_fsub_channels()
+    if not channels:
+        return await message.reply(
+            "📭 Koi FSub channel set nahi hai.\n\n"
+            "<code>/addfsub -100xxxxxxxxxx</code> se add karo."
+        )
+
+    lines = ["<b>📋 FSub Channels List:</b>\n"]
+    for i, ch_id in enumerate(channels, 1):
+        mode = await _db.get_channel_mode(ch_id)
+        mode_txt = "🔔 Request Mode ON" if mode == "on" else "👤 Normal Join"
+        try:
+            chat = await client.get_chat(ch_id)
+            lines.append(f"{i}. <b>{chat.title}</b> | <code>{ch_id}</code>\n   └ {mode_txt}")
+        except Exception:
+            lines.append(f"{i}. <code>{ch_id}</code>\n   └ {mode_txt}")
+
+    lines.append(
+        "\n<i>Mode toggle: <code>/fsubmode &lt;id&gt; on|off</code></i>\n"
+        "<i>Sab toggle: <code>/fsubmodeall on|off</code></i>"
+    )
+    await message.reply("\n".join(lines))
+
+
+@Client.on_message(
+    filters.command("fsubmode") & filters.private & filters.user(ADMINS)
+)
+async def cmd_fsub_mode(client, message):
+    """
+    Usage: /fsubmode <channel_id> on|off
+    on  → Request Join mode (user join request bhejta hai)
+    off → Normal Join mode
+    """
+    args = message.command[1:]
+    if len(args) < 2:
+        return await message.reply(
+            "<b>Usage:</b> <code>/fsubmode -100xxxxxxxxxx on</code>\n"
+            "ya\n"
+            "<code>/fsubmode -100xxxxxxxxxx off</code>\n\n"
+            "<b>on</b>  = Request Join mode\n"
+            "<b>off</b> = Normal Join mode"
+        )
+    try:
+        ch_id = int(args[0])
+    except ValueError:
+        return await message.reply("❌ Valid channel ID do")
+
+    mode = args[1].lower()
+    if mode not in ("on", "off"):
+        return await message.reply("❌ Mode <code>on</code> ya <code>off</code> hona chahiye.")
+
+    channels = await _db.get_fsub_channels()
+    if ch_id not in channels:
+        return await message.reply(
+            f"⚠️ Channel <code>{ch_id}</code> FSub list mein nahi hai.\n"
+            f"Pehle add karo: <code>/addfsub {ch_id}</code>"
+        )
+
+    await _db.set_channel_mode(ch_id, mode)
+    mode_label = "🔔 Request Join Mode" if mode == "on" else "👤 Normal Join Mode"
+    try:
+        chat = await client.get_chat(ch_id)
+        title = chat.title
+    except Exception:
+        title = str(ch_id)
+
+    await message.reply(
+        f"✅ <b>{title}</b> ka mode set ho gaya:\n"
+        f"{mode_label}\n\n"
+        + (
+            "<i>Ab users direct join nahi kar sakte, request bhejenge.</i>"
+            if mode == "on" else
+            "<i>Ab users directly join kar sakte hain.</i>"
+        )
+    )
+
+
+@Client.on_message(
+    filters.command("fsubmodeall") & filters.private & filters.user(ADMINS)
+)
+async def cmd_fsub_mode_all(client, message):
+    """
+    Usage: /fsubmodeall on|off
+    Saare FSub channels ka mode ek saath change karo.
+    """
+    args = message.command[1:]
+    if not args or args[0].lower() not in ("on", "off"):
+        return await message.reply(
+            "<b>Usage:</b> <code>/fsubmodeall on</code> ya <code>/fsubmodeall off</code>\n\n"
+            "<b>on</b>  = Saare channels Request Join mode mein\n"
+            "<b>off</b> = Saare channels Normal Join mode mein"
+        )
+
+    mode = args[0].lower()
+    count = await _db.set_channel_mode_all(mode)
+    mode_label = "🔔 Request Join" if mode == "on" else "👤 Normal Join"
+    await message.reply(
+        f"✅ <b>{count}</b> channels ka mode set ho gaya: {mode_label}"
+    )

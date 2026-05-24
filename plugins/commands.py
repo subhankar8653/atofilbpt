@@ -536,30 +536,88 @@ async def start(client, message):
         user_id = message.from_user.id
         chat_id = temp.SHORT.get(user_id)
 
-        # ── Helper: FSUB check + return buttons ──────────────────────
+        # ── Helper: FSUB check + return buttons (Request + Normal mode) ──
         async def check_fsub_inline(uid):
-            """Returns (joined:bool, buttons:list)"""
-            if not MULTI_FSUB:
-                return True, []
+            """
+            Returns (joined:bool, buttons:list)
+            DB se channels fetch karta hai.
+            Har channel ke liye mode check karta hai:
+              mode "on"  → request join link (creates_join_request=True)
+              mode "off" → normal join link
+            Premium users aur owner ke liye bypass.
+            """
             from pyrogram.errors.exceptions.bad_request_400 import UserNotParticipant
+            from pyrogram.enums import ChatMemberStatus as CMS
+
+            # Premium bypass
+            if await db.has_premium_access(uid):
+                return True, []
+
+            # DB se channels lo (admin-managed), fallback to MULTI_FSUB env
+            db_channels = await db.get_fsub_channels()
+            channels = db_channels if db_channels else MULTI_FSUB
+            if not channels:
+                return True, []
+
             buttons = []
-            for ch_id in MULTI_FSUB:
+
+            async def is_member(ch_id):
                 try:
-                    member = await client.get_chat_member(ch_id, uid)
-                    from pyrogram.enums import ChatMemberStatus as CMS
-                    if member.status == CMS.BANNED:
-                        raise UserNotParticipant
+                    m = await client.get_chat_member(ch_id, uid)
+                    if m.status == CMS.BANNED:
+                        return False
+                    return m.status in {
+                        CMS.OWNER, CMS.ADMINISTRATOR, CMS.MEMBER
+                    }
                 except UserNotParticipant:
-                    try:
-                        chat_obj = await client.get_chat(ch_id)
-                        invite = chat_obj.invite_link or await client.create_chat_invite_link(ch_id)
-                        buttons.append([InlineKeyboardButton(f"➕ {chat_obj.title}", url=invite)])
-                    except Exception:
-                        buttons.append([InlineKeyboardButton("➕ Join Channel", url="https://t.me/")])
+                    return False
                 except Exception:
-                    pass
+                    return True  # Error = assume joined (safe fallback)
+
+            for ch_id in channels:
+                joined = await is_member(ch_id)
+                if joined:
+                    # Joined tha, pending request ho to clean up
+                    mode = await db.get_channel_mode(ch_id)
+                    if mode == "on":
+                        try:
+                            await db.req_user_del(ch_id, uid)
+                        except Exception:
+                            pass
+                    continue
+
+                # Request mode check
+                mode = await db.get_channel_mode(ch_id)
+                if mode == "on":
+                    # Check karo user ne request submit ki thi
+                    req_pending = await db.req_user_exist(ch_id, uid)
+                    if req_pending:
+                        continue  # Request pending hai = treat as joined
+
+                # User ne join nahi kiya — button banana hai
+                try:
+                    chat_obj = await client.get_chat(ch_id)
+                    if mode == "on" and not chat_obj.username:
+                        # Private channel + request mode
+                        inv = await client.create_chat_invite_link(
+                            chat_id=ch_id,
+                            creates_join_request=True
+                        )
+                        link = inv.invite_link
+                    elif chat_obj.username:
+                        link = f"https://t.me/{chat_obj.username}"
+                    else:
+                        inv = await client.create_chat_invite_link(chat_id=ch_id)
+                        link = inv.invite_link
+                    buttons.append([InlineKeyboardButton(f"➕ {chat_obj.title}", url=link)])
+                except Exception:
+                    buttons.append([InlineKeyboardButton("➕ Join Channel", url="https://t.me/")])
+
             if buttons:
-                buttons.append([InlineKeyboardButton("✅ I Joined", url=f"https://telegram.me/{temp.U_NAME}?start=files_{file_id}")])
+                buttons.append([InlineKeyboardButton(
+                    "✅ I Joined",
+                    url=f"https://telegram.me/{temp.U_NAME}?start=files_{file_id}"
+                )])
                 return False, buttons
             return True, []
 
