@@ -358,6 +358,17 @@ async def root_route_handler(_):
     })
 
 
+# ── Expiry Link Store (in-memory) ─────────────────────────────────────────────
+# token -> {"watch_url": ..., "download_url": ..., "expires_at": float}
+_expiry_store: dict = {}
+
+def _cleanup_expired():
+    """Purane expired tokens hata do."""
+    now = time.time()
+    expired = [k for k, v in _expiry_store.items() if v["expires_at"] < now]
+    for k in expired:
+        del _expiry_store[k]
+
 # ── /api/get-links — Website ke liye Fast Download + Watch Online URLs ────────
 from urllib.parse import quote_plus as _qp
 from LucyBot.util.file_properties import get_name as _get_name, get_hash as _get_hash
@@ -367,11 +378,34 @@ async def api_get_links(request: web.Request):
     """
     file_id lekar LOG_CHANNEL mein forward karo,
     phir watch URL aur download URL return karo.
-    Usage: /api/get-links?file_id=<telegram_file_id>
+
+    Optional param: expiry=<minutes>  (default: 0 = no expiry)
+    Agar expiry diya toh ek token-based URL milega jo X minutes baad dead ho jayega.
+
+    Usage:
+      /api/get-links?file_id=<id>            → normal (no expiry)
+      /api/get-links?file_id=<id>&expiry=30  → 30 min expiry link
+      /api/get-links?file_id=<id>&expiry=60  → 60 min expiry link
     """
-    file_id = request.rel_url.query.get("file_id", "").strip()
+    file_id     = request.rel_url.query.get("file_id", "").strip()
+    expiry_mins = request.rel_url.query.get("expiry", "").strip()
+
     if not file_id:
         return web.json_response({"error": "file_id required"}, status=400)
+
+    # Agar expiry param nahi diya toh LINK_EXPIRY_TIME (seconds) se default lo
+    import info as _info_mod
+    default_expiry_sec = _info_mod.LINK_EXPIRY_TIME  # runtime mein updated value milegi
+
+    if expiry_mins == "":
+        # Default: LINK_EXPIRY_TIME seconds (0 = no expiry)
+        expiry_sec = default_expiry_sec
+    else:
+        try:
+            expiry_sec = int(expiry_mins) * 60
+        except ValueError:
+            expiry_sec = default_expiry_sec
+
     try:
         log_msg = await Codeflix.send_cached_media(
             chat_id=LOG_CHANNEL,
@@ -385,6 +419,30 @@ async def api_get_links(request: web.Request):
         watch_url    = f"{base}/watch/{msg_id}/{file_name}?hash={hash_val}"
         download_url = f"{base}/dl/{msg_id}?hash={hash_val}"
 
+        if expiry_sec > 0:
+            # Expiry token generate karo
+            _cleanup_expired()
+            token = secrets.token_urlsafe(16)
+            expires_at = time.time() + expiry_sec
+            _expiry_store[token] = {
+                "watch_url":    watch_url,
+                "download_url": download_url,
+                "expires_at":   expires_at,
+            }
+            # Token-wrapped URLs — inhi se access hoga
+            watch_url    = f"{base}/tlink/{token}/watch"
+            download_url = f"{base}/tlink/{token}/dl"
+            expiry_mins_label = expiry_sec // 60
+            expires_in_str = f"{expiry_mins_label} minute{'s' if expiry_mins_label != 1 else ''}" if expiry_mins_label >= 1 else f"{expiry_sec} seconds"
+            return web.json_response({
+                "watch_url":    watch_url,
+                "download_url": download_url,
+                "token":        token,
+                "expires_in":   expiry_sec,
+                "expires_label": expires_in_str,
+                "note":         f"Link {expires_in_str} baad expire ho jayega ⏳",
+            })
+
         return web.json_response({
             "watch_url":    watch_url,
             "download_url": download_url,
@@ -392,6 +450,40 @@ async def api_get_links(request: web.Request):
     except Exception as e:
         logging.error(f"/api/get-links error: {e}")
         return web.json_response({"error": str(e)}, status=500)
+
+
+# ── /tlink/<token>/<type> — Expiry token redirect handler ─────────────────────
+@routes.get(r"/tlink/{token}/{link_type}", allow_head=True)
+async def tlink_handler(request: web.Request):
+    """
+    Token-based expiry link handler.
+    - Valid token + unexpired  → real URL pe redirect karo
+    - Expired ya invalid token → 410 Gone return karo
+    """
+    token     = request.match_info.get("token", "")
+    link_type = request.match_info.get("link_type", "watch")  # watch | dl
+
+    entry = _expiry_store.get(token)
+
+    if not entry:
+        return web.Response(
+            status=410,
+            text="❌ Link expired ya invalid hai. Kripya dobara search karein.",
+            content_type="text/plain",
+        )
+
+    if time.time() > entry["expires_at"]:
+        # Expired — store se hata do
+        _expiry_store.pop(token, None)
+        return web.Response(
+            status=410,
+            text="⏳ Link ki validity khatam ho gayi. Kripya dobara search karein.",
+            content_type="text/plain",
+        )
+
+    # Valid — actual URL pe redirect
+    target = entry["watch_url"] if link_type == "watch" else entry["download_url"]
+    raise web.HTTPFound(location=target)
 
 
 @routes.get(r"/watch/{path:\S+}", allow_head=True)

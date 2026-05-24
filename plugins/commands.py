@@ -659,10 +659,151 @@ async def log_file(bot, message):
     except Exception as e:
         await message.reply(str(e))
 
+
+# ── Helper: seconds → human readable label ───────────────────────────────────
+def _sec_to_label(seconds: int) -> str:
+    if seconds <= 0:
+        return "disabled"
+    elif seconds >= 3600:
+        h = seconds // 3600
+        return f"{h} hour{'s' if h != 1 else ''}"
+    elif seconds >= 60:
+        m = seconds // 60
+        return f"{m} minute{'s' if m != 1 else ''}"
+    else:
+        return f"{seconds} second{'s' if seconds != 1 else ''}"
+
+
+def _parse_time_arg(raw: str):
+    """
+    '30' → 1800 sec (minutes maan ke)
+    '30m' → 1800 sec
+    '1h' → 3600 sec
+    '90s' → 90 sec
+    '0' → 0 (disabled)
+    Returns int seconds ya None if invalid.
+    """
+    raw = raw.strip().lower()
+    try:
+        if raw.endswith("h"):
+            return int(raw[:-1]) * 3600
+        elif raw.endswith("m"):
+            return int(raw[:-1]) * 60
+        elif raw.endswith("s"):
+            return int(raw[:-1])
+        else:
+            val = int(raw)
+            if val == 0:
+                return 0
+            # 1-300 range → minutes samjho, warna seconds
+            return val * 60 if 1 <= val <= 300 else val
+    except ValueError:
+        return None
+
+
+# ── /setdelete — Group mein search result messages auto-delete time ───────────
+@Client.on_message(filters.command('setdelete') & filters.user(ADMINS))
+async def set_delete_time(bot, message):
+    """
+    Group mein bot ke search result messages kitne time baad delete hon.
+    (Ye DELETE_TIME control karta hai)
+
+    Usage:
+      /setdelete          → current setting dikhao
+      /setdelete 30       → 30 minutes baad delete
+      /setdelete 60       → 60 minutes baad delete
+      /setdelete 1h       → 1 hour baad delete
+      /setdelete 0        → auto-delete band karo
+    """
+    import info as _info
+
+    args = message.command
+    if len(args) < 2:
+        label = _sec_to_label(_info.DELETE_TIME)
+        return await message.reply(
+            f"🗑 **Group Search Result Auto-Delete:**\n"
+            f"Current: `{label}`\n\n"
+            f"**Usage:**\n"
+            f"`/setdelete 30` → 30 min baad delete\n"
+            f"`/setdelete 1h` → 1 hour baad delete\n"
+            f"`/setdelete 0`  → auto-delete band karo\n\n"
+            f"_Note: Ye sirf group mein bot ke search result messages ke liye hai._"
+        )
+
+    seconds = _parse_time_arg(args[1])
+    if seconds is None:
+        return await message.reply("❌ Invalid! Example: `/setdelete 30` ya `/setdelete 1h`")
+    if seconds < 0:
+        return await message.reply("❌ Negative time nahi ho sakta!")
+
+    _info.DELETE_TIME = seconds
+    import plugins.commands as _cmd_mod
+    _cmd_mod.DELETE_TIME = seconds
+
+    if seconds == 0:
+        await message.reply("✅ **Group search result auto-delete: DISABLED**\nAb search result messages delete nahi honge.")
+    else:
+        await message.reply(
+            f"✅ **Group search result auto-delete set!**\n\n"
+            f"Ab se group mein search results **{_sec_to_label(seconds)} baad** automatically delete honge! 🗑️"
+        )
+
+
+# ── /setlinkexpiry — Download / Stream link ki expiry time ───────────────────
+@Client.on_message(filters.command('setlinkexpiry') & filters.user(ADMINS))
+async def set_link_expiry(bot, message):
+    """
+    Download aur Stream links kitne time baad expire (dead) hon.
+    Website ke /api/get-links aur bot ke generate_stream_link dono pe apply hoga.
+
+    Usage:
+      /setlinkexpiry          → current setting dikhao
+      /setlinkexpiry 30       → 30 minutes baad link dead
+      /setlinkexpiry 60       → 60 minutes baad link dead
+      /setlinkexpiry 1h       → 1 hour baad link dead
+      /setlinkexpiry 0        → link kabhi expire na ho
+    """
+    import info as _info
+
+    args = message.command
+    if len(args) < 2:
+        label = _sec_to_label(_info.LINK_EXPIRY_TIME)
+        return await message.reply(
+            f"🔗 **Download / Stream Link Expiry:**\n"
+            f"Current: `{label}`\n\n"
+            f"**Usage:**\n"
+            f"`/setlinkexpiry 30` → 30 min baad link dead\n"
+            f"`/setlinkexpiry 1h` → 1 hour baad link dead\n"
+            f"`/setlinkexpiry 0`  → link kabhi expire na ho\n\n"
+            f"_Note: Ye website ke watch/download links aur bot ke stream links dono ke liye hai._"
+        )
+
+    seconds = _parse_time_arg(args[1])
+    if seconds is None:
+        return await message.reply("❌ Invalid! Example: `/setlinkexpiry 30` ya `/setlinkexpiry 1h`")
+    if seconds < 0:
+        return await message.reply("❌ Negative time nahi ho sakta!")
+
+    _info.LINK_EXPIRY_TIME = seconds
+
+    if seconds == 0:
+        await message.reply(
+            "✅ **Link expiry: DISABLED**\n"
+            "Ab download/stream links kabhi expire nahi honge."
+        )
+    else:
+        await message.reply(
+            f"✅ **Link expiry set!**\n\n"
+            f"Ab se download/stream links **{_sec_to_label(seconds)} baad** automatically expire ho jayenge! ⏳\n\n"
+            f"_Website pe `/api/get-links` call karte waqt is time ka use hoga._"
+        )
+
+
 @Client.on_message(filters.command('delete') & filters.user(ADMINS))
 async def delete(bot, message):
     """Delete file from database"""
     reply = message.reply_to_message
+
     if reply and reply.media:
         msg = await message.reply("Pʀᴏᴄᴇssɪɴɢ...⏳", quote=True)
     else:

@@ -1625,42 +1625,81 @@ async def cb_handler(client: Client, query: CallbackQuery):
     elif lazyData.startswith("generate_stream_link"):
         _, file_id = lazyData.split(":")
         try:
-            user_id = query.from_user.id
-            username =  query.from_user.mention 
+            user_id  = query.from_user.id
+            username = query.from_user.mention
 
             log_msg = await client.send_cached_media(
                 chat_id=LOG_CHANNEL,
                 file_id=file_id,
             )
-            fileName = {quote_plus(get_name(log_msg))}
-            lazy_stream = f"{URL}watch/{str(log_msg.id)}/{quote_plus(get_name(log_msg))}?hash={get_hash(log_msg)}"
+            fileName      = quote_plus(get_name(log_msg))
+            lazy_stream   = f"{URL}watch/{str(log_msg.id)}/{fileName}?hash={get_hash(log_msg)}"
             lazy_download = f"{URL}dl/{str(log_msg.id)}?hash={get_hash(log_msg)}"
+
+            # LINK_EXPIRY_TIME se stream/download link ki expiry (alag DELETE_TIME se)
+            import info as _info_rt
+            _link_exp = _info_rt.LINK_EXPIRY_TIME  # runtime updated value
+            if _link_exp >= 3600:
+                _link_label = f"{_link_exp // 3600} hour{'s' if _link_exp // 3600 != 1 else ''}"
+            elif _link_exp >= 60:
+                _link_label = f"{_link_exp // 60} minute{'s' if _link_exp // 60 != 1 else ''}"
+            elif _link_exp > 0:
+                _link_label = f"{_link_exp} second{'s' if _link_exp != 1 else ''}"
+            else:
+                _link_label = None  # no expiry
+
+            # DELETE_TIME se bot message auto-delete label
+            _del = DELETE_TIME
+            if _del >= 3600:
+                _del_label = f"{_del // 3600} hour{'s' if _del // 3600 != 1 else ''}"
+            elif _del >= 60:
+                _del_label = f"{_del // 60} minute{'s' if _del // 60 != 1 else ''}"
+            else:
+                _del_label = f"{_del} second{'s' if _del != 1 else ''}"
+
+            expiry_line = (
+                f"\n⏳ <b>Link expiry: {_link_label}</b>" if _link_label
+                else "\n⏳ <b>Link: No expiry</b>"
+            )
 
             xo = await query.message.reply_text(f'💘')
             await asyncio.sleep(1)
             await xo.delete()
 
             await log_msg.reply_text(
-                text=f"•• ʟɪɴᴋ ɢᴇɴᴇʀᴀᴛᴇᴅ ꜰᴏʀ ɪᴅ #{user_id} \n•• ᴜꜱᴇʀɴᴀᴍᴇ : {username} \n\n•• ᖴᎥᒪᗴ Nᗩᗰᗴ : {fileName}",
+                text=(
+                    f"•• ʟɪɴᴋ ɢᴇɴᴇʀᴀᴛᴇᴅ ꜰᴏʀ ɪᴅ #{user_id}\n"
+                    f"•• ᴜꜱᴇʀɴᴀᴍᴇ : {username}\n\n"
+                    f"•• ᖴᎥᒪᗴ Nᗩᗰᗴ : {fileName}"
+                    f"{expiry_line}"
+                ),
                 quote=True,
                 disable_web_page_preview=True,
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Fast Download 🚀", url=lazy_download),  # we download Link
-                                                    InlineKeyboardButton('🖥️ Watch online 🖥️', url=lazy_stream)]])  # web stream Link
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🚀 Fast Download 🚀", url=lazy_download),
+                    InlineKeyboardButton('🖥️ Watch online 🖥️', url=lazy_stream)
+                ]])
             )
             suhani_msg = await query.message.reply_text(
-                text="•• ʟɪɴᴋ ɢᴇɴᴇʀᴀᴛᴇᴅ ☠︎⚔",
+                text=(
+                    f"•• ʟɪɴᴋ ɢᴇɴᴇʀᴀᴛᴇᴅ ☠︎⚔\n"
+                    f"{expiry_line}\n\n"
+                    f"⚠️ <b>ʏᴇ ᴍᴇssᴀɢᴇ {_del_label} ʙᴀᴀᴅ ᴅᴇʟᴇᴛᴇ ʜᴏ ᴊᴀᴇɢᴀ!</b>"
+                ),
                 quote=True,
                 disable_web_page_preview=True,
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Fast Download 🚀", url=lazy_download),  # we download Link
-                                                    InlineKeyboardButton('🖥️ Watch online 🖥️', url=lazy_stream)]])  # web stream Link
-            )  
-            
-            await asyncio.sleep(DELETE_TIME) 
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🚀 Fast Download 🚀", url=lazy_download),
+                    InlineKeyboardButton('🖥️ Watch online 🖥️', url=lazy_stream)
+                ]])
+            )
+
+            await asyncio.sleep(DELETE_TIME)
             await suhani_msg.delete()
             return
-            
+
         except Exception as e:
-            print(e)  # print the error message
+            print(e)
             await query.answer(f"⚠️ SOMETHING WENT WRONG \n\n{e}", show_alert=True)
             return
             
