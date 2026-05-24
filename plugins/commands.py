@@ -609,7 +609,9 @@ async def start(client, message):
                     else:
                         inv = await client.create_chat_invite_link(chat_id=ch_id)
                         link = inv.invite_link
-                    buttons.append([InlineKeyboardButton(f"➕ {chat_obj.title}", url=link)])
+                    custom_name = await db.get_fsub_channel_name(ch_id)
+                    btn_title = custom_name if custom_name else chat_obj.title
+                    buttons.append([InlineKeyboardButton(f"➕ {btn_title}", url=link)])
                 except Exception:
                     buttons.append([InlineKeyboardButton("➕ Join Channel", url="https://t.me/")])
 

@@ -497,3 +497,79 @@ async def cmd_fsub_mode_all(client, message):
     await message.reply(
         f"✅ <b>{count}</b> channels ka mode set ho gaya: {mode_label}"
     )
+
+
+@Client.on_message(
+    filters.command("renamfsub") & filters.private & filters.user(ADMINS)
+)
+async def cmd_renam_fsub(client, message):
+    """
+    Usage: /renamfsub <channel_id> <naam>
+    FSub button ka custom naam set karo.
+    Example: /renamfsub -1001234567890 🎬 Movies Channel
+    """
+    args = message.command[1:]
+    if len(args) < 2:
+        return await message.reply(
+            "<b>Usage:</b> <code>/renamfsub -100xxxxxxxxxx New Name</code>\n\n"
+            "<b>Example:</b>\n"
+            "<code>/renamfsub -1001234567890 🎬 Movies Channel</code>\n\n"
+            "Button pe yahi naam dikhega users ko.\n"
+            "Naam hatane ke liye: <code>/clearrenam -100xxxxxxxxxx</code>"
+        )
+    try:
+        ch_id = int(args[0])
+    except ValueError:
+        return await message.reply("❌ Valid channel ID do (e.g. <code>-1001234567890</code>)")
+
+    custom_name = " ".join(args[1:]).strip()
+    if not custom_name:
+        return await message.reply("❌ Naam khali nahi ho sakta.")
+
+    channels = await _db.get_fsub_channels()
+    if ch_id not in channels:
+        return await message.reply(
+            f"⚠️ Channel <code>{ch_id}</code> FSub list mein nahi hai.\n"
+            f"Pehle add karo: <code>/addfsub {ch_id}</code>"
+        )
+
+    ok = await _db.set_fsub_channel_name(ch_id, custom_name)
+    if ok:
+        await message.reply(
+            f"✅ Button naam set ho gaya!\n\n"
+            f"<b>Channel ID:</b> <code>{ch_id}</code>\n"
+            f"<b>Button Text:</b> ➕ {custom_name}"
+        )
+    else:
+        await message.reply("❌ Naam save nahi ho saka, dobara try karo.")
+
+
+@Client.on_message(
+    filters.command("clearrenam") & filters.private & filters.user(ADMINS)
+)
+async def cmd_clear_renam_fsub(client, message):
+    """
+    Usage: /clearrenam <channel_id>
+    Custom naam hata do — wapas channel ka original title use hoga.
+    """
+    args = message.command[1:]
+    if not args:
+        return await message.reply(
+            "<b>Usage:</b> <code>/clearrenam -100xxxxxxxxxx</code>"
+        )
+    try:
+        ch_id = int(args[0])
+    except ValueError:
+        return await message.reply("❌ Valid channel ID do")
+
+    await _db.clear_fsub_channel_name(ch_id)
+    try:
+        chat = await client.get_chat(ch_id)
+        title = chat.title
+    except Exception:
+        title = str(ch_id)
+
+    await message.reply(
+        f"✅ Custom naam hata diya.\n"
+        f"Ab button pe original naam dikhega: <b>{title}</b>"
+    )
