@@ -2820,6 +2820,10 @@ async def auto_filter(client, msg, spoll=False):
     temp.GETALL[key] = files
     temp.SHORT[message.from_user.id] = message.chat.id
     temp.SEARCH_REQ[key] = message.from_user.id if message.from_user else 0  # track who searched
+    # Store requester for EVERY file_id — works for both button and no-button modes
+    _requester_id = message.from_user.id if message.from_user else 0
+    for _file in files:
+        temp.FILE_REQ[_file.file_id] = _requester_id
     if settings["button"]:
         btn = [
             [
@@ -2829,10 +2833,6 @@ async def auto_filter(client, msg, spoll=False):
             ]
             for file in files
         ]
-        # Store requester for each file_id so only they can access
-        requester_id = message.from_user.id if message.from_user else 0
-        for _file in files:
-            temp.FILE_REQ[_file.file_id] = requester_id
         btn.insert(0, 
             [
                 InlineKeyboardButton("⇈ Sᴇʟᴇᴄᴛ Oᴘᴛɪᴏɴ Hᴇʀᴇ ⇈", 'reqinfo')
