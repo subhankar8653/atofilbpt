@@ -364,6 +364,44 @@ async def start(client, message):
                 text="<b>Invalid link or Expired link !</b>",
                 protect_content=False
             )
+
+    # ── EarnMode: user shortener complete karke vapas aaya ────────────────────
+    if data.startswith("earn_verify"):
+        # Format: earn_verify_<userid>_<shortener_url_with_dots_replaced>_<fileid>
+        parts = data.split("_", 4)
+        if len(parts) < 5:
+            return await message.reply_text("<b>Invalid earn verify link!</b>")
+        _, _, earn_uid, sh_url_safe, earn_fileid = parts
+        sh_url = sh_url_safe.replace('_', '.')
+        if str(message.from_user.id) != str(earn_uid):
+            return await message.reply_text("<b>⚠️ ʏᴏᴜ ᴄᴀɴɴᴏᴛ ᴜsᴇ sᴏᴍᴇᴏɴᴇ ᴇʟsᴇ's ʟɪɴᴋ!</b>")
+        await db.mark_earn_shortener_done(int(earn_uid), sh_url)
+        # Check karo remaining shorteners
+        from plugins.bot_mode import runtime_get_shorteners as _rgs
+        _earn_shorteners = await _rgs()
+        total_sh = len(_earn_shorteners)
+        es_data = await db.get_earn_shortener_done(int(earn_uid))
+        remaining = total_sh - len(es_data['done'])
+        if remaining > 0:
+            # Aur shorteners baaki hain
+            return await message.reply_text(
+                f"<b>✅ Sʜᴏʀᴛʟɪɴᴋ ᴄᴏᴍᴩʟᴇᴛᴇᴅ!\n\n"
+                f"⏳ {remaining} ᴍᴏʀᴇ sʜᴏʀᴛʟɪɴᴋ(s) ʀᴇᴍᴀɪɴɪɴɢ.\n\n"
+                f"ᴩʟᴇᴀsᴇ ɢᴏ ʙᴀᴄᴋ ᴀɴᴅ ᴄʟɪᴄᴋ ᴛʜᴇ ɴᴇxᴛ sʜᴏʀᴛʟɪɴᴋ ʙᴜᴛᴛᴏɴ!</b>",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 ɢᴇᴛ ꜰɪʟᴇ", url=f"https://telegram.me/{temp.U_NAME}?start=files_{earn_fileid}")]
+                ])
+            )
+        else:
+            # Sab complete! 24hrs free
+            return await message.reply_text(
+                f"<b>🎉 ᴀʟʟ sʜᴏʀᴛʟɪɴᴋs ᴄᴏᴍᴩʟᴇᴛᴇᴅ!\n\n"
+                f"✅ ʏᴏᴜ ɢᴇᴛ <u>24 ʜᴏᴜʀs ꜰʀᴇᴇ ᴀᴄᴄᴇss</u>!\n\n"
+                "ᴄʟɪᴄᴋ ʙᴇʟᴏᴡ ᴛᴏ ɢᴇᴛ ʏᴏᴜʀ ꜰɪʟᴇ 👇</b>",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📁 ɢᴇᴛ ꜰɪʟᴇ", url=f"https://telegram.me/{temp.U_NAME}?start=files_{earn_fileid}")]
+                ])
+            )
     if data.startswith("sendfiles"):
         current_time = datetime.now(pytz.timezone(TIMEZONE))
         curr_time = current_time.hour        
@@ -488,39 +526,216 @@ async def start(client, message):
         await k.edit_text("<b>ʏᴏᴜʀ ᴀʟʟ ᴠɪᴅᴇᴏꜱ/ꜰɪʟᴇꜱ ᴀʀᴇ ᴅᴇʟᴇᴛᴇᴅ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ !\nᴋɪɴᴅʟʏ ꜱᴇᴀʀᴄʜ ᴀɢᴀɪɴ</b>")
         return
     elif data.startswith("files"):
-        current_time = datetime.now(pytz.timezone(TIMEZONE))
-        curr_time = current_time.hour        
-        if curr_time < 12:
-            gtxt = "ɢᴏᴏᴅ ᴍᴏʀɴɪɴɢ  👋" 
-        elif curr_time < 17:
-            gtxt = "ɢᴏᴏᴅ ᴀғᴛᴇʀɴᴏᴏɴ  👋" 
-        elif curr_time < 21:
-            gtxt = "ɢᴏᴏᴅ ᴇᴠᴇɴɪɴɢ  👋"
-        else:
-            gtxt = "ɢᴏᴏᴅ ɴɪɢʜᴛ  👋"     
+        # ══════════════════════════════════════════════════════════════
+        # BOT MODE LOGIC: free | normal | earn
+        # Premium users → seedha file, koi check nahi
+        # ══════════════════════════════════════════════════════════════
+        from plugins.bot_mode import runtime_get_mode, runtime_get_shorteners, runtime_get_fake_link
+        _cur_mode       = await runtime_get_mode()
+        _cur_shorteners = await runtime_get_shorteners()
         user_id = message.from_user.id
-        if temp.SHORT.get(user_id)==None:
-            chat_id = None
-        else:
-            chat_id = temp.SHORT.get(user_id)
-        settings = await get_settings(chat_id) if chat_id else {}
-        if False:  # Shortlink disabled #Don't change anything without my permission @cosmic_freak
-            files_ = await get_file_details(file_id)
-            files = files_[0]
-            g = await get_shortlink(chat_id, f"https://telegram.me/{temp.U_NAME}?start=file_{file_id}")
-            k = await client.send_message(chat_id=message.from_user.id,text=f"🫂 ʜᴇʏ {message.from_user.mention}, {gtxt}\n\n✅ ʏᴏᴜʀ ʟɪɴᴋ ɪꜱ ʀᴇᴀᴅʏ, ᴋɪɴᴅʟʏ ᴄʟɪᴄᴋ ᴏɴ ᴅᴏᴡɴʟᴏᴀᴅ ʙᴜᴛᴛᴏɴ.\n\n⚠️ ꜰɪʟᴇ ɴᴀᴍᴇ : <code>{files.file_name}</code> \n\n📥 ꜰɪʟᴇ ꜱɪᴢᴇ : <code>{get_size(files.file_size)}</code>\n\n", reply_markup=InlineKeyboardMarkup(
-                    [
-                        [
-                            InlineKeyboardButton('📁 ᴅᴏᴡɴʟᴏᴀᴅ 📁', url=g)
-                        ], [
-                            InlineKeyboardButton('⚡ ʜᴏᴡ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ⚡', url=await get_tutorial(chat_id))
-                        ]
-                    ]
+        chat_id = temp.SHORT.get(user_id)
+
+        # ── Helper: FSUB check + return buttons ──────────────────────
+        async def check_fsub_inline(uid):
+            """Returns (joined:bool, buttons:list)"""
+            if not MULTI_FSUB:
+                return True, []
+            from pyrogram.errors.exceptions.bad_request_400 import UserNotParticipant
+            buttons = []
+            for ch_id in MULTI_FSUB:
+                try:
+                    member = await client.get_chat_member(ch_id, uid)
+                    from pyrogram.enums import ChatMemberStatus as CMS
+                    if member.status == CMS.BANNED:
+                        raise UserNotParticipant
+                except UserNotParticipant:
+                    try:
+                        chat_obj = await client.get_chat(ch_id)
+                        invite = chat_obj.invite_link or await client.create_chat_invite_link(ch_id)
+                        buttons.append([InlineKeyboardButton(f"➕ {chat_obj.title}", url=invite)])
+                    except Exception:
+                        buttons.append([InlineKeyboardButton("➕ Join Channel", url="https://t.me/")])
+                except Exception:
+                    pass
+            if buttons:
+                buttons.append([InlineKeyboardButton("✅ I Joined", url=f"https://telegram.me/{temp.U_NAME}?start=files_{file_id}")])
+                return False, buttons
+            return True, []
+
+        # ── Helper: Fake link button (from linkbot logic) ─────────────
+        async def get_fake_link_btn():
+            """DB se fake link fetch karo (agar admin ne set kiya ho)."""
+            try:
+                fake = await runtime_get_fake_link()
+                if fake and fake.get("url"):
+                    return [InlineKeyboardButton(fake.get("button_text", "🔗 Click Here"), url=fake["url"])]
+            except Exception:
+                pass
+            return []
+
+        # ── Helper: Multi-shortener (EarnMode) ────────────────────────
+        async def get_next_earn_shortener(uid):
+            """Woh shortener return karo jo user ne abhi tak complete nahi kiya."""
+            if not _cur_shorteners:
+                return None
+            es = await db.get_earn_shortener_done(uid)
+            done = es['done']
+            for sh in _cur_shorteners:
+                if sh['url'] not in done:
+                    return sh
+            return None  # Sab complete kar liye
+
+        # ── PREMIUM CHECK: All modes bypass ───────────────────────────
+        if await db.has_premium_access(user_id):
+            pass  # seedha file dene ke liye neeche jayenge
+
+        # ── FREE MODE ─────────────────────────────────────────────────
+        elif _cur_mode == "free":
+            # Step 1: FSub check
+            fsub_ok, fsub_btns = await check_fsub_inline(user_id)
+            if not fsub_ok:
+                fake_btn = await get_fake_link_btn()
+                all_btns = (fake_btn + fsub_btns) if fake_btn else fsub_btns
+                return await message.reply_text(
+                    "<b>⚠️ ᴩʟᴇᴀsᴇ ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs ᴛᴏ ɢᴇᴛ ᴛʜᴇ ꜰɪʟᴇ!</b>",
+                    reply_markup=InlineKeyboardMarkup(all_btns),
+                    protect_content=False
                 )
-            )
-            await asyncio.sleep(600)
-            await k.edit("<b>ʏᴏᴜʀ ᴍᴇꜱꜱᴀɢᴇ ɪꜱ ᴅᴇʟᴇᴛᴇᴅ !\nᴋɪɴᴅʟʏ ꜱᴇᴀʀᴄʜ ᴀɢᴀɪɴ.</b>")
-            return   
+            # Step 2: Verify check (24hr)
+            if VERIFY:
+                is_verified = await check_verification(client, user_id)
+                if not is_verified:
+                    verify_url = await get_token(client, user_id, f"https://telegram.me/{temp.U_NAME}?start=", file_id)
+                    btn = [
+                        [InlineKeyboardButton("🔓 ᴠᴇʀɪꜰʏ ᴛᴏ ɢᴇᴛ ꜰɪʟᴇ", url=verify_url)],
+                        [InlineKeyboardButton("❓ ʜᴏᴡ ᴛᴏ ᴠᴇʀɪꜰʏ", url=HOW_TO_VERIFY)]
+                    ]
+                    l = await message.reply_text(
+                        f"<blockquote><b>ʜᴇʏ {message.from_user.mention},\n\n"
+                        f"‼️ ᴩʟᴇᴀsᴇ ᴠᴇʀɪꜰʏ ᴏɴᴄᴇ ᴇᴠᴇʀʏ {VERIFY_EXPIRE} ʜᴏᴜʀs ᴛᴏ ɢᴇᴛ ʏᴏᴜʀ ꜰɪʟᴇ ✅\n\n"
+                        "💡 ᴩʀᴇᴍɪᴜᴍ ᴜsᴇʀs ɴᴇᴠᴇʀ ɴᴇᴇᴅ ᴛᴏ ᴠᴇʀɪꜰʏ!</blockquote></b>",
+                        reply_markup=InlineKeyboardMarkup(btn),
+                        protect_content=False
+                    )
+                    await asyncio.sleep(180)
+                    await l.delete()
+                    return
+
+        # ── NORMAL MODE ───────────────────────────────────────────────
+        elif _cur_mode == "normal":
+            lc_data = await db.get_link_count(user_id)
+            link_count_today = lc_data['count']
+
+            if link_count_today == 0:
+                # 1st link: FSub + Verify (same as free)
+                fsub_ok, fsub_btns = await check_fsub_inline(user_id)
+                if not fsub_ok:
+                    fake_btn = await get_fake_link_btn()
+                    all_btns = (fake_btn + fsub_btns) if fake_btn else fsub_btns
+                    return await message.reply_text(
+                        "<b>⚠️ ᴩʟᴇᴀsᴇ ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs ᴛᴏ ɢᴇᴛ ᴛʜᴇ ꜰɪʟᴇ!</b>",
+                        reply_markup=InlineKeyboardMarkup(all_btns),
+                        protect_content=False
+                    )
+                if VERIFY:
+                    is_verified = await check_verification(client, user_id)
+                    if not is_verified:
+                        verify_url = await get_token(client, user_id, f"https://telegram.me/{temp.U_NAME}?start=", file_id)
+                        btn = [
+                            [InlineKeyboardButton("🔓 ᴠᴇʀɪꜰʏ ᴛᴏ ɢᴇᴛ ꜰɪʟᴇ", url=verify_url)],
+                            [InlineKeyboardButton("❓ ʜᴏᴡ ᴛᴏ ᴠᴇʀɪꜰʏ", url=HOW_TO_VERIFY)]
+                        ]
+                        l = await message.reply_text(
+                            f"<blockquote><b>ʜᴇʏ {message.from_user.mention},\n\n"
+                            f"‼️ ᴩʟᴇᴀsᴇ ᴠᴇʀɪꜰʏ ᴏɴᴄᴇ ᴇᴠᴇʀʏ {VERIFY_EXPIRE} ʜᴏᴜʀs ᴛᴏ ɢᴇᴛ ʏᴏᴜʀ ꜰɪʟᴇ ✅\n\n"
+                            "💡 ᴩʀᴇᴍɪᴜᴍ ᴜsᴇʀs ɴᴇᴠᴇʀ ɴᴇᴇᴅ ᴛᴏ ᴠᴇʀɪꜰʏ!</blockquote></b>",
+                            reply_markup=InlineKeyboardMarkup(btn),
+                            protect_content=False
+                        )
+                        await asyncio.sleep(180)
+                        await l.delete()
+                        return
+                # 1st link pass → increment counter
+                await db.increment_link_count(user_id)
+
+            elif link_count_today == 1:
+                # 2nd link: Shortener compulsory
+                if not (IS_SHORTLINK and SHORTLINK_URL and SHORTLINK_API):
+                    # Shortener set nahi — direct de do
+                    await db.increment_link_count(user_id)
+                else:
+                    files_ = await get_file_details(file_id)
+                    if not files_:
+                        return await message.reply('<b>ɴᴏ ꜱᴜᴄʜ ꜰɪʟᴇ ᴇxɪꜱᴛꜱ !</b>')
+                    f_info = files_[0]
+                    short_link = await get_shortlink(chat_id, f"https://telegram.me/{temp.U_NAME}?start=files_{file_id}")
+                    k = await message.reply_text(
+                        f"<b>🫂 ʜᴇʏ {message.from_user.mention},\n\n"
+                        f"⚠️ ᴛʜɪs ɪs ʏᴏᴜʀ <u>2ɴᴅ ʟɪɴᴋ</u> ᴛᴏᴅᴀʏ.\n\n"
+                        f"📁 ꜰɪʟᴇ: <code>{f_info.file_name}</code>\n"
+                        f"📥 sɪᴢᴇ: <code>{get_size(f_info.file_size)}</code>\n\n"
+                        "🔗 ᴩʟᴇᴀsᴇ ᴄᴏᴍᴩʟᴇᴛᴇ sʜᴏʀᴛʟɪɴᴋ ᴛᴏ ɢᴇᴛ ᴛʜᴇ ꜰɪʟᴇ!</b>",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("📁 ɢᴇᴛ ꜰɪʟᴇ", url=short_link)],
+                            [InlineKeyboardButton("⚡ ʜᴏᴡ ᴛᴏ ᴏᴩᴇɴ", url=await get_tutorial(chat_id))],
+                        ])
+                    )
+                    await db.increment_link_count(user_id)
+                    await asyncio.sleep(600)
+                    await k.edit("<b>ᴍᴇssᴀɢᴇ ᴅᴇʟᴇᴛᴇᴅ. ᴩʟᴇᴀsᴇ sᴇᴀʀᴄʜ ᴀɢᴀɪɴ.</b>")
+                    return
+            else:
+                # 3rd+ links: free (already done both checks)
+                pass
+
+        # ── EARN MODE ─────────────────────────────────────────────────
+        elif _cur_mode == "earn":
+            es_data = await db.get_earn_shortener_done(user_id)
+            total_shorteners = len(_cur_shorteners)
+
+            if len(es_data['done']) < total_shorteners:
+                # User ne abhi tak sab shorteners complete nahi kiye
+                # 1st click: FSub + shortener dono
+                fsub_ok, fsub_btns = await check_fsub_inline(user_id)
+                next_sh = await get_next_earn_shortener(user_id)
+
+                buttons = []
+                # Fake link button
+                fake_btn = await get_fake_link_btn()
+                if fake_btn:
+                    buttons.append(fake_btn)
+                # FSub buttons
+                if not fsub_ok:
+                    buttons.extend(fsub_btns[:-1])  # "I Joined" button hata do
+
+                # Shortener button
+                if next_sh:
+                    earn_link = await get_shortlink_custom(
+                        next_sh['api'], next_sh['url'],
+                        f"https://telegram.me/{temp.U_NAME}?start=earn_verify_{user_id}_{next_sh['url'].replace('.', '_')}_{file_id}"
+                    )
+                    buttons.append([InlineKeyboardButton(f"🔗 Sʜᴏʀᴛʟɪɴᴋ {len(es_data['done'])+1}/{total_shorteners}", url=earn_link)])
+
+                done_count = len(es_data['done'])
+                remaining = total_shorteners - done_count
+                msg_text = (
+                    f"<b>🫂 ʜᴇʏ {message.from_user.mention},\n\n"
+                    f"✅ ᴄᴏᴍᴩʟᴇᴛᴇ {remaining} sʜᴏʀᴛʟɪɴᴋ(s) ᴛᴏ ᴜɴʟᴏᴄᴋ ꜰɪʟᴇ!\n"
+                    f"⚡ ᴀꜰᴛᴇʀ ᴄᴏᴍᴩʟᴇᴛɪɴɢ, ʏᴏᴜ ɢᴇᴛ <u>24 ʜᴏᴜʀs ꜰʀᴇᴇ</u> ᴀᴄᴄᴇss!\n\n"
+                    "💎 ᴩʀᴇᴍɪᴜᴍ = ɴᴇᴠᴇʀ ᴀɴʏ ᴀᴅs ᴏʀ sʜᴏʀᴛʟɪɴᴋs!</b>"
+                )
+                if not fsub_ok:
+                    msg_text = "<b>⚠️ ꜰɪʀsᴛ ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs, ᴛʜᴇɴ ᴄᴏᴍᴩʟᴇᴛᴇ sʜᴏʀᴛʟɪɴᴋ!</b>\n\n" + msg_text
+
+                if buttons:
+                    buttons.append([InlineKeyboardButton("✅ Iᴠᴇ ᴄᴏᴍᴩʟᴇᴛᴇᴅ", url=f"https://telegram.me/{temp.U_NAME}?start=files_{file_id}")])
+                    l = await message.reply_text(msg_text, reply_markup=InlineKeyboardMarkup(buttons))
+                    await asyncio.sleep(300)
+                    await l.delete()
+                    return
+                # Koi shortener set nahi → seedha de do
+            # Sab shorteners complete → 24hrs free
     user = message.from_user.id
 
     # ── Access control: only the user who searched can get this file ──
@@ -1655,3 +1870,39 @@ async def confirmation_handler(client, callback_query):
     elif action == "no":
         await callback_query.message.delete()
     await callback_query.answer()
+
+
+# ══════════════════════════════════════════════════════════════════════
+# BOT MODE COMMANDS (Admin only)
+# ══════════════════════════════════════════════════════════════════════
+
+@Client.on_message(filters.command("setfakelink") & filters.user(ADMINS) & filters.private)
+async def set_fake_link_cmd(client, message):
+    """
+    /setfakelink <url> <button_text>
+    Example: /setfakelink https://example.com Click Here
+    """
+    args = message.text.split(None, 2)
+    if len(args) < 3:
+        return await message.reply_text(
+            "<b>Usage:</b> <code>/setfakelink https://url.com Button Text</code>\n\n"
+            "Fake link set ho jayega jo FSub buttons ke upar dikhega."
+        )
+    url = args[1]
+    btn_text = args[2]
+    ok = await db.set_fake_link(url, btn_text)
+    if ok:
+        await message.reply_text(f"✅ Fake link set!\n\nURL: <code>{url}</code>\nButton: <b>{btn_text}</b>")
+    else:
+        await message.reply_text("❌ Error setting fake link.")
+
+
+@Client.on_message(filters.command("removefakelink") & filters.user(ADMINS) & filters.private)
+async def remove_fake_link_cmd(client, message):
+    ok = await db.remove_fake_link()
+    if ok:
+        await message.reply_text("✅ Fake link removed!")
+    else:
+        await message.reply_text("❌ Error removing fake link.")
+
+
