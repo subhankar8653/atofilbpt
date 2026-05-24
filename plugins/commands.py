@@ -572,13 +572,24 @@ async def start(client, message):
                   - User channel ka member hai (OWNER/ADMIN/MEMBER)
                   - Ya mode=on aur DB mein request pending hai
                 False agar kuch bhi nahi.
+
+                IMPORTANT: Request mode (mode=on) mein DB pehle check karo —
+                Telegram cache unreliable hota hai, UserNotParticipant miss ho sakta hai.
                 """
+                # ── Request mode: DB PEHLE check karo ──────────────────
+                # Telegram cache pe depend mat karo — agar DB mein request
+                # hai toh seedha True return karo, API call ki zaroorat nahi
+                if mode == "on":
+                    if await db.req_user_exist(ch_id, uid):
+                        return True
+
+                # ── Normal check: Telegram API se membership verify karo ──
                 try:
                     m = await client.get_chat_member(ch_id, uid)
                     if m.status == CMS.BANNED:
                         return False
                     if m.status in {CMS.OWNER, CMS.ADMINISTRATOR, CMS.MEMBER}:
-                        # Joined hai — agar request thi toh clean up karo
+                        # Joined hai — agar purani request thi toh clean up karo
                         if mode == "on":
                             try:
                                 await db.req_user_del(ch_id, uid)
@@ -587,9 +598,6 @@ async def start(client, message):
                         return True
                     return False
                 except UserNotParticipant:
-                    # User member nahi — request mode mein DB check karo
-                    if mode == "on":
-                        return await db.req_user_exist(ch_id, uid)
                     return False
                 except Exception:
                     return True  # Error = assume joined (safe fallback)
