@@ -969,13 +969,20 @@ function EpisodeQualityRow({ epFrom, epTo, isCombined, files, seriesTitle, seaso
         <div style={{ width: 56, height: 76, flexShrink: 0, borderRadius: 10, overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,.5)" }}>
           <Poster file={bestFile} seriesTitle={seriesTitle} />
         </div>
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 5 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            {isCombined && (<span style={{ fontSize: 8, fontWeight: 900, color: "#fff", background: "linear-gradient(135deg,#27ae60,#1e8449)", borderRadius: 5, padding: "2px 8px", letterSpacing: 0.5 }}>COMPLETE PACK</span>)}
-            {season && (<span style={{ fontSize: 8, fontWeight: 800, color: "#fff", background: "linear-gradient(135deg,#6366f1,#4f46e5)", borderRadius: 5, padding: "2px 8px", letterSpacing: 0.5 }}>S{String(season).padStart(2, "0")}</span>)}
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
+          {/* Row 1: Series title — sabse upar, prominent */}
+          <div style={{ fontSize: 13.5, fontWeight: 800, color: "#e8e8e8", lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+            {seriesTitle}
           </div>
-          <div style={{ fontSize: 12.5, fontWeight: 800, color: isCombined ? "#2ecc71" : "#f39c12", letterSpacing: 0.3 }}>{epLabel}</div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "#999", lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{seriesTitle}</div>
+          {/* Row 2: Episode label */}
+          <div style={{ fontSize: 12, fontWeight: 700, color: isCombined ? "#2ecc71" : "#f39c12", letterSpacing: 0.3 }}>
+            {epLabel}
+          </div>
+          {/* Row 3: Tags — Season + Complete Pack */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            {season && (<span style={{ fontSize: 8, fontWeight: 800, color: "#fff", background: "linear-gradient(135deg,#6366f1,#4f46e5)", borderRadius: 5, padding: "2px 8px", letterSpacing: 0.5 }}>S{String(season).padStart(2, "0")}</span>)}
+            {isCombined && (<span style={{ fontSize: 8, fontWeight: 900, color: "#fff", background: "linear-gradient(135deg,#27ae60,#1e8449)", borderRadius: 5, padding: "2px 8px", letterSpacing: 0.5 }}>COMPLETE PACK</span>)}
+          </div>
         </div>
       </div>
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
