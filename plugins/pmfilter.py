@@ -1081,10 +1081,6 @@ async def cb_handler(client: Client, query: CallbackQuery):
         
     if query.data.startswith("file"):
         clicked = query.from_user.id
-        try:
-            typed = query.from_user.id
-        except:
-            typed = query.from_user.id
         ident, file_id = query.data.split("#")
         files_ = await get_file_details(file_id)
         if not files_:
@@ -1106,20 +1102,28 @@ async def cb_handler(client: Client, query: CallbackQuery):
         if f_caption is None:
             f_caption = f"{files.file_name}"
 
+        # Check if this file was requested by this user via group search
+        original_requester = temp.FILE_REQ.get(file_id, 0)
+        # Allow if: user is the original searcher, or no record (0 means open/admin), or user is admin
+        is_authorized = (
+            original_requester == 0 or
+            clicked == original_requester or
+            str(clicked) in ADMINS
+        )
+        if not is_authorized:
+            return await query.answer(
+                f"⚠️ Hey {query.from_user.first_name},\n\nThis file is not from your search result.\n\nPlease join our group and search yourself to get files. 👇",
+                show_alert=True
+            )
+
         try:
             if settings['is_shortlink'] and not pre_user:
-                if clicked == query.from_user.id:
-                    temp.SHORT[clicked] = query.message.chat.id
-                    await query.answer(url=f"https://telegram.me/{temp.U_NAME}?start=short_{file_id}")
-                    return
-                else:
-                    await query.answer(f"Hᴇʏ {query.from_user.first_name},\nTʜɪs Is Nᴏᴛ Yᴏᴜʀ Mᴏᴠɪᴇ Rᴇǫᴜᴇsᴛ.\nRᴇǫᴜᴇsᴛ Yᴏᴜʀ's !", show_alert=True)
+                temp.SHORT[clicked] = query.message.chat.id
+                await query.answer(url=f"https://telegram.me/{temp.U_NAME}?start=short_{file_id}")
+                return
             else:
-                if clicked == query.from_user.id:
-                    await query.answer(url=f"https://telegram.me/{temp.U_NAME}?start={ident}_{file_id}")
-                    return
-                else:
-                    await query.answer(f"Hᴇʏ {query.from_user.first_name},\nTʜɪs Is Nᴏᴛ Yᴏᴜʀ Mᴏᴠɪᴇ Rᴇǫᴜᴇsᴛ.\nRᴇǫᴜᴇsᴛ Yᴏᴜʀ's !", show_alert=True)
+                await query.answer(url=f"https://telegram.me/{temp.U_NAME}?start={ident}_{file_id}")
+                return
         except UserIsBlocked:
             await query.answer('Uɴʙʟᴏᴄᴋ ᴛʜᴇ ʙᴏᴛ ᴍᴀʜɴ !', show_alert=True)
         except PeerIdInvalid:
@@ -2815,6 +2819,7 @@ async def auto_filter(client, msg, spoll=False):
     FRESH[key] = search
     temp.GETALL[key] = files
     temp.SHORT[message.from_user.id] = message.chat.id
+    temp.SEARCH_REQ[key] = message.from_user.id if message.from_user else 0  # track who searched
     if settings["button"]:
         btn = [
             [
@@ -2824,6 +2829,10 @@ async def auto_filter(client, msg, spoll=False):
             ]
             for file in files
         ]
+        # Store requester for each file_id so only they can access
+        requester_id = message.from_user.id if message.from_user else 0
+        for _file in files:
+            temp.FILE_REQ[_file.file_id] = requester_id
         btn.insert(0, 
             [
                 InlineKeyboardButton("⇈ Sᴇʟᴇᴄᴛ Oᴘᴛɪᴏɴ Hᴇʀᴇ ⇈", 'reqinfo')
@@ -2882,6 +2891,11 @@ async def auto_filter(client, msg, spoll=False):
         btn.append(
             [InlineKeyboardButton(text="↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭",callback_data="pages")]
         )
+    # Website search button
+    website_search_url = f"https://suhani-search.vercel.app/?search={quote_plus(search)}"
+    btn.append(
+        [InlineKeyboardButton(text="🔍 Sᴇᴀʀᴄʜ ɪɴ Wᴇʙsɪᴛᴇ", url=website_search_url)]
+    )
     imdb = await get_poster(search, file=(files[0]).file_name) if settings["imdb"] else None
     cur_time = datetime.now(pytz.timezone('Asia/Kolkata')).time()
     time_difference = timedelta(hours=cur_time.hour, minutes=cur_time.minute, seconds=(cur_time.second+(cur_time.microsecond/1000000))) - timedelta(hours=curr_time.hour, minutes=curr_time.minute, seconds=(curr_time.second+(curr_time.microsecond/1000000)))
