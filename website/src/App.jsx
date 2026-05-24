@@ -1673,6 +1673,19 @@ function App() {
   const [focused, setFocused] = useState(false);
   const [categoryPage, setCategoryPage] = useState(null);
 
+  // ── Read ?search= URL param on load and auto-trigger search ─────────
+  const urlSearchInitRef = useRef(false);
+  useEffect(() => {
+    if (urlSearchInitRef.current) return;
+    urlSearchInitRef.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const s = params.get("search");
+    if (s && s.trim()) {
+      setQuery(s.trim());
+      setTab("search");
+    }
+  }, []);
+
   const [homeData, setHomeData] = useState({
     nowPlaying: [], globalTrend: [], heroBannerItems: [],
     moviesFils: [], webseriesFils: [], animeFils: [],
