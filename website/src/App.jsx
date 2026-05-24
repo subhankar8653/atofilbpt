@@ -159,6 +159,8 @@ function extractMovieTitle(name = "") {
   n = n.replace(/[\u{1F100}-\u{1F1FF}\u{1F170}-\u{1F171}\u{1F17E}-\u{1F17F}\u{1F191}-\u{1F19A}\u{1F200}-\u{1F2FF}]/gu, "");
   n = n.replace(/^[^\x00-\x7F\u00C0-\u024F\s]+\s*/g, "");
   n = n.replace(/^(\s*\[[^\]]{1,30}\])+\s*/g, "");
+  // Short channel prefixes (1-4 lowercase letters at start, e.g. "km ", "tg ")
+  n = n.replace(/^[a-z]{1,4}\s+/i, "");
   const knownPrefixes = [
     /^Toonworld4all\s*/i, /^MoviezWap\s*/i, /^MoviesMod\s*/i, /^MoviesCounter\s*/i,
     /^TGMovies\s*/i, /^TGM\s*/i, /^HEVC\s+(?=\w)/i,
@@ -167,6 +169,8 @@ function extractMovieTitle(name = "") {
   n = n.replace(/\[[^\]]{1,30}\]/g, " ");
   n = n.replace(/[_+]/g, " ").replace(/\.(?!\d)/g, " ").trim();
   n = n.replace(/\d{1,2}:\d{2}/g, " ");
+  // Episode/Season aur unke baad sab kuch hata do
+  n = n.replace(/\b(episode|ep|season)\b.*/i, "").trim();
   n = n.replace(/\b(19|20)\d{2}\b.*/i, "").trim();
   n = n.replace(/\bS\d{2}E?\d*\b/gi, " ");
   n = n.replace(/\b(480p|720p|1080p|2160p|4k|hdrip|webrip|web\s?dl|bluray|hdcam|dvdrip|tataplay|hotstar|zee5|sonyliv|hbomax|predvd|hdts|camrip|x264|x265|h264|h265|hevc|aac|dd5|dts|org|hq|esub|sub|proper|repack|imax|truehd|atmos|dolby|10bit|hdr|hdr10|ds4k|hmax|wmax)\b/gi, " ");
@@ -913,7 +917,11 @@ function groupFilesForDisplay(files, activeQuality) {
     return { type: "movie", items: sorted };
   }
 
-  const seriesTitle = extractMovieTitle(seriesFiles[0].file_name);
+  // seriesTitle: sab files ke extracted titles mein se sabse clean (shortest meaningful) wala lo
+  const candidateTitles = seriesFiles.map(f => extractMovieTitle(f.file_name)).filter(t => t.length > 1);
+  // Sort by length — chota title usually cleaner hota hai (kam garbage)
+  candidateTitles.sort((a, b) => a.length - b.length);
+  const seriesTitle = candidateTitles[0] || extractMovieTitle(seriesFiles[0].file_name);
   const seasonMap = {};
   for (const f of seriesFiles) {
     const s = extractSeason(f.file_name) ?? 1;
