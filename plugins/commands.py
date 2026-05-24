@@ -10,7 +10,7 @@ import pytz
 from database.verify_db import vr_db
 from .pmfilter import auto_filter 
 from Script import script
-from datetime import datetime
+from datetime import datetime, timedelta
 from database.refer import referdb
 from database.config_db import mdb
 from pyrogram import Client, filters, enums
@@ -169,10 +169,10 @@ async def start(client, message):
         if fromuse == 100:
             referdb.add_refer_points(user_id, 0) 
             await message.reply_text(f"🎉 𝗖𝗼𝗻𝗴𝗿𝗮𝘁𝘂𝗹𝗮𝘁𝗶𝗼𝗻𝘀! 𝗬𝗼𝘂 𝘄𝗼𝗻 𝟭𝟬 𝗥𝗲𝗳𝗲𝗿𝗿𝗮𝗹 𝗽𝗼𝗶𝗻𝘁 𝗯𝗲𝗰𝗮𝘂𝘀𝗲 𝗬𝗼𝘂 𝗵𝗮𝘃𝗲 𝗯𝗲𝗲𝗻 𝗦𝘂𝗰𝗰𝗲𝘀𝘀𝗳𝘂𝗹𝗹𝘆 𝗜𝗻𝘃𝗶𝘁𝗲𝗱 ☞ {uss.mention}!")		    
-            await message.reply_text(user_id, f"You have been successfully invited by {message.from_user.mention}!") 	
+            await client.send_message(user_id, f"You have been successfully invited by {message.from_user.mention}!")
             seconds = 2592000
             if seconds > 0:
-                expiry_time = datetime.datetime.now() + datetime.timedelta(seconds=seconds)
+                expiry_time = datetime.now() + timedelta(seconds=seconds)
                 user_data = {"id": user_id, "expiry_time": expiry_time}  # Using "id" instead of "user_id"  
                 await db.update_user(user_data)  # Use the update_user method to update or insert user data		    
                 await client.send_message(
@@ -367,12 +367,17 @@ async def start(client, message):
 
     # ── EarnMode: user shortener complete karke vapas aaya ────────────────────
     if data.startswith("earn_verify"):
-        # Format: earn_verify_<userid>_<shortener_url_with_dots_replaced>_<fileid>
+        # Format: earn_verify_<userid>_<base64_encoded_url>_<fileid>
         parts = data.split("_", 4)
         if len(parts) < 5:
             return await message.reply_text("<b>Invalid earn verify link!</b>")
-        _, _, earn_uid, sh_url_safe, earn_fileid = parts
-        sh_url = sh_url_safe.replace('_', '.')
+        _, _, earn_uid, sh_url_b64, earn_fileid = parts
+        try:
+            # base64 padding restore karke decode karo
+            padding = 4 - len(sh_url_b64) % 4
+            sh_url = base64.urlsafe_b64decode(sh_url_b64 + '=' * (padding % 4)).decode()
+        except Exception:
+            return await message.reply_text("<b>Invalid earn verify link!</b>")
         if str(message.from_user.id) != str(earn_uid):
             return await message.reply_text("<b>⚠️ ʏᴏᴜ ᴄᴀɴɴᴏᴛ ᴜsᴇ sᴏᴍᴇᴏɴᴇ ᴇʟsᴇ's ʟɪɴᴋ!</b>")
         await db.mark_earn_shortener_done(int(earn_uid), sh_url)
@@ -727,8 +732,9 @@ async def start(client, message):
             elif link_count_today == 1:
                 # 2nd link: Shortener compulsory
                 if not (IS_SHORTLINK and SHORTLINK_URL and SHORTLINK_API):
-                    # Shortener set nahi — direct de do
+                    # Shortener set nahi — direct de do, counter badha do aur file flow continue kare
                     await db.increment_link_count(user_id)
+                    # neeche file dene ka flow continue hoga
                 else:
                     files_ = await get_file_details(file_id)
                     if not files_:
@@ -746,10 +752,11 @@ async def start(client, message):
                             [InlineKeyboardButton("⚡ ʜᴏᴡ ᴛᴏ ᴏᴩᴇɴ", url=await get_tutorial(chat_id))],
                         ])
                     )
+                    # Counter tabhi badhao jab shortener diya — wapas aane pe files_ check se file milegi
                     await db.increment_link_count(user_id)
                     await asyncio.sleep(600)
                     await k.edit("<b>ᴍᴇssᴀɢᴇ ᴅᴇʟᴇᴛᴇᴅ. ᴩʟᴇᴀsᴇ sᴇᴀʀᴄʜ ᴀɢᴀɪɴ.</b>")
-                    return
+                    return  # User shortener complete karke wapas ayega, tab file milegi
             else:
                 # 3rd+ links: free (already done both checks)
                 pass
@@ -776,9 +783,11 @@ async def start(client, message):
 
                 # Shortener button
                 if next_sh:
+                    # URL ko base64 encode karo taaki dots/underscores collision na ho
+                    _sh_url_b64 = base64.urlsafe_b64encode(next_sh['url'].encode()).decode().rstrip('=')
                     earn_link = await get_shortlink_custom(
                         next_sh['api'], next_sh['url'],
-                        f"https://telegram.me/{temp.U_NAME}?start=earn_verify_{user_id}_{next_sh['url'].replace('.', '_')}_{file_id}"
+                        f"https://telegram.me/{temp.U_NAME}?start=earn_verify_{user_id}_{_sh_url_b64}_{file_id}"
                     )
                     buttons.append([InlineKeyboardButton(f"🔗 Sʜᴏʀᴛʟɪɴᴋ {len(es_data['done'])+1}/{total_shorteners}", url=earn_link)])
 
