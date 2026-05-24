@@ -413,6 +413,39 @@ db2 = Database(DATABASE_URI2, DATABASE_NAME)
             logging.error(f"[FSUB] get_fsub_channels error: {e}")
             return []
 
+    async def set_fsub_channel_name(self, channel_id: int, custom_name: str) -> bool:
+        """Channel button ka custom naam set karo."""
+        try:
+            await self.fsub_data.update_one(
+                {"channel_id": channel_id},
+                {"$set": {"custom_name": custom_name.strip()}},
+                upsert=False
+            )
+            return True
+        except Exception as e:
+            import logging
+            logging.error(f"[FSUB] set_fsub_channel_name error: {e}")
+            return False
+
+    async def get_fsub_channel_name(self, channel_id: int):
+        """Channel ka custom naam lo — None agar set nahi hai."""
+        try:
+            doc = await self.fsub_data.find_one({"channel_id": channel_id})
+            return doc.get("custom_name") if doc else None
+        except Exception:
+            return None
+
+    async def clear_fsub_channel_name(self, channel_id: int) -> bool:
+        """Custom naam hata do, wapas channel title use hoga."""
+        try:
+            await self.fsub_data.update_one(
+                {"channel_id": channel_id},
+                {"$unset": {"custom_name": ""}}
+            )
+            return True
+        except Exception:
+            return False
+
     async def get_channel_mode(self, channel_id: int) -> str:
         """Channel ka mode return karo: 'on' (request) ya 'off' (normal)."""
         try:
