@@ -525,7 +525,7 @@ async def start(client, message):
             await x.delete()
         await k.edit_text("<b>ʏᴏᴜʀ ᴀʟʟ ᴠɪᴅᴇᴏꜱ/ꜰɪʟᴇꜱ ᴀʀᴇ ᴅᴇʟᴇᴛᴇᴅ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ !\nᴋɪɴᴅʟʏ ꜱᴇᴀʀᴄʜ ᴀɢᴀɪɴ</b>")
         return
-    elif data.startswith("files"):
+    elif data.startswith("files") or data.startswith("file_") or data.startswith("filep_"):
         # ══════════════════════════════════════════════════════════════
         # BOT MODE LOGIC: free | normal | earn
         # Premium users → seedha file, koi check nahi
