@@ -36,7 +36,10 @@ class Database:
         self.users = self.db.uersz
         self.req = self.db.requests
         self.botcol = self.db["SuhaniBots"]  
-        self.bot_id_col = self.db["bot_id"] 
+        self.bot_id_col = self.db["bot_id"]
+        # FSub channel collections (Link-sharing-bot style)
+        self.fsub_data = self.db["fsub_channels"]
+        self.rqst_fsub_data = self.db["request_fsub_users"]
 
     async def find_join_req(self, id):
         return bool(await self.req.find_one({'id': id})) 
@@ -370,3 +373,94 @@ class Database:
         
 db = Database(DATABASE_URI, DATABASE_NAME)
 db2 = Database(DATABASE_URI2, DATABASE_NAME)
+
+    # ═══════════════════════════════════════════════════════════
+    # FSUB CHANNEL MANAGEMENT (Link-sharing-bot style)
+    # mode "off" = normal join, mode "on" = request join
+    # ═══════════════════════════════════════════════════════════
+
+    async def add_fsub_channel(self, channel_id: int) -> bool:
+        """FSub list mein channel add karo."""
+        try:
+            result = await self.fsub_data.update_one(
+                {"channel_id": channel_id},
+                {"$set": {"channel_id": channel_id, "status": "active", "mode": "off"}},
+                upsert=True
+            )
+            return True
+        except Exception as e:
+            import logging
+            logging.error(f"[FSUB] add_fsub_channel error: {e}")
+            return False
+
+    async def remove_fsub_channel(self, channel_id: int) -> bool:
+        """FSub list se channel remove karo."""
+        try:
+            result = await self.fsub_data.delete_one({"channel_id": channel_id})
+            return result.deleted_count > 0
+        except Exception as e:
+            import logging
+            logging.error(f"[FSUB] remove_fsub_channel error: {e}")
+            return False
+
+    async def get_fsub_channels(self):
+        """Saare active FSub channel IDs return karo."""
+        try:
+            docs = await self.fsub_data.find({"status": "active"}).to_list(None)
+            return [d["channel_id"] for d in docs if "channel_id" in d]
+        except Exception as e:
+            import logging
+            logging.error(f"[FSUB] get_fsub_channels error: {e}")
+            return []
+
+    async def get_channel_mode(self, channel_id: int) -> str:
+        """Channel ka mode return karo: 'on' (request) ya 'off' (normal)."""
+        try:
+            doc = await self.fsub_data.find_one({"channel_id": channel_id})
+            return doc.get("mode", "off") if doc else "off"
+        except Exception:
+            return "off"
+
+    async def set_channel_mode(self, channel_id: int, mode: str):
+        """Channel ka mode set karo ('on' ya 'off')."""
+        await self.fsub_data.update_one(
+            {"channel_id": channel_id},
+            {"$set": {"mode": mode}},
+            upsert=True
+        )
+
+    async def set_channel_mode_all(self, mode: str):
+        """Saare active FSub channels ka mode ek saath set karo."""
+        result = await self.fsub_data.update_many(
+            {"status": "active"},
+            {"$set": {"mode": mode}}
+        )
+        return result.modified_count
+
+    # ── Request FSub user tracking ──────────────────────────────
+
+    async def req_user_add(self, channel_id: int, user_id: int):
+        """User ko request pending list mein daalo."""
+        await self.rqst_fsub_data.update_one(
+            {"channel_id": int(channel_id)},
+            {"$addToSet": {"user_ids": int(user_id)}},
+            upsert=True
+        )
+
+    async def req_user_exist(self, channel_id: int, user_id: int) -> bool:
+        """Check karo user ne join request submit ki hai ya nahi."""
+        try:
+            doc = await self.rqst_fsub_data.find_one({
+                "channel_id": int(channel_id),
+                "user_ids": int(user_id)
+            })
+            return bool(doc)
+        except Exception:
+            return False
+
+    async def req_user_del(self, channel_id: int, user_id: int):
+        """User request approve hone ke baad list se hatao."""
+        await self.rqst_fsub_data.update_one(
+            {"channel_id": int(channel_id)},
+            {"$pull": {"user_ids": int(user_id)}}
+        )
