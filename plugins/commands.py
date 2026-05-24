@@ -635,11 +635,14 @@ async def start(client, message):
 
         # ── Helper: Fake link button (from linkbot logic) ─────────────
         async def get_fake_link_btn():
-            """DB se fake link fetch karo (agar admin ne set kiya ho)."""
+            """DB se fake link fetch karo (agar admin ne set kiya ho).
+            Returns list of rows [[Button]] — InlineKeyboardMarkup compatible.
+            """
             try:
                 fake = await runtime_get_fake_link()
                 if fake and fake.get("url"):
-                    return [InlineKeyboardButton(fake.get("button_text", "🔗 Click Here"), url=fake["url"])]
+                    # [[Button]] return karo — flat [Button] nahi, warna fsub rows ke saath mix ho ke crash hota hai
+                    return [[InlineKeyboardButton(fake.get("button_text", "🔗 Click Here"), url=fake["url"])]]
             except Exception:
                 pass
             return []
