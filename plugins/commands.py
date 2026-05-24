@@ -536,7 +536,7 @@ async def start(client, message):
                 f"⚠️ <b>Hey {message.from_user.mention},</b>\n\n"
                 "This file does not belong to your search result.\n\n"
                 "Please go to our group, search for the file yourself, "
-                "and then click on the result to get it. 👇",
+                "and then click on the result to get it. ",
                 disable_web_page_preview=True
             )
             return
