@@ -370,16 +370,7 @@ async function enrichWithTMDB(title, year) {
 
   const promise = (async () => {
     try {
-      // ✅ Step 1: Pehle backend MongoDB cache check karo
-      const cached = await checkPosterCache(title, year);
-      if (cached) {
-        if (tmdbCache.size >= TMDB_CACHE_MAX) tmdbCache.delete(tmdbCache.keys().next().value);
-        tmdbCache.set(key, cached);
-        tmdbInFlight.delete(key);
-        return cached;
-      }
-
-      // Step 2: Cache miss — TMDB se fetch karo
+      // DB cache check removed — seedha TMDB pe jao (faster load)
       const searches = [year ? { query: title, year } : null, { query: title }].filter(Boolean);
       let result = null;
       for (const params of searches) {
@@ -408,10 +399,6 @@ async function enrichWithTMDB(title, year) {
       if (tmdbCache.size >= TMDB_CACHE_MAX) tmdbCache.delete(tmdbCache.keys().next().value);
       tmdbCache.set(key, out);
       tmdbInFlight.delete(key);
-
-      // ✅ Step 3: Background mein save karo (await nahi — non-blocking)
-      savePosterCache(title, year, out);
-
       return out;
     } catch {
       tmdbInFlight.delete(key);
