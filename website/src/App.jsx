@@ -1733,15 +1733,20 @@ function App() {
     setCat(cartoonP,   "cartoonFils");
     setCat(koreanP,    "koreanFils");
 
-    // globalTrend = all + movies mix
-    Promise.all([allP, moviesP]).then(([allRes, moviesRes]) => {
-      const seen = new Set();
-      const globalItems = [...allRes, ...moviesRes].filter(item => {
-        const k = item.title?.toLowerCase().replace(/\s+/g, "");
-        if (seen.has(k)) return false;
-        seen.add(k); return true;
-      }).slice(0, 20);
-      setHomeData(prev => ({ ...prev, globalTrend: globalItems }));
+    // globalTrend = movies-only (webseries/all se alag) — dedup by tmdbId
+    moviesP.then(moviesRes => {
+      // allRes ke IDs already nowPlaying mein hain — unhe exclude karo
+      allP.then(allRes => {
+        const nowPlayingIds = new Set(allRes.map(x => x.id));
+        const seen = new Set();
+        const globalItems = moviesRes.filter(item => {
+          if (nowPlayingIds.has(item.id)) return false; // already nowPlaying mein hai
+          const k = String(item.id);
+          if (seen.has(k)) return false;
+          seen.add(k); return true;
+        }).slice(0, 20);
+        setHomeData(prev => ({ ...prev, globalTrend: globalItems }));
+      });
     }).catch(() => {});
 
     // topRated — rating >= 7.0 filter
@@ -1756,11 +1761,13 @@ function App() {
         window.__splashProgress?.(95, "Almost ready!");
         const bannerItems = allRes.filter(m => m.backdrop).slice(0, 5);
         if (bannerItems.length < 3) bannerItems.push(...allRes.slice(0, 5 - bannerItems.length));
-        const seen = new Set();
-        const globalItems = [...allRes, ...movies].filter(item => {
-          const k = item.title?.toLowerCase().replace(/\s+/g, "");
-          if (seen.has(k)) return false;
-          seen.add(k); return true;
+        // globalTrend — movies only, nowPlaying IDs exclude karo
+        const nowPlayingIds = new Set(allRes.map(x => x.id));
+        const seenGlobal = new Set();
+        const globalItems = movies.filter(item => {
+          if (nowPlayingIds.has(item.id)) return false;
+          if (seenGlobal.has(item.id)) return false;
+          seenGlobal.add(item.id); return true;
         }).slice(0, 20);
         const completeData = {
           nowPlaying:      allRes,
@@ -1838,6 +1845,11 @@ function App() {
 
   useEffect(() => {
     if (tab !== "search") return;
+    // Race condition fix: handleTMDBCardClick already fires fetch — skip debounce
+    if (skipNextSearchRef.current) {
+      skipNextSearchRef.current = false;
+      return;
+    }
     const t = setTimeout(() => doSearch(), SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [doSearch, tab]);
@@ -1849,15 +1861,20 @@ function App() {
   };
   const clearFilters = () => { setQuality("All"); setLanguage("All"); };
 
-  // FIX: handleTMDBCardClick — no double fetch, single fetchFiles call
+  // handleTMDBCardClick — race condition fix:
+  // setQuery triggers doSearch useEffect — but we already fetch here directly.
+  // Solution: use a ref flag to skip the debounced doSearch when we already fired manually.
+  const skipNextSearchRef = useRef(false);
+
   const handleTMDBCardClick = useCallback((itemOrTitle) => {
     const movieTitle = typeof itemOrTitle === "string" ? itemOrTitle : itemOrTitle.title;
     setQuality("All");
     setLanguage("All");
-    setTab("search");
     setFiles([]);
-    setQuery(movieTitle);
     setLoading(true);
+    skipNextSearchRef.current = true; // doSearch useEffect skip karo
+    setQuery(movieTitle);
+    setTab("search");
     searchAbortRef.current?.abort();
     const controller = new AbortController();
     searchAbortRef.current = controller;
