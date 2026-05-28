@@ -24,10 +24,15 @@ client = AsyncIOMotorClient(DATABASE_URI)
 db = client[DATABASE_NAME]
 instance = Instance.from_db(db)
 
-#secondary db
-client2 = AsyncIOMotorClient(DATABASE_URI2)
-db2 = client2[DATABASE_NAME]
-instance2 = Instance.from_db(db2)
+#secondary db - only connect if URI is actually provided
+if DATABASE_URI2:
+    client2 = AsyncIOMotorClient(DATABASE_URI2)
+    db2 = client2[DATABASE_NAME]
+    instance2 = Instance.from_db(db2)
+else:
+    client2 = None
+    db2 = None
+    instance2 = None
 
 
 # Primary DB Model
@@ -45,7 +50,7 @@ class Media(Document):
         indexes = ('$file_name', )
         collection_name = COLLECTION_NAME
 
-@instance2.register
+@instance2.register if instance2 else instance.register
 class Media2(Document):
     file_id = fields.StrField(attribute='_id')
     file_ref = fields.StrField(allow_none=True)
