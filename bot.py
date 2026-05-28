@@ -67,9 +67,8 @@ async def Suhani_start():
     if DATABASE_URI2 and free_dbSize<62: #if the primary db have less than 62MB left, use second DB.
         tempDict["indexDB"] = DATABASE_URI2
         logging.info(f"Since Primary DB have only {free_dbSize} MB left, Secondary DB will be used to store datas.")
-    elif DATABASE_URI2 is None:
-        logging.error("Missing second DB URI !\n\nAdd SECONDDB_URI now !\n\nExiting...")
-        exit()
+    elif not DATABASE_URI2:
+        logging.warning("DATABASE_URI2 not set. Only primary DB will be used.")
     else:
         logging.info(f"Since primary DB have enough space ({free_dbSize}MB) left, It will be used for storing datas.")
     await choose_mediaDB()    
