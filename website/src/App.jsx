@@ -1179,11 +1179,24 @@ function DetailModal({ file, onClose }) {
     setLinksLoading(false);
   };
 
-  // FSub check ke baad "I Joined" button click — recheck karke links do
+  // FSub check ke baad "I Joined" button click — PEHLE recheck karo, tab hi links do
   const handleFsubDone = async () => {
-    setFsubChannels(null);
     setLinksLoading(true);
     try {
+      // ── Recheck FSub — seedha links mat do, pehle verify karo ──
+      const fsubRes = await fetch(`${API_BASE}/api/check-fsub`);
+      const fsubData = await fsubRes.json();
+      if (!fsubData.ok && fsubData.channels && fsubData.channels.length > 0) {
+        // Abhi bhi join nahi kiya — channels wapas dikhao
+        setFsubFakeLink(fsubData.fake_link || null);
+        setFsubChannels(fsubData.channels);
+        showToast("⚠️ Pehle sabhi channels join karo!");
+        setLinksLoading(false);
+        return;
+      }
+      // FSub pass — ab links do
+      setFsubChannels(null);
+      setFsubFakeLink(null);
       const res = await fetch(`${API_BASE}/api/get-links?file_id=${encodeURIComponent(file.file_id)}`);
       const data = await res.json();
       if (data.watch_url) {
@@ -1271,7 +1284,7 @@ function DetailModal({ file, onClose }) {
                 {/* ── Fake Link Button — bot ke same, fsub se UPAR ── */}
                 {fsubFakeLink && fsubFakeLink.url && (
                   <a href={fsubFakeLink.url} target="_blank" rel="noopener noreferrer"
-                    style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%", padding: "12px 0", borderRadius: 14, background: "linear-gradient(135deg,#f39c12,#e67e22)", color: "#fff", fontSize: 13, fontWeight: 800, textDecoration: "none", marginBottom: 8, boxShadow: "0 4px 16px rgba(243,156,18,.35)" }}>
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%", padding: "12px 0", borderRadius: 14, background: "linear-gradient(135deg,#e74c3c,#c0392b)", color: "#fff", fontSize: 13, fontWeight: 800, textDecoration: "none", marginBottom: 8, boxShadow: "0 4px 16px rgba(231,76,60,.3)" }}>
                     🔗 {fsubFakeLink.button_text}
                   </a>
                 )}
