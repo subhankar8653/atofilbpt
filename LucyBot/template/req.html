@@ -1574,6 +1574,35 @@ function renderAudioChips(tracks) {
 
 // Remux mode mein seek handle karo
 let _remuxSeekHandler = null;
+let _remuxDebouncedSeek = null;
+let _seekDebounceTimer  = null;
+let _knownDuration      = 0;   // original stream se milne wali duration save karo
+
+// Original stream play hote hi duration yaad rakho
+vid.addEventListener("durationchange", function() {
+  if (_activeRemuxTrack === -1 && vid.duration && isFinite(vid.duration)) {
+    _knownDuration = vid.duration;
+  }
+});
+
+function _applyFakeDuration() {
+  // frag_keyframe format browser ko duration nahi batata — hum manually set karte hain
+  if (_knownDuration > 0 && (!vid.duration || !isFinite(vid.duration) || vid.duration < 5)) {
+    try { vid.duration = _knownDuration; } catch(e) {}
+    // Custom player ke liye bhi update karo
+    const durEl = document.getElementById("ytDurTime");
+    if (durEl) durEl.textContent = fmtTime(_knownDuration);
+  }
+}
+
+function _cleanupRemuxListeners() {
+  clearTimeout(_seekDebounceTimer);
+  if (_remuxDebouncedSeek) {
+    vid.removeEventListener("seeking", _remuxDebouncedSeek);
+    _remuxDebouncedSeek = null;
+  }
+  _remuxSeekHandler = null;
+}
 
 function switchToRemuxTrack(audioIndex, clickedChip, tracks) {
   if (audioIndex === _activeRemuxTrack) return;
@@ -1585,70 +1614,58 @@ function switchToRemuxTrack(audioIndex, clickedChip, tracks) {
   const currentTime = vid.currentTime || 0;
   const wasPlaying  = !vid.paused;
 
-  // Purana seek handler remove karo
-  if (_remuxSeekHandler) {
-    vid.removeEventListener("seeking", _remuxSeekHandler);
-    _remuxSeekHandler = null;
-  }
+  _cleanupRemuxListeners();
 
   if (audioIndex === -1) {
-    // Original stream — normal seeking kaam karegi
+    // Original stream pe wapas jao
     vid.src = ORIGINAL_FILE_SRC;
     document.getElementById("audioTrackNote").style.display = "none";
     showToast("\u25B6 Original stream");
     vid.load();
     vid.addEventListener("canplay", function onCan() {
+      vid.removeEventListener("canplay", onCan);
       if (currentTime > 0) vid.currentTime = currentTime;
       if (wasPlaying) vid.play().catch(() => {});
-      vid.removeEventListener("canplay", onCan);
     });
   } else {
-    // Remux stream — start position ke saath load karo
     const track = tracks.find(t => t.audio_index === audioIndex);
     showToast("\uD83D\uDD0A Audio: " + (track ? track.label : "Track " + (audioIndex + 1)));
     document.getElementById("audioTrackNote").style.display = "block";
-
-    _loadRemuxAt(audioIndex, currentTime, wasPlaying, tracks);
+    _loadRemuxAt(audioIndex, currentTime, wasPlaying);
   }
 }
 
-function _loadRemuxAt(audioIndex, startSec, autoPlay, tracks) {
-  const savedDuration = vid.duration || 0;
-
+function _loadRemuxAt(audioIndex, startSec, autoPlay) {
   vid.src = buildRemuxUrl(audioIndex, startSec);
   vid.load();
 
   vid.addEventListener("canplay", function onCan() {
     vid.removeEventListener("canplay", onCan);
+    _applyFakeDuration();
     if (autoPlay) vid.play().catch(() => {});
   });
 
-  // Seek event — user ne timeline pe click kiya remux mode mein
+  // Seek handler — user timeline pe click kare
   _remuxSeekHandler = function() {
-    const seekTo = vid.currentTime;
+    const seekTo  = vid.currentTime;
     const playing = !vid.paused;
 
-    // Naya remux request us position se
     vid.src = buildRemuxUrl(audioIndex, seekTo);
     vid.load();
     vid.addEventListener("canplay", function onSeekCan() {
       vid.removeEventListener("canplay", onSeekCan);
+      _applyFakeDuration();
       if (playing) vid.play().catch(() => {});
     });
   };
 
-  // Debounce — user agar fast seek kare to baar baar request na jaaye
-  let _seekDebounce = null;
-  vid.addEventListener("seeking", function _debouncedSeek() {
-    if (_remuxSeekHandler === null) {
-      vid.removeEventListener("seeking", _debouncedSeek);
-      return;
-    }
-    clearTimeout(_seekDebounce);
-    _seekDebounce = setTimeout(() => {
-      if (_remuxSeekHandler) _remuxSeekHandler();
-    }, 400);
-  });
+  // Debounce — fast drag kare to baar baar request na jaaye
+  _remuxDebouncedSeek = function() {
+    if (!_remuxSeekHandler) return;
+    clearTimeout(_seekDebounceTimer);
+    _seekDebounceTimer = setTimeout(_remuxSeekHandler, 400);
+  };
+  vid.addEventListener("seeking", _remuxDebouncedSeek);
 }
 
 async function loadFfprobeTracks() {
