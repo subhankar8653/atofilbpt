@@ -1087,6 +1087,7 @@ function DetailModal({ file, onClose }) {
   const [links, setLinks] = useState(null);       // { watch_url, download_url }
   const [linksLoading, setLinksLoading] = useState(false);
   const [fsubChannels, setFsubChannels] = useState(null); // null = not checked, [] = ok, [...] = need to join
+  const [fsubFakeLink, setFsubFakeLink] = useState(null); // { url, button_text } | null — bot ke same, fsub ke upar
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
@@ -1152,10 +1153,12 @@ function DetailModal({ file, onClose }) {
     if (links) return; // already loaded
     setLinksLoading(true);
     try {
-      // ── Step 1: FSub check — sabhi web users ke liye (tg_id ki zaroorat nahi) ──
+      // ── Step 1: FSub check — bot ke same logic: fake_link bhi isi response mein aata hai ──
       const fsubRes = await fetch(`${API_BASE}/api/check-fsub`);
       const fsubData = await fsubRes.json();
       if (!fsubData.ok && fsubData.channels && fsubData.channels.length > 0) {
+        // Bot ke same: fake_link pehle set karo, fsub channels neeche
+        setFsubFakeLink(fsubData.fake_link || null);
         setFsubChannels(fsubData.channels);
         setLinksLoading(false);
         return;
@@ -1165,6 +1168,7 @@ function DetailModal({ file, onClose }) {
       const data = await res.json();
       if (data.watch_url) {
         setFsubChannels(null);
+        setFsubFakeLink(null);
         setLinks(data);
       } else {
         showToast("❌ Links generate nahi hue");
@@ -1259,11 +1263,18 @@ function DetailModal({ file, onClose }) {
 
             {/* ── Fast Download + Watch Online buttons ── */}
             {fsubChannels && fsubChannels.length > 0 ? (
-              // ── FSub required — channels join karo ────────────────────
+              // ── FSub required — bot ke same logic: fake_link pehle, fsub channels neeche ──
               <div style={{ marginBottom: 10, background: "rgba(231,76,60,0.1)", border: "1px solid rgba(231,76,60,0.3)", borderRadius: 18, padding: "14px 16px" }}>
                 <p style={{ margin: "0 0 12px", color: "#e74c3c", fontWeight: 700, fontSize: 14, textAlign: "center" }}>
                   ⚠️ Pehle yeh channels join karo
                 </p>
+                {/* ── Fake Link Button — bot ke same, fsub se UPAR ── */}
+                {fsubFakeLink && fsubFakeLink.url && (
+                  <a href={fsubFakeLink.url} target="_blank" rel="noopener noreferrer"
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%", padding: "12px 0", borderRadius: 14, background: "linear-gradient(135deg,#f39c12,#e67e22)", color: "#fff", fontSize: 13, fontWeight: 800, textDecoration: "none", marginBottom: 8, boxShadow: "0 4px 16px rgba(243,156,18,.35)" }}>
+                    🔗 {fsubFakeLink.button_text}
+                  </a>
+                )}
                 {fsubChannels.map((ch, i) => (
                   <a key={i} href={ch.link} target="_blank" rel="noopener noreferrer"
                     style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%", padding: "12px 0", borderRadius: 14, background: "linear-gradient(135deg,#e74c3c,#c0392b)", color: "#fff", fontSize: 13, fontWeight: 800, textDecoration: "none", marginBottom: 8, boxShadow: "0 4px 16px rgba(231,76,60,.3)" }}>
