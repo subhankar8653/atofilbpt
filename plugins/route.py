@@ -636,7 +636,7 @@ async def remux_handler(request: web.Request):
     ffmpeg se video + selected audio track remux karke stream karo.
     No transcoding — sirf stream copy (fast).
 
-    URL: /remux/<msg_id>?hash=<hash>&audio=<audio_index>
+    URL: /remux/<msg_id>?hash=<hash>&audio=<audio_index>&start=<seconds>
     """
     import asyncio as _asyncio
     import subprocess as _subprocess
@@ -644,6 +644,7 @@ async def remux_handler(request: web.Request):
 
     path = request.match_info["path"]
     audio_index = int(request.rel_url.query.get("audio", "0"))
+    start_time  = float(request.rel_url.query.get("start", "0"))
 
     # msg_id aur hash extract karo
     try:
@@ -669,6 +670,13 @@ async def remux_handler(request: web.Request):
     cmd = [
         "ffmpeg",
         "-v", "error",
+    ]
+
+    # Seek position add karo agar start > 0 hai
+    if start_time > 0:
+        cmd += ["-ss", str(start_time)]
+
+    cmd += [
         "-i", source_url,
         "-map", "0:v:0",              # Video track
         "-map", f"0:a:{audio_index}", # Selected audio track only
