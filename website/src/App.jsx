@@ -1152,18 +1152,13 @@ function DetailModal({ file, onClose }) {
     if (links) return; // already loaded
     setLinksLoading(true);
     try {
-      // ── Step 1: FSub check ──────────────────────────────────────────
-      // URL se user_id lo (?tg_id=123456) — Telegram se open karne pe milta hai
-      const tgId = new URLSearchParams(window.location.search).get("tg_id") || "";
-      if (tgId) {
-        const fsubRes = await fetch(`${API_BASE}/api/check-fsub?user_id=${encodeURIComponent(tgId)}`);
-        const fsubData = await fsubRes.json();
-        if (!fsubData.ok && fsubData.channels && fsubData.channels.length > 0) {
-          // FSub join nahi kiya — channels dikhao
-          setFsubChannels(fsubData.channels);
-          setLinksLoading(false);
-          return;
-        }
+      // ── Step 1: FSub check — sabhi web users ke liye (tg_id ki zaroorat nahi) ──
+      const fsubRes = await fetch(`${API_BASE}/api/check-fsub`);
+      const fsubData = await fsubRes.json();
+      if (!fsubData.ok && fsubData.channels && fsubData.channels.length > 0) {
+        setFsubChannels(fsubData.channels);
+        setLinksLoading(false);
+        return;
       }
       // ── Step 2: Links generate karo ────────────────────────────────
       const res = await fetch(`${API_BASE}/api/get-links?file_id=${encodeURIComponent(file.file_id)}`);
