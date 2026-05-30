@@ -449,37 +449,21 @@ async def api_check_fsub(request: web.Request):
             except Exception:
                 channel_list.append({"title": "Join Channel", "link": "https://t.me/"})
 
-        return web.json_response({"ok": False, "channels": channel_list})
+        # ── Fake link fetch — bot ke same logic ke anusaar (upar dikhega) ──
+        fake_link = None
+        try:
+            from plugins.bot_mode import runtime_get_fake_link
+            fake = await runtime_get_fake_link()
+            if fake and fake.get("url"):
+                fake_link = {"url": fake["url"], "button_text": fake.get("button_text", "🔗 Click Here")}
+        except Exception:
+            pass
+
+        return web.json_response({"ok": False, "channels": channel_list, "fake_link": fake_link})
 
     except Exception as e:
         logging.error(f"/api/check-fsub error: {e}")
         return web.json_response({"ok": True})  # Error hone pe block mat karo
-
-
-# ── /api/fake-link — Website ke liye Fake Link config fetch ──────────────────
-@routes.get("/api/fake-link")
-async def api_fake_link(request: web.Request):
-    """
-    Admin ne /setfakelink se jo fake link set kiya hai usse return karo.
-    Website pe fsub buttons ke upar dikhega.
-
-    Response:
-      { "ok": true,  "url": "...", "button_text": "..." }  → fake link set hai
-      { "ok": false }                                        → fake link set nahi
-    """
-    try:
-        from plugins.bot_mode import runtime_get_fake_link
-        fake = await runtime_get_fake_link()
-        if fake and fake.get("url"):
-            return web.json_response({
-                "ok":          True,
-                "url":         fake["url"],
-                "button_text": fake.get("button_text", "🔗 Click Here"),
-            })
-        return web.json_response({"ok": False})
-    except Exception as e:
-        logging.error(f"/api/fake-link error: {e}")
-        return web.json_response({"ok": False})
 
 
 # ── /api/get-links — Website ke liye Fast Download + Watch Online URLs ────────
