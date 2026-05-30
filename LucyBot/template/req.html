@@ -1543,10 +1543,12 @@ function getMsgIdAndHash() {
     return { msg_id, hash };
   } catch { return { msg_id: "", hash: "" }; }
 }
-function buildRemuxUrl(audioIndex) {
+function buildRemuxUrl(audioIndex, startSec) {
   const base = getBaseUrl();
   const { msg_id, hash } = getMsgIdAndHash();
-  return base + "/remux/" + msg_id + "?hash=" + hash + "&audio=" + audioIndex;
+  let url = base + "/remux/" + msg_id + "?hash=" + hash + "&audio=" + audioIndex;
+  if (startSec && startSec > 0) url += "&start=" + Math.floor(startSec);
+  return url;
 }
 
 function renderAudioChips(tracks) {
@@ -1570,6 +1572,9 @@ function renderAudioChips(tracks) {
   });
 }
 
+// Remux mode mein seek handle karo
+let _remuxSeekHandler = null;
+
 function switchToRemuxTrack(audioIndex, clickedChip, tracks) {
   if (audioIndex === _activeRemuxTrack) return;
   _activeRemuxTrack = audioIndex;
@@ -1580,22 +1585,69 @@ function switchToRemuxTrack(audioIndex, clickedChip, tracks) {
   const currentTime = vid.currentTime || 0;
   const wasPlaying  = !vid.paused;
 
+  // Purana seek handler remove karo
+  if (_remuxSeekHandler) {
+    vid.removeEventListener("seeking", _remuxSeekHandler);
+    _remuxSeekHandler = null;
+  }
+
   if (audioIndex === -1) {
+    // Original stream — normal seeking kaam karegi
     vid.src = ORIGINAL_FILE_SRC;
     document.getElementById("audioTrackNote").style.display = "none";
     showToast("\u25B6 Original stream");
+    vid.load();
+    vid.addEventListener("canplay", function onCan() {
+      if (currentTime > 0) vid.currentTime = currentTime;
+      if (wasPlaying) vid.play().catch(() => {});
+      vid.removeEventListener("canplay", onCan);
+    });
   } else {
-    vid.src = buildRemuxUrl(audioIndex);
-    document.getElementById("audioTrackNote").style.display = "block";
+    // Remux stream — start position ke saath load karo
     const track = tracks.find(t => t.audio_index === audioIndex);
     showToast("\uD83D\uDD0A Audio: " + (track ? track.label : "Track " + (audioIndex + 1)));
-  }
+    document.getElementById("audioTrackNote").style.display = "block";
 
+    _loadRemuxAt(audioIndex, currentTime, wasPlaying, tracks);
+  }
+}
+
+function _loadRemuxAt(audioIndex, startSec, autoPlay, tracks) {
+  const savedDuration = vid.duration || 0;
+
+  vid.src = buildRemuxUrl(audioIndex, startSec);
   vid.load();
+
   vid.addEventListener("canplay", function onCan() {
-    if (audioIndex === -1 && currentTime > 0) vid.currentTime = currentTime;
-    if (wasPlaying) vid.play().catch(() => {});
     vid.removeEventListener("canplay", onCan);
+    if (autoPlay) vid.play().catch(() => {});
+  });
+
+  // Seek event — user ne timeline pe click kiya remux mode mein
+  _remuxSeekHandler = function() {
+    const seekTo = vid.currentTime;
+    const playing = !vid.paused;
+
+    // Naya remux request us position se
+    vid.src = buildRemuxUrl(audioIndex, seekTo);
+    vid.load();
+    vid.addEventListener("canplay", function onSeekCan() {
+      vid.removeEventListener("canplay", onSeekCan);
+      if (playing) vid.play().catch(() => {});
+    });
+  };
+
+  // Debounce — user agar fast seek kare to baar baar request na jaaye
+  let _seekDebounce = null;
+  vid.addEventListener("seeking", function _debouncedSeek() {
+    if (_remuxSeekHandler === null) {
+      vid.removeEventListener("seeking", _debouncedSeek);
+      return;
+    }
+    clearTimeout(_seekDebounce);
+    _seekDebounce = setTimeout(() => {
+      if (_remuxSeekHandler) _remuxSeekHandler();
+    }, 400);
   });
 }
 
