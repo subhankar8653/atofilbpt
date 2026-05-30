@@ -382,19 +382,17 @@ async def api_check_fsub(request: web.Request):
     """
     try:
         user_id_str = request.rel_url.query.get("user_id", "").strip()
-        if not user_id_str:
-            return web.json_response({"ok": True})  # user_id nahi diya — bypass
-
+        # user_id optional hai — web users ke liye bhi fsub check hoga
         try:
-            user_id = int(user_id_str)
+            user_id = int(user_id_str) if user_id_str else None
         except ValueError:
-            return web.json_response({"ok": True})
+            user_id = None
 
         from database.users_chats_db import db as _db
         from info import MULTI_FSUB
 
-        # Premium bypass
-        if await _db.has_premium_access(user_id):
+        # Premium bypass — sirf tab jab user_id ho
+        if user_id and await _db.has_premium_access(user_id):
             return web.json_response({"ok": True})
 
         db_channels = await _db.get_fsub_channels()
@@ -405,22 +403,26 @@ async def api_check_fsub(request: web.Request):
         from pyrogram.errors.exceptions.bad_request_400 import UserNotParticipant
         from pyrogram.enums import ChatMemberStatus as CMS
 
-        not_joined = []
-        for ch_id in channels:
-            try:
-                mode = await _db.get_channel_mode(ch_id)
-                # Request mode: DB check pehle
-                if mode == "on" and await _db.req_user_exist(ch_id, user_id):
-                    continue
-                m = await Codeflix.get_chat_member(ch_id, user_id)
-                if m.status == CMS.BANNED:
+        # user_id nahi hai (web user) — sabhi channels show karo bina check ke
+        if user_id is None:
+            not_joined = list(channels)
+        else:
+            not_joined = []
+            for ch_id in channels:
+                try:
+                    mode = await _db.get_channel_mode(ch_id)
+                    # Request mode: DB check pehle
+                    if mode == "on" and await _db.req_user_exist(ch_id, user_id):
+                        continue
+                    m = await Codeflix.get_chat_member(ch_id, user_id)
+                    if m.status == CMS.BANNED:
+                        not_joined.append(ch_id)
+                    elif m.status not in {CMS.OWNER, CMS.ADMINISTRATOR, CMS.MEMBER}:
+                        not_joined.append(ch_id)
+                except UserNotParticipant:
                     not_joined.append(ch_id)
-                elif m.status not in {CMS.OWNER, CMS.ADMINISTRATOR, CMS.MEMBER}:
-                    not_joined.append(ch_id)
-            except UserNotParticipant:
-                not_joined.append(ch_id)
-            except Exception:
-                continue  # Error = assume joined
+                except Exception:
+                    continue  # Error = assume joined
 
         if not not_joined:
             return web.json_response({"ok": True})
