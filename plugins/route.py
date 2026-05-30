@@ -608,13 +608,9 @@ async def api_tracks_handler(request: web.Request):
             channels = stream.get("channels", 2)
 
             lang_display = LANG_NAMES.get(lang, lang.upper() if lang else "Unknown")
-            ch_label = "5.1" if channels >= 6 else ("7.1" if channels >= 8 else ("Stereo" if channels == 2 else "Mono"))
 
-            parts = [lang_display]
-            if title and title.lower() not in (lang, lang_display.lower()):
-                parts.append(f"- {title}")
-            parts.append(f"({codec} {ch_label})")
-            label = " ".join(parts)
+            # Sirf language name — koi codec, channels, ya title nahi
+            label = lang_display
 
             audio_tracks.append({
                 "audio_index": audio_index,
