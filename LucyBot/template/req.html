@@ -368,15 +368,6 @@
     </div><!-- yt-overlay -->
   </div><!-- video-wrapper -->
 
-  <!-- AUDIO TRACK BAR: video ke bilkul neeche, hamesha visible -->
-  <div id="audioBarWrap" style="display:none;width:100%;max-width:520px;margin:0 auto 4px;box-sizing:border-box">
-    <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(20,20,20,0.95);border:1px solid rgba(243,156,18,.25);border-radius:0 0 10px 10px">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="#f39c12"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
-      <span style="font-size:10px;color:#f39c12;font-weight:700;white-space:nowrap">AUDIO</span>
-      <div id="audioBarChips" style="display:flex;gap:6px;flex-wrap:wrap;flex:1"></div>
-      <span id="audioBarSpinner" style="display:inline-block;width:10px;height:10px;border:2px solid rgba(243,156,18,.2);border-top-color:#f39c12;border-radius:50%;animation:spin 0.8s linear infinite;flex-shrink:0"></span>
-    </div>
-  </div>
 
   <!-- ═══════════════════ CONTENT ═══════════════════ -->
   <div class="content" id="pageContent">
@@ -1610,12 +1601,6 @@ function switchToRemuxTrack(audioIndex, clickedChip, tracks) {
 
 async function loadFfprobeTracks() {
   const spinner    = document.getElementById("audioTrackLoadingSpinner");
-  const barSpinner = document.getElementById("audioBarSpinner");
-  const barWrap    = document.getElementById("audioBarWrap");
-  const barChips   = document.getElementById("audioBarChips");
-
-  // Show bar with spinner immediately so user sees something
-  if (barWrap) barWrap.style.display = "block";
 
   try {
     const tracksUrl = getBaseUrl() + "/api/tracks?url=" + encodeURIComponent(FILE_URL);
@@ -1623,74 +1608,26 @@ async function loadFfprobeTracks() {
     if (!resp.ok) throw new Error("tracks fetch failed");
     _ffprobeTracksData = await resp.json();
 
-    // Hide spinners
-    if (spinner)    spinner.style.display    = "none";
-    if (barSpinner) barSpinner.style.display = "none";
+    // Hide spinner
+    if (spinner) spinner.style.display = "none";
 
     if (_ffprobeTracksData.has_multiple_audio) {
       const tracks = _ffprobeTracksData.audio_tracks;
 
-      // ── 1. VIDEO-BOTTOM BAR (always visible, no scroll) ──────────
-      if (barChips) {
-        barChips.innerHTML = "";
-
-        // Original chip
-        const origChip = document.createElement("button");
-        origChip.style.cssText = "font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.15);color:#fff;cursor:pointer;white-space:nowrap";
-        origChip.textContent = "\u25B6 Original";
-        origChip.dataset.active = "true";
-        origChip.onclick = () => { switchToRemuxTrack(-1, origChip, tracks); updateBarActive(origChip); };
-        barChips.appendChild(origChip);
-
-        tracks.forEach((t) => {
-          const c = document.createElement("button");
-          c.style.cssText = "font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;border:1px solid rgba(243,156,18,.4);background:rgba(243,156,18,.1);color:#f39c12;cursor:pointer;white-space:nowrap";
-          c.textContent = "\uD83D\uDD0A " + (t.label || ("Track " + (t.audio_index + 1)));
-          c.onclick = () => { switchToRemuxTrack(t.audio_index, c, tracks); updateBarActive(c); };
-          barChips.appendChild(c);
-        });
-      }
-
-      // ── 2. SIDEBAR PANEL (scroll mein) ───────────────────────────
+      // Sirf neeche wala panel show karo
       const wrap = document.getElementById("audioTrackWrap");
       if (wrap) wrap.style.display = "block";
       renderAudioChips(tracks);
 
       const langSec = document.getElementById("langSection");
       if (langSec) langSec.style.display = "block";
-
-    } else {
-      // Single audio — hide bar
-      if (barWrap) barWrap.style.display = "none";
     }
   } catch (err) {
-    if (spinner)    spinner.style.display    = "none";
-    if (barSpinner) barSpinner.style.display = "none";
-    if (barWrap)    barWrap.style.display    = "none";
+    if (spinner) spinner.style.display = "none";
     console.warn("ffprobe track load failed:", err);
   }
 }
 
-function updateBarActive(clickedBtn) {
-  const barChips = document.getElementById("audioBarChips");
-  if (!barChips) return;
-  barChips.querySelectorAll("button").forEach(b => {
-    b.style.background = "rgba(243,156,18,.1)";
-    b.style.color      = "#f39c12";
-    b.style.border     = "1px solid rgba(243,156,18,.4)";
-  });
-  // Original button style
-  const orig = barChips.querySelector("button:first-child");
-  if (orig && clickedBtn === orig) {
-    clickedBtn.style.background = "rgba(255,255,255,.25)";
-    clickedBtn.style.color      = "#fff";
-    clickedBtn.style.border     = "1px solid rgba(255,255,255,.4)";
-  } else {
-    clickedBtn.style.background = "rgba(243,156,18,.35)";
-    clickedBtn.style.color      = "#fff";
-    clickedBtn.style.border     = "1px solid #f39c12";
-  }
-}
 
 // HTML5 AudioTrack API fallback (for browsers that support it, if ffprobe fails)
 function initAudioTracks() {
