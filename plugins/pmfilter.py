@@ -3,6 +3,7 @@ import re
 import ast
 import math
 import random
+import time as _time
 import pytz
 from datetime import datetime, timedelta, date, time
 lock = asyncio.Lock()
@@ -2821,9 +2822,11 @@ async def auto_filter(client, msg, spoll=False):
     temp.SHORT[message.from_user.id] = message.chat.id
     temp.SEARCH_REQ[key] = message.from_user.id if message.from_user else 0  # track who searched
     # Store requester for EVERY file_id — works for both button and no-button modes
+    # Format: (user_id, timestamp) — commands.py mein 24hr expiry check hota hai
     _requester_id = message.from_user.id if message.from_user else 0
+    _req_timestamp = _time.time()
     for _file in files:
-        temp.FILE_REQ[_file.file_id] = _requester_id
+        temp.FILE_REQ[_file.file_id] = (_requester_id, _req_timestamp)
     if settings["button"]:
         btn = [
             [
