@@ -1086,6 +1086,7 @@ function DetailModal({ file, onClose }) {
   const [inList, setInList] = useState(false);
   const [links, setLinks] = useState(null);       // { watch_url, download_url }
   const [linksLoading, setLinksLoading] = useState(false);
+  const [fsubChannels, setFsubChannels] = useState(null); // null = not checked, [] = ok, [...] = need to join
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
@@ -1149,6 +1150,39 @@ function DetailModal({ file, onClose }) {
 
   const handleGetLinks = async () => {
     if (links) return; // already loaded
+    setLinksLoading(true);
+    try {
+      // ── Step 1: FSub check ──────────────────────────────────────────
+      // URL se user_id lo (?tg_id=123456) — Telegram se open karne pe milta hai
+      const tgId = new URLSearchParams(window.location.search).get("tg_id") || "";
+      if (tgId) {
+        const fsubRes = await fetch(`${API_BASE}/api/check-fsub?user_id=${encodeURIComponent(tgId)}`);
+        const fsubData = await fsubRes.json();
+        if (!fsubData.ok && fsubData.channels && fsubData.channels.length > 0) {
+          // FSub join nahi kiya — channels dikhao
+          setFsubChannels(fsubData.channels);
+          setLinksLoading(false);
+          return;
+        }
+      }
+      // ── Step 2: Links generate karo ────────────────────────────────
+      const res = await fetch(`${API_BASE}/api/get-links?file_id=${encodeURIComponent(file.file_id)}`);
+      const data = await res.json();
+      if (data.watch_url) {
+        setFsubChannels(null);
+        setLinks(data);
+      } else {
+        showToast("❌ Links generate nahi hue");
+      }
+    } catch (e) {
+      showToast("❌ Server error");
+    }
+    setLinksLoading(false);
+  };
+
+  // FSub check ke baad "I Joined" button click — recheck karke links do
+  const handleFsubDone = async () => {
+    setFsubChannels(null);
     setLinksLoading(true);
     try {
       const res = await fetch(`${API_BASE}/api/get-links?file_id=${encodeURIComponent(file.file_id)}`);
@@ -1229,7 +1263,28 @@ function DetailModal({ file, onClose }) {
             </button>
 
             {/* ── Fast Download + Watch Online buttons ── */}
-            {!links ? (
+            {fsubChannels && fsubChannels.length > 0 ? (
+              // ── FSub required — channels join karo ────────────────────
+              <div style={{ marginBottom: 10, background: "rgba(231,76,60,0.1)", border: "1px solid rgba(231,76,60,0.3)", borderRadius: 18, padding: "14px 16px" }}>
+                <p style={{ margin: "0 0 12px", color: "#e74c3c", fontWeight: 700, fontSize: 14, textAlign: "center" }}>
+                  ⚠️ Pehle yeh channels join karo
+                </p>
+                {fsubChannels.map((ch, i) => (
+                  <a key={i} href={ch.link} target="_blank" rel="noopener noreferrer"
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%", padding: "12px 0", borderRadius: 14, background: "linear-gradient(135deg,#e74c3c,#c0392b)", color: "#fff", fontSize: 13, fontWeight: 800, textDecoration: "none", marginBottom: 8, boxShadow: "0 4px 16px rgba(231,76,60,.3)" }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-2.03 9.571c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.893.65z"/></svg>
+                    {ch.title}
+                  </a>
+                ))}
+                <button onClick={handleFsubDone} disabled={linksLoading}
+                  style={{ width: "100%", padding: "12px 0", borderRadius: 14, background: "linear-gradient(135deg,#27ae60,#1e8449)", border: "none", color: "#fff", fontSize: 13, fontWeight: 800, cursor: linksLoading ? "default" : "pointer", opacity: linksLoading ? 0.75 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  {linksLoading
+                    ? <><div style={{ width: 14, height: 14, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", animation: "spin 0.8s linear infinite" }} /> Checking...</>
+                    : "✅ Maine Join Kar Liya"
+                  }
+                </button>
+              </div>
+            ) : !links ? (
               <button onClick={handleGetLinks} disabled={linksLoading}
                 style={{ width: "100%", padding: "15px 0", borderRadius: 18, background: "linear-gradient(135deg,#f39c12,#e74c3c)", border: "none", color: "#fff", fontSize: 14, fontWeight: 800, cursor: linksLoading ? "default" : "pointer", marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, boxShadow: "0 6px 28px rgba(243,156,18,.35)", opacity: linksLoading ? 0.75 : 1, transition: "all .2s" }}>
                 {linksLoading
