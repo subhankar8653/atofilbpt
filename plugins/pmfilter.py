@@ -2798,7 +2798,15 @@ async def auto_filter(client, msg, spoll=False):
                 #await m.delete()
                 if settings["spell_check"]:
                     ai_sts = await m.edit('ᴘʟᴇᴀꜱᴇ ᴡᴀɪᴛ, ꜱᴜʜᴀɴɪ ɪꜱ ᴄʜᴇᴄᴋɪɴɢ ʏᴏᴜʀ ꜱᴘᴇʟʟɪɴɢ...')
-                    is_misspelled = await ai_spell_check(chat_id = message.chat.id,wrong_name=search)
+                    try:
+                        is_misspelled = await asyncio.wait_for(
+                            ai_spell_check(chat_id=message.chat.id, wrong_name=search),
+                            timeout=15  # 15 sec max — stuck hone se bachao
+                        )
+                    except asyncio.TimeoutError:
+                        is_misspelled = None
+                    except Exception:
+                        is_misspelled = None
                     if is_misspelled:
                         await ai_sts.edit(f'<b>✅ꜱᴜʜᴀɴɪ sᴜɢɢᴇsᴛᴇᴅ <code> {is_misspelled}</code> \nsᴏ ɪᴍ sᴇᴀʀᴄʜɪɴɢ ғᴏᴛ <code>{is_misspelled}</code></b>')
                         await asyncio.sleep(2)
@@ -3010,22 +3018,44 @@ async def auto_filter(client, msg, spoll=False):
             await message.delete()
 
 async def ai_spell_check(chat_id, wrong_name):
-    async def search_movie(wrong_name):
-        search_results = imdb.search_movie(wrong_name)
-        movie_list = [movie['title'] for movie in search_results]
-        return movie_list
-    movie_list = await search_movie(wrong_name)
+    # TMDB/OMDB (get_poster) use karo — imdb.search_movie nahi (koi config nahi tha)
+    try:
+        results = await asyncio.wait_for(
+            get_poster(wrong_name, bulk=True),
+            timeout=10
+        )
+    except Exception:
+        return None
+
+    if not results:
+        return None
+
+    # Movie titles list banao
+    movie_list = []
+    for r in results:
+        title = r.get('Title') or r.get('title') or ''
+        if title:
+            movie_list.append(title)
+
     if not movie_list:
-        return
+        return None
+
     for _ in range(5):
         closest_match = process.extractOne(wrong_name, movie_list)
-        if not closest_match or closest_match[1] <= 80:
-            return 
+        if not closest_match or closest_match[1] <= 60:
+            return None
         movie = closest_match[0]
-        files, offset, total_results = await get_search_results(chat_id=chat_id, query=movie)
+        try:
+            files, offset, total_results = await asyncio.wait_for(
+                get_search_results(chat_id=chat_id, query=movie),
+                timeout=8
+            )
+        except asyncio.TimeoutError:
+            return None
         if files:
             return movie
         movie_list.remove(movie)
+    return None
 
 async def advantage_spell_chok(client, message):
     mv_id = message.id
