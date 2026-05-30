@@ -430,16 +430,17 @@
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
         LANGUAGE / AUDIO TRACK
       </div>
-      <!-- Inline audio track switcher (YouTube style) — shown for dual/multi audio tracks in same file -->
+      <!-- Inline audio track switcher -- ffprobe + remux based -->
       <div id="audioTrackWrap" style="display:none;margin-bottom:10px">
         <div style="font-size:10px;color:#888;margin-bottom:8px;display:flex;align-items:center;gap:5px">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="#f39c12"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
-          <span style="color:#f39c12;font-weight:700">IN-VIDEO AUDIO TRACKS</span>
+          <span style="color:#f39c12;font-weight:700">AUDIO TRACK</span>
+          <span id="audioTrackLoadingSpinner" style="margin-left:4px;display:inline-block;width:10px;height:10px;border:2px solid rgba(243,156,18,.2);border-top-color:#f39c12;border-radius:50%;animation:spin 0.8s linear infinite"></span>
         </div>
-        <div style="font-size:10px;color:#555;margin-bottom:10px">Is file mein multiple audio tracks hain — neeche click karke switch karein</div>
+        <div style="font-size:10px;color:#555;margin-bottom:10px">Audio track chunein — remux se switch hoga (seeking limited hoga)</div>
         <div class="variant-chips" id="audioTrackChips"></div>
-        <div id="audioTrackNote" style="display:none;font-size:10px;color:#555;margin-top:8px;padding:8px 10px;background:rgba(243,156,18,.06);border-radius:8px;border:1px solid rgba(243,156,18,.15)">
-          ⚠️ Browser mein audio track switching limited hai. Best experience ke liye <strong>MX Player</strong> ya <strong>VLC</strong> use karein.
+        <div id="audioTrackNote" style="display:none;font-size:10px;color:rgba(243,156,18,.8);margin-top:8px;padding:8px 10px;background:rgba(243,156,18,.06);border-radius:8px;border:1px solid rgba(243,156,18,.15)">
+          ⚠️ Remux mode mein seeking limited hai. Better experience ke liye <strong>MX Player</strong> ya <strong>VLC</strong> use karein.
         </div>
       </div>
       <!-- Separate language files from DB -->
@@ -1522,101 +1523,134 @@ function langKey(name) {
   return found.length ? found.map(l=>l.toLowerCase()).sort().join("+") : null;
 }
 
-// ═══════════════════════════════════════════════
-// AUDIO TRACK SWITCHER (YouTube-style, in-video)
-// ═══════════════════════════════════════════════
-// Map ISO 639-1/2 codes and common labels → display names
-const LANG_DISPLAY = {
-  hin:"Hindi", eng:"English", tam:"Tamil", tel:"Telugu",
-  mal:"Malayalam", kan:"Kannada", ben:"Bengali", pan:"Punjabi",
-  mar:"Marathi", guj:"Gujarati", bho:"Bhojpuri", urd:"Urdu",
-  jpn:"Japanese", kor:"Korean", zho:"Chinese", fra:"French",
-  spa:"Spanish", deu:"German", ara:"Arabic", rus:"Russian",
-  hi:"Hindi", en:"English", ta:"Tamil", te:"Telugu",
-  ml:"Malayalam", kn:"Kannada", bn:"Bengali", pa:"Punjabi",
-  mr:"Marathi", gu:"Gujarati", ur:"Urdu", ja:"Japanese",
-  ko:"Korean", zh:"Chinese", fr:"French", es:"Spanish",
-  de:"German", ar:"Arabic", ru:"Russian"
-};
+// ===============================================
+// AUDIO TRACK SWITCHER -- ffprobe + ffmpeg remux
+// ===============================================
 
-let activeTrackIndex = null;
+let _ffprobeTracksData = null;
+let _activeRemuxTrack  = -1;   // -1 = original, 0+ = remux audio index
+const ORIGINAL_FILE_SRC = FILE_URL;
 
-function getLangDisplayName(track) {
-  if (!track) return null;
-  const lc = (track.language||"").toLowerCase().trim();
-  const lbl = (track.label||"").trim();
-  // Try ISO code first
-  if (lc && LANG_DISPLAY[lc]) return LANG_DISPLAY[lc];
-  // Then label
-  if (lbl) return lbl.charAt(0).toUpperCase() + lbl.slice(1);
-  // Then raw language
-  if (lc) return lc.charAt(0).toUpperCase() + lc.slice(1);
-  return null;
+function getBaseUrl() {
+  try { const u = new URL(FILE_URL); return u.origin; } catch { return ""; }
+}
+function getMsgIdAndHash() {
+  try {
+    const u = new URL(FILE_URL);
+    const msg_id = u.pathname.replace(/^\//, "").split("?")[0];
+    const hash   = u.searchParams.get("hash") || "";
+    return { msg_id, hash };
+  } catch { return { msg_id: "", hash: "" }; }
+}
+function buildRemuxUrl(audioIndex) {
+  const base = getBaseUrl();
+  const { msg_id, hash } = getMsgIdAndHash();
+  return base + "/remux/" + msg_id + "?hash=" + hash + "&audio=" + audioIndex;
 }
 
-function initAudioTracks() {
-  // Check HTML5 AudioTrack API support
-  if (!vid.audioTracks) return false;
-  const tracks = vid.audioTracks;
-  if (!tracks || tracks.length <= 1) return false;
+function renderAudioChips(tracks) {
+  const chips = document.getElementById("audioTrackChips");
+  chips.innerHTML = "";
 
+  // Original chip
+  const origChip = document.createElement("button");
+  origChip.className = "chip" + (_activeRemuxTrack === -1 ? " active" : "");
+  origChip.innerHTML = "\u25B6 Original";
+  origChip.title = "Direct stream (default audio, full speed)";
+  origChip.onclick = () => switchToRemuxTrack(-1, origChip, tracks);
+  chips.appendChild(origChip);
+
+  tracks.forEach((t) => {
+    const c = document.createElement("button");
+    c.className = "chip" + (_activeRemuxTrack === t.audio_index ? " active" : "");
+    c.innerHTML = "\uD83D\uDD0A " + (t.label || ("Track " + (t.audio_index + 1)));
+    c.onclick = () => switchToRemuxTrack(t.audio_index, c, tracks);
+    chips.appendChild(c);
+  });
+}
+
+function switchToRemuxTrack(audioIndex, clickedChip, tracks) {
+  if (audioIndex === _activeRemuxTrack) return;
+  _activeRemuxTrack = audioIndex;
+
+  document.querySelectorAll("#audioTrackChips .chip").forEach(c => c.classList.remove("active"));
+  if (clickedChip) clickedChip.classList.add("active");
+
+  const currentTime = vid.currentTime || 0;
+  const wasPlaying  = !vid.paused;
+
+  if (audioIndex === -1) {
+    vid.src = ORIGINAL_FILE_SRC;
+    document.getElementById("audioTrackNote").style.display = "none";
+    showToast("\u25B6 Original stream");
+  } else {
+    vid.src = buildRemuxUrl(audioIndex);
+    document.getElementById("audioTrackNote").style.display = "block";
+    const track = tracks.find(t => t.audio_index === audioIndex);
+    showToast("\uD83D\uDD0A Audio: " + (track ? track.label : "Track " + (audioIndex + 1)));
+  }
+
+  vid.load();
+  vid.addEventListener("canplay", function onCan() {
+    if (audioIndex === -1 && currentTime > 0) vid.currentTime = currentTime;
+    if (wasPlaying) vid.play().catch(() => {});
+    vid.removeEventListener("canplay", onCan);
+  });
+}
+
+async function loadFfprobeTracks() {
+  const spinner = document.getElementById("audioTrackLoadingSpinner");
+  try {
+    const tracksUrl = getBaseUrl() + "/api/tracks?url=" + encodeURIComponent(FILE_URL);
+    const resp = await fetch(tracksUrl);
+    if (!resp.ok) throw new Error("tracks fetch failed");
+    _ffprobeTracksData = await resp.json();
+
+    if (spinner) spinner.style.display = "none";
+
+    if (_ffprobeTracksData.has_multiple_audio) {
+      const wrap = document.getElementById("audioTrackWrap");
+      if (wrap) wrap.style.display = "block";
+      renderAudioChips(_ffprobeTracksData.audio_tracks);
+
+      // Also show lang section
+      const langSec = document.getElementById("langSection");
+      if (langSec) langSec.style.display = "block";
+    }
+  } catch (err) {
+    if (spinner) spinner.style.display = "none";
+    console.warn("ffprobe track load failed:", err);
+  }
+}
+
+// HTML5 AudioTrack API fallback (for browsers that support it, if ffprobe fails)
+function initAudioTracks() {
+  if (!vid.audioTracks || vid.audioTracks.length <= 1) return false;
+  if (_ffprobeTracksData && _ffprobeTracksData.has_multiple_audio) return false;
   const wrap  = document.getElementById("audioTrackWrap");
   const chips = document.getElementById("audioTrackChips");
-  wrap.style.display = "block";
-
-  // Find active track
-  for (let i = 0; i < tracks.length; i++) {
-    if (tracks[i].enabled) activeTrackIndex = i;
+  if (wrap) wrap.style.display = "block";
+  if (!chips) return false;
+  chips.innerHTML = "";
+  for (let i = 0; i < vid.audioTracks.length; i++) {
+    const t = vid.audioTracks[i];
+    const c = document.createElement("button");
+    c.className = "chip" + (t.enabled ? " active" : "");
+    c.innerHTML = "\uD83D\uDD0A " + (t.label || t.language || ("Track " + (i+1)));
+    c.onclick = () => {
+      for (let j = 0; j < vid.audioTracks.length; j++) vid.audioTracks[j].enabled = (j === i);
+      document.querySelectorAll("#audioTrackChips .chip").forEach((ch,j) => ch.classList.toggle("active", j === i));
+      showToast("Audio switched (browser mode)");
+    };
+    chips.appendChild(c);
   }
-
-  function renderAudioChips() {
-    chips.innerHTML = "";
-    for (let i = 0; i < tracks.length; i++) {
-      const t = tracks[i];
-      const name = getLangDisplayName(t) || ("Track " + (i+1));
-      const c = document.createElement("button");
-      c.className = "chip" + (t.enabled ? " active" : "");
-      c.innerHTML = "🔊 " + name;
-      c.dataset.trackIdx = i;
-      c.onclick = () => switchAudioTrack(i, renderAudioChips);
-      chips.appendChild(c);
-    }
-  }
-
-  renderAudioChips();
   return true;
 }
 
-function switchAudioTrack(targetIdx, renderCb) {
-  if (!vid.audioTracks) {
-    document.getElementById("audioTrackNote").style.display = "block";
-    return;
-  }
-  const tracks = vid.audioTracks;
-  let switched = false;
-  for (let i = 0; i < tracks.length; i++) {
-    tracks[i].enabled = (i === targetIdx);
-    if (i === targetIdx) switched = true;
-  }
-  activeTrackIndex = targetIdx;
-  if (!switched) {
-    document.getElementById("audioTrackNote").style.display = "block";
-    showToast("⚠️ Browser audio switch not supported");
-  } else {
-    const name = getLangDisplayName(tracks[targetIdx]) || ("Track " + (targetIdx+1));
-    showToast("🔊 Audio: " + name);
-  }
-  if (renderCb) renderCb();
-}
-
-// Try init after metadata loads
-vid.addEventListener("loadedmetadata", () => {
-  initAudioTracks();
-});
-// Also try immediately (some browsers populate tracks early)
+loadFfprobeTracks();
+vid.addEventListener("loadedmetadata", () => { initAudioTracks(); });
 if (vid.readyState >= 1) initAudioTracks();
 
-// ═══════════════════════════════════════════════
 // QUALITY & LANGUAGE VARIANTS (from Railway API)
 // ═══════════════════════════════════════════════
 async function loadVariants() {
