@@ -549,6 +549,173 @@ async def api_get_links(request: web.Request):
         return web.json_response({"error": str(e)}, status=500)
 
 
+
+# ── /api/tracks — ffprobe se audio tracks detect karo ────────────────────────
+@routes.get("/api/tracks")
+async def api_tracks_handler(request: web.Request):
+    """
+    File ke audio tracks detect karo using ffprobe.
+    stream_url pass karo — ffprobe seedha wahan se header download karega.
+
+    Usage: /api/tracks?url=https://domain.com/12345?hash=abc
+    Response: { "has_multiple_audio": bool, "audio_tracks": [...] }
+    """
+    import asyncio as _asyncio
+    import subprocess as _subprocess
+    import json as _json
+
+    stream_url = request.rel_url.query.get("url", "").strip()
+    if not stream_url:
+        return web.json_response({"error": "url required"}, status=400)
+
+    try:
+        cmd = [
+            "ffprobe",
+            "-v", "quiet",
+            "-print_format", "json",
+            "-show_streams",
+            "-i", stream_url
+        ]
+
+        result = await _asyncio.to_thread(
+            _subprocess.run, cmd,
+            capture_output=True, timeout=20.0, check=False
+        )
+
+        if result.returncode != 0:
+            return web.json_response({"has_multiple_audio": False, "audio_tracks": []})
+
+        probe = _json.loads(result.stdout.decode(errors="replace"))
+
+        LANG_NAMES = {
+            "eng": "English", "hin": "Hindi", "tam": "Tamil", "tel": "Telugu",
+            "mal": "Malayalam", "kan": "Kannada", "ben": "Bengali", "pan": "Punjabi",
+            "mar": "Marathi", "guj": "Gujarati", "bho": "Bhojpuri", "urd": "Urdu",
+            "jpn": "Japanese", "kor": "Korean", "zho": "Chinese", "fra": "French",
+            "spa": "Spanish", "deu": "German", "ara": "Arabic", "rus": "Russian",
+            "und": "Unknown",
+        }
+
+        audio_tracks = []
+        audio_index = 0
+        for stream in probe.get("streams", []):
+            if stream.get("codec_type") != "audio":
+                continue
+            tags = stream.get("tags", {})
+            lang = tags.get("language", "und").lower()
+            title = tags.get("title", "")
+            codec = stream.get("codec_name", "").upper()
+            channels = stream.get("channels", 2)
+
+            lang_display = LANG_NAMES.get(lang, lang.upper() if lang else "Unknown")
+            ch_label = "5.1" if channels >= 6 else ("7.1" if channels >= 8 else ("Stereo" if channels == 2 else "Mono"))
+
+            parts = [lang_display]
+            if title and title.lower() not in (lang, lang_display.lower()):
+                parts.append(f"- {title}")
+            parts.append(f"({codec} {ch_label})")
+            label = " ".join(parts)
+
+            audio_tracks.append({
+                "audio_index": audio_index,
+                "language": lang,
+                "label": label,
+            })
+            audio_index += 1
+
+        return web.json_response({
+            "has_multiple_audio": len(audio_tracks) > 1,
+            "audio_tracks": audio_tracks,
+        })
+
+    except Exception as e:
+        logging.error(f"/api/tracks error: {e}")
+        return web.json_response({"has_multiple_audio": False, "audio_tracks": []})
+
+
+# ── /remux — ffmpeg se selected audio track ke saath stream karo ──────────────
+@routes.get("/remux/{path:\\S+}", allow_head=True)
+async def remux_handler(request: web.Request):
+    """
+    ffmpeg se video + selected audio track remux karke stream karo.
+    No transcoding — sirf stream copy (fast).
+
+    URL: /remux/<msg_id>?hash=<hash>&audio=<audio_index>
+    """
+    import asyncio as _asyncio
+    import subprocess as _subprocess
+    import re as _re
+
+    path = request.match_info["path"]
+    audio_index = int(request.rel_url.query.get("audio", "0"))
+
+    # msg_id aur hash extract karo
+    try:
+        match = _re.search(r"(\d+)", path)
+        if not match:
+            raise ValueError("No msg_id found")
+        msg_id = int(match.group(1))
+        secure_hash = request.rel_url.query.get("hash", "")
+        if not secure_hash:
+            raise ValueError("hash missing")
+    except Exception as e:
+        return web.Response(status=400, text=f"Bad request: {e}")
+
+    # Source stream URL banao
+    if not URL.endswith("/"):
+        base_url = URL + "/"
+    else:
+        base_url = URL
+    import urllib.parse as _urlparse
+    source_url = _urlparse.urljoin(base_url, f"{msg_id}?hash={secure_hash}")
+
+    # ffmpeg command — remux only (no transcode), selected audio track
+    cmd = [
+        "ffmpeg",
+        "-v", "error",
+        "-i", source_url,
+        "-map", "0:v:0",              # Video track
+        "-map", f"0:a:{audio_index}", # Selected audio track only
+        "-c", "copy",                  # Stream copy — no transcode
+        "-movflags", "frag_keyframe+empty_moov+faststart",
+        "-f", "mp4",
+        "pipe:1",                      # stdout pe output
+    ]
+
+    response = web.StreamResponse(
+        status=200,
+        headers={
+            "Content-Type": "video/mp4",
+            "Cache-Control": "no-cache",
+            "Accept-Ranges": "none",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
+    await response.prepare(request)
+
+    try:
+        proc = await _asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=_asyncio.subprocess.PIPE,
+            stderr=_asyncio.subprocess.DEVNULL,
+        )
+        while True:
+            chunk = await proc.stdout.read(65536)  # 64KB chunks
+            if not chunk:
+                break
+            try:
+                await response.write(chunk)
+            except (ConnectionResetError, Exception):
+                break
+        proc.kill()
+    except Exception as e:
+        logging.error(f"/remux error: {e}")
+    finally:
+        await response.write_eof()
+
+    return response
+
+
 # ── /tlink/<token>/<type> — Expiry token redirect handler ─────────────────────
 @routes.get(r"/tlink/{token}/{link_type}", allow_head=True)
 async def tlink_handler(request: web.Request):
