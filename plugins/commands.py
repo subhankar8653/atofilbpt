@@ -626,9 +626,9 @@ async def start(client, message):
                         link = inv.invite_link
                     custom_name = await db.get_fsub_channel_name(ch_id)
                     btn_title = custom_name if custom_name else chat_obj.title
-                    buttons.append([InlineKeyboardButton(f"➕ {btn_title}", url=link)])
+                    buttons.append([InlineKeyboardButton(btn_title, url=link)])
                 except Exception:
-                    buttons.append([InlineKeyboardButton("➕ Join Channel", url="https://t.me/")])
+                    buttons.append([InlineKeyboardButton("Join Channel", url="https://t.me/")])
 
             if buttons:
                 buttons.append([InlineKeyboardButton(
@@ -821,8 +821,22 @@ async def start(client, message):
     user = message.from_user.id
 
     # ── Access control: only the user who searched can get this file ──
+    # NOTE: FILE_REQ RAM mein hota hai — bot restart ya memory clear hone pe
+    # yeh khali ho jata hai. Is case mein _original_requester = 0 aata hai
+    # jo "koi record nahi = allow" treat hota hai (safe fallback).
     if pre in ("file", "filep", "files"):
-        _original_requester = temp.FILE_REQ.get(file_id, 0)
+        _req_entry = temp.FILE_REQ.get(file_id)
+        # Support karta hai dono format: plain int aur (user_id, timestamp) tuple
+        if _req_entry is None:
+            _original_requester = 0  # Memory mein nahi — allow (bot restart case)
+        elif isinstance(_req_entry, tuple):
+            _original_requester, _req_time = _req_entry
+            # 24 ghante ke baad entry expire karke allow karo (stale link case)
+            if time.time() - _req_time > 86400:
+                _original_requester = 0
+        else:
+            _original_requester = _req_entry
+
         _is_authorized = (
             _original_requester == 0 or
             user == _original_requester or

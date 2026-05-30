@@ -369,6 +369,91 @@ def _cleanup_expired():
     for k in expired:
         del _expiry_store[k]
 
+# ── /api/check-fsub — Website ke liye FSub status check ──────────────────────
+@routes.get("/api/check-fsub")
+async def api_check_fsub(request: web.Request):
+    """
+    Website se call hota hai watch/download se pehle.
+    user_id pass karo — agar fsub join nahi kiya toh channels list return karo.
+
+    Response:
+      { "ok": true }                         → user joined hai, proceed karo
+      { "ok": false, "channels": [...] }     → user ne join nahi kiya, channels dikhao
+    """
+    try:
+        user_id_str = request.rel_url.query.get("user_id", "").strip()
+        if not user_id_str:
+            return web.json_response({"ok": True})  # user_id nahi diya — bypass
+
+        try:
+            user_id = int(user_id_str)
+        except ValueError:
+            return web.json_response({"ok": True})
+
+        from database.users_chats_db import db as _db
+        from info import MULTI_FSUB
+
+        # Premium bypass
+        if await _db.has_premium_access(user_id):
+            return web.json_response({"ok": True})
+
+        db_channels = await _db.get_fsub_channels()
+        channels = db_channels if db_channels else MULTI_FSUB
+        if not channels:
+            return web.json_response({"ok": True})
+
+        from pyrogram.errors.exceptions.bad_request_400 import UserNotParticipant
+        from pyrogram.enums import ChatMemberStatus as CMS
+
+        not_joined = []
+        for ch_id in channels:
+            try:
+                mode = await _db.get_channel_mode(ch_id)
+                # Request mode: DB check pehle
+                if mode == "on" and await _db.req_user_exist(ch_id, user_id):
+                    continue
+                m = await Codeflix.get_chat_member(ch_id, user_id)
+                if m.status == CMS.BANNED:
+                    not_joined.append(ch_id)
+                elif m.status not in {CMS.OWNER, CMS.ADMINISTRATOR, CMS.MEMBER}:
+                    not_joined.append(ch_id)
+            except UserNotParticipant:
+                not_joined.append(ch_id)
+            except Exception:
+                continue  # Error = assume joined
+
+        if not not_joined:
+            return web.json_response({"ok": True})
+
+        # Channel info aur join links collect karo
+        channel_list = []
+        for ch_id in not_joined:
+            try:
+                chat_obj = await Codeflix.get_chat(ch_id)
+                mode = await _db.get_channel_mode(ch_id)
+                if mode == "on" and not chat_obj.username:
+                    inv = await Codeflix.create_chat_invite_link(
+                        chat_id=ch_id, creates_join_request=True
+                    )
+                    link = inv.invite_link
+                elif chat_obj.username:
+                    link = f"https://t.me/{chat_obj.username}"
+                else:
+                    inv = await Codeflix.create_chat_invite_link(chat_id=ch_id)
+                    link = inv.invite_link
+                custom_name = await _db.get_fsub_channel_name(ch_id)
+                title = custom_name if custom_name else chat_obj.title
+                channel_list.append({"title": title, "link": link})
+            except Exception:
+                channel_list.append({"title": "Join Channel", "link": "https://t.me/"})
+
+        return web.json_response({"ok": False, "channels": channel_list})
+
+    except Exception as e:
+        logging.error(f"/api/check-fsub error: {e}")
+        return web.json_response({"ok": True})  # Error hone pe block mat karo
+
+
 # ── /api/get-links — Website ke liye Fast Download + Watch Online URLs ────────
 from urllib.parse import quote_plus as _qp
 from LucyBot.util.file_properties import get_name as _get_name, get_hash as _get_hash
