@@ -715,19 +715,25 @@ function fmtTime(s) {
 }
 function updateTime() {
   // Drag ke dauran timeupdate se visual override mat karo (finger ke saath chalega)
+  // Remux mein vid.duration nahi hoti — fallback use karo
+  const _dur = (vid.duration && isFinite(vid.duration) && vid.duration > 5)
+    ? vid.duration : _knownDuration;
   if (!isDragging) {
-    const pct = vid.duration ? (vid.currentTime/vid.duration)*100 : 0;
+    const pct = _dur ? (vid.currentTime/_dur)*100 : 0;
     ytFill.style.width  = pct + "%";
     ytThumb.style.left  = pct + "%";
     const cb = document.getElementById("cinemaBarFill");
     if(cb) cb.style.width = pct + "%";
   }
   // Time text: drag mein preview time dikhao, warna actual time
-  const displayTime = (isDragging && _dragPct >= 0 && vid.duration)
-    ? _dragPct * vid.duration
+  const displayTime = (isDragging && _dragPct >= 0 && _dur)
+    ? _dragPct * _dur
     : vid.currentTime;
   document.getElementById("ytCurTime").textContent = fmtTime(displayTime);
-  document.getElementById("ytDurTime").textContent = fmtTime(vid.duration);
+  // Remux mein vid.duration nahi hoti — _knownDuration fallback use karo
+  const dispDur = (vid.duration && isFinite(vid.duration) && vid.duration > 5)
+    ? vid.duration : _knownDuration;
+  document.getElementById("ytDurTime").textContent = fmtTime(dispDur);
 }
 vid.addEventListener("timeupdate", updateTime);
 vid.addEventListener("progress", () => {
@@ -995,8 +1001,17 @@ function seekTo(e) {
 }
 
 function commitSeek() {
-  if (_dragPct >= 0 && vid.duration) {
-    vid.currentTime = _dragPct * vid.duration;
+  const _dur = (vid.duration && isFinite(vid.duration) && vid.duration > 5)
+    ? vid.duration : _knownDuration;
+  if (_dragPct >= 0 && _dur) {
+    const seekSec = _dragPct * _dur;
+    if (_activeRemuxTrack !== -1) {
+      // Remux mode — naya request us position se
+      const playing = !vid.paused;
+      _loadRemuxAt(_activeRemuxTrack, seekSec, playing);
+    } else {
+      vid.currentTime = seekSec;
+    }
   }
   _dragPct = -1;
 }
@@ -1573,23 +1588,30 @@ function renderAudioChips(tracks) {
 }
 
 // Remux mode mein seek handle karo
-let _remuxSeekHandler = null;
-let _remuxDebouncedSeek = null;
+let _remuxDebouncedSeek = null;  // cleanup reference
 let _seekDebounceTimer  = null;
 let _knownDuration      = 0;   // original stream se milne wali duration save karo
 
 // Original stream play hote hi duration yaad rakho
 vid.addEventListener("durationchange", function() {
-  if (_activeRemuxTrack === -1 && vid.duration && isFinite(vid.duration)) {
-    _knownDuration = vid.duration;
+  // Original stream se real duration lo
+  if (vid.duration && isFinite(vid.duration) && vid.duration > 5) {
+    if (_activeRemuxTrack === -1) {
+      _knownDuration = vid.duration;  // save karo future ke liye
+    }
+    // UI update
+    const durEl = document.getElementById("ytDurTime");
+    if (durEl) durEl.textContent = fmtTime(vid.duration);
+  } else if (_knownDuration > 0) {
+    // Remux stream ne duration nahi diya — saved value use karo
+    const durEl = document.getElementById("ytDurTime");
+    if (durEl) durEl.textContent = fmtTime(_knownDuration);
   }
 });
 
 function _applyFakeDuration() {
-  // frag_keyframe format browser ko duration nahi batata — hum manually set karte hain
-  if (_knownDuration > 0 && (!vid.duration || !isFinite(vid.duration) || vid.duration < 5)) {
-    try { vid.duration = _knownDuration; } catch(e) {}
-    // Custom player ke liye bhi update karo
+  // Remux mein browser duration nahi jaanta — UI mein saved duration dikhao
+  if (_knownDuration > 0) {
     const durEl = document.getElementById("ytDurTime");
     if (durEl) durEl.textContent = fmtTime(_knownDuration);
   }
@@ -1601,7 +1623,6 @@ function _cleanupRemuxListeners() {
     vid.removeEventListener("seeking", _remuxDebouncedSeek);
     _remuxDebouncedSeek = null;
   }
-  _remuxSeekHandler = null;
 }
 
 function switchToRemuxTrack(audioIndex, clickedChip, tracks) {
@@ -1645,27 +1666,8 @@ function _loadRemuxAt(audioIndex, startSec, autoPlay) {
     if (autoPlay) vid.play().catch(() => {});
   });
 
-  // Seek handler — user timeline pe click kare
-  _remuxSeekHandler = function() {
-    const seekTo  = vid.currentTime;
-    const playing = !vid.paused;
-
-    vid.src = buildRemuxUrl(audioIndex, seekTo);
-    vid.load();
-    vid.addEventListener("canplay", function onSeekCan() {
-      vid.removeEventListener("canplay", onSeekCan);
-      _applyFakeDuration();
-      if (playing) vid.play().catch(() => {});
-    });
-  };
-
-  // Debounce — fast drag kare to baar baar request na jaaye
-  _remuxDebouncedSeek = function() {
-    if (!_remuxSeekHandler) return;
-    clearTimeout(_seekDebounceTimer);
-    _seekDebounceTimer = setTimeout(_remuxSeekHandler, 400);
-  };
-  vid.addEventListener("seeking", _remuxDebouncedSeek);
+  // Note: Seeking is handled by commitSeek() which calls _loadRemuxAt directly.
+  // No separate "seeking" event listener needed — it caused infinite loop.
 }
 
 async function loadFfprobeTracks() {
