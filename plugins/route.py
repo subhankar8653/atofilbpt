@@ -456,6 +456,32 @@ async def api_check_fsub(request: web.Request):
         return web.json_response({"ok": True})  # Error hone pe block mat karo
 
 
+# ── /api/fake-link — Website ke liye Fake Link config fetch ──────────────────
+@routes.get("/api/fake-link")
+async def api_fake_link(request: web.Request):
+    """
+    Admin ne /setfakelink se jo fake link set kiya hai usse return karo.
+    Website pe fsub buttons ke upar dikhega.
+
+    Response:
+      { "ok": true,  "url": "...", "button_text": "..." }  → fake link set hai
+      { "ok": false }                                        → fake link set nahi
+    """
+    try:
+        from plugins.bot_mode import runtime_get_fake_link
+        fake = await runtime_get_fake_link()
+        if fake and fake.get("url"):
+            return web.json_response({
+                "ok":          True,
+                "url":         fake["url"],
+                "button_text": fake.get("button_text", "🔗 Click Here"),
+            })
+        return web.json_response({"ok": False})
+    except Exception as e:
+        logging.error(f"/api/fake-link error: {e}")
+        return web.json_response({"ok": False})
+
+
 # ── /api/get-links — Website ke liye Fast Download + Watch Online URLs ────────
 from urllib.parse import quote_plus as _qp
 from LucyBot.util.file_properties import get_name as _get_name, get_hash as _get_hash
