@@ -514,7 +514,7 @@ def _append_pagination(btn, offset, req, key, total_results, settings):
         btn.append([InlineKeyboardButton("↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
 
 
-async def _edit_msg(query, message, settings, btn, search, total_results, curr_time, files=None):
+async def _edit_msg(query, message, settings, btn, search, total_results, curr_time, files=None, is_filtered=False):
     cur_time = datetime.now(pytz.timezone("Asia/Kolkata")).time()
     td = timedelta(
         hours=cur_time.hour, minutes=cur_time.minute,
@@ -527,7 +527,7 @@ async def _edit_msg(query, message, settings, btn, search, total_results, curr_t
     if elapsed < 0:
         elapsed = 0.0
     remaining_seconds = "{:.2f}".format(elapsed)
-    cap = await get_cap(settings, remaining_seconds, files or [], query, total_results, search)
+    cap = await get_cap(settings, remaining_seconds, files or [], query, total_results, search, is_filtered=is_filtered)
 
     # Telegram hard limit: 4096 chars. Truncate safely.
     if len(cap) > 4096:
@@ -708,7 +708,7 @@ async def qlfc_action_handler(client: Client, query: CallbackQuery):
     await query.answer(f"🎯 {q_label} · {l_label} — {total_results} files", show_alert=False)
 
     # Phir single edit mein chips + files update karo
-    await _edit_msg(query, message, settings, btn, search, total_results, curr_time, files=files)
+    await _edit_msg(query, message, settings, btn, search, total_results, curr_time, files=files, is_filtered=True)
 
 @Client.on_callback_query(filters.regex(r"^seasons#"))
 async def seasons_cb_handler(client: Client, query: CallbackQuery):
