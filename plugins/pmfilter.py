@@ -269,41 +269,12 @@ async def next_page(bot, query):
         ]
 
 
-        btn.insert(0, 
-            [
-                InlineKeyboardButton("⇈ Sᴇʟᴇᴄᴛ Oᴘᴛɪᴏɴ Hᴇʀᴇ ⇈", 'reqinfo')
-            ]
-        )
-        btn.insert(0, 
-            [ 
-                InlineKeyboardButton("🎯 Fɪʟᴛᴇʀ", callback_data=f"qlf#{key}"),
-                InlineKeyboardButton("Sᴇᴀsᴏɴ", callback_data=f"seasons#{key}")
-            ]
-        )
-        btn.insert(0, [
-            InlineKeyboardButton("ʀᴇᴍᴏᴠᴇ ᴀᴅs", url=f"https://t.me/{temp.U_NAME}?start=premium"),
-            InlineKeyboardButton("Sᴇɴᴅ Aʟʟ", callback_data=f"sendfiles#{key}")
-           
-        ])
+        btn = _make_file_buttons(files, key, pre, settings)
+        _dummy = True  # replaced
 
     else:
-        btn = []
-        btn.insert(0, 
-            [
-                InlineKeyboardButton("⇈ Sᴇʟᴇᴄᴛ Oᴘᴛɪᴏɴ Hᴇʀᴇ ⇈", 'reqinfo')
-            ]
-        )
-        btn.insert(0, 
-            [
-                InlineKeyboardButton("🎯 Fɪʟᴛᴇʀ", callback_data=f"qlf#{key}"),
-                InlineKeyboardButton("Sᴇᴀsᴏɴ", callback_data=f"seasons#{key}")
-            ]
-        )
-        btn.insert(0, [
-            InlineKeyboardButton("ʀᴇᴍᴏᴠᴇ ᴀᴅs", url=f"https://t.me/{temp.U_NAME}?start=premium"),
-            InlineKeyboardButton("Sᴇɴᴅ Aʟʟ", callback_data=f"sendfiles#{key}") 
-           
-        ])
+        btn = _make_file_buttons([], key, pre, settings)
+        _dummy = True  # replaced
 
     try:
         if settings['max_btn']:
@@ -438,7 +409,9 @@ ACTIVE_QL = {}
 
 QUALITIES_LIST  = ["360p", "480p", "720p", "1080p", "1440p", "2160p"]
 LANGUAGES_LIST  = ["hindi", "english", "tamil", "telugu", "malayalam",
-                   "kannada", "gujarati", "marathi", "punjabi"]
+                   "kannada", "gujarati", "marathi", "punjabi",
+                   "bengali", "odia", "urdu", "bhojpuri",
+                   "japanese", "korean", "chinese", "french", "spanish"]
 
 
 def _build_qlf_chips(key):
@@ -478,24 +451,59 @@ def _build_qlf_chips(key):
 
 
 def _make_file_buttons(files, key, pre, settings):
-    """Normal (non-filter) file list — 🎯 Filter button ke saath"""
-    btn = []
-    if settings.get("button"):
-        btn = [
-            [InlineKeyboardButton(
-                text=f"[{get_size(f.file_size)}] {' '.join(x for x in f.file_name.split() if not x.startswith('[') and not x.startswith('@') and not x.startswith('www.'))}",
-                callback_data=f"{pre}#{f.file_id}"
-            )] for f in files
-        ]
-    btn.insert(0, [InlineKeyboardButton("⇈ Sᴇʟᴇᴄᴛ Oᴘᴛɪᴏɴ Hᴇʀᴇ ⇈", "reqinfo")])
-    btn.insert(0, [
-        InlineKeyboardButton("🎯 Fɪʟᴛᴇʀ", callback_data=f"qlf#{key}"),
-        InlineKeyboardButton("Sᴇᴀsᴏɴ",   callback_data=f"seasons#{key}")
-    ])
-    btn.insert(0, [
+    """Normal file list — Quality+Language chips seedha home pe"""
+    ql    = ACTIVE_QL.get(key, {})
+    sel_q = ql.get("q", "")
+    sel_l = ql.get("l", "")
+    btn   = []
+
+    # Top action buttons
+    btn.append([
         InlineKeyboardButton("ʀᴇᴍᴏᴠᴇ ᴀᴅs", url=f"https://t.me/{temp.U_NAME}?start=premium"),
         InlineKeyboardButton("Sᴇɴᴅ Aʟʟ",   callback_data=f"sendfiles#{key}")
     ])
+    btn.append([
+        InlineKeyboardButton("Sᴇᴀsᴏɴ", callback_data=f"seasons#{key}")
+    ])
+
+    # Quality chips
+    btn.append([InlineKeyboardButton("― ǫᴜᴀʟɪᴛʏ ―", callback_data="ident")])
+    row = []
+    for q in QUALITIES_LIST:
+        row.append(InlineKeyboardButton(
+            ("✅ " if sel_q == q else "") + q.upper(),
+            callback_data=f"qlfc#q#{q}#{key}"
+        ))
+        if len(row) == 3:
+            btn.append(row); row = []
+    if row: btn.append(row)
+
+    # Language chips
+    btn.append([InlineKeyboardButton("― ʟᴀɴɢᴜᴀɢᴇ ―", callback_data="ident")])
+    row = []
+    for lg in LANGUAGES_LIST:
+        row.append(InlineKeyboardButton(
+            ("✅ " if sel_l == lg else "") + lg.title(),
+            callback_data=f"qlfc#l#{lg}#{key}"
+        ))
+        if len(row) == 3:
+            btn.append(row); row = []
+    if row: btn.append(row)
+
+    # Clear All
+    btn.append([
+        InlineKeyboardButton("🗑 Cʟᴇᴀʀ Aʟʟ", callback_data=f"qlfc#clear#all#{key}")
+    ])
+
+    # File list
+    if settings.get("button"):
+        btn.append([InlineKeyboardButton("⇈ Sᴇʟᴇᴄᴛ Oᴘᴛɪᴏɴ Hᴇʀᴇ ⇈", callback_data="reqinfo")])
+        for f in files:
+            clean = " ".join(x for x in f.file_name.split() if not x.startswith("[") and not x.startswith("@") and not x.startswith("www."))
+            btn.append([InlineKeyboardButton(
+                f"[{get_size(f.file_size)}] {clean}",
+                callback_data=f"{pre}#{f.file_id}"
+            )])
     return btn
 
 
@@ -701,7 +709,7 @@ async def qlfc_action_handler(client: Client, query: CallbackQuery):
                        req, key, total_results, settings)
     btn.append([InlineKeyboardButton(
         "🔍 Sᴇᴀʀᴄʜ ɪɴ Wᴇʙsɪᴛᴇ",
-        url=f"https://suhani-search.vercel.app/?search={quote_plus(search)}"
+        url=f"https://suhani-search.vercel.app/?search={quote_plus(fresh)}"
     )])
 
     # Pehle answer karo (Telegram ke 10s timeout se pehle)
@@ -836,23 +844,7 @@ async def filter_seasons_cb_handler(client: Client, query: CallbackQuery):
             InlineKeyboardButton("ꜱᴇʟᴇᴄᴛ ᴀɢᴀɪɴ", callback_data=f"seasons#{key}")
         ])
     else:
-        btn = []
-        btn.insert(0, 
-            [
-                InlineKeyboardButton("⇈ Sᴇʟᴇᴄᴛ Oᴘᴛɪᴏɴ Hᴇʀᴇ ⇈", 'reqinfo')
-            ]
-        )
-        btn.insert(0, 
-            [
-                InlineKeyboardButton("🎯 Fɪʟᴛᴇʀ", callback_data=f"qlf#{key}"),
-                InlineKeyboardButton("Sᴇᴀsᴏɴ", callback_data=f"seasons#{key}")
-            ]
-        )
-        btn.insert(0, [
-            InlineKeyboardButton("ʀᴇᴍᴏᴠᴇ ᴀᴅs", url=f"https://t.me/{temp.U_NAME}?start=plan"),
-            InlineKeyboardButton("Sᴇɴᴅ Aʟʟ", callback_data=f"sendfiles#{key}")
-            
-        ])
+        btn = _make_file_buttons([], key, pre, settings)
     
     offset = 0
 
@@ -2844,50 +2836,7 @@ async def auto_filter(client, msg, spoll=False):
     for _file in files:
         if _file.file_id not in temp.FILE_REQ:
             temp.FILE_REQ[_file.file_id] = _requester_id
-    if settings["button"]:
-        btn = [
-            [
-                InlineKeyboardButton(
-                    text=f"[{get_size(file.file_size)}] {' '.join(filter(lambda x: not x.startswith('[') and not x.startswith('@') and not x.startswith('www.'), file.file_name.split()))}", callback_data=f'{pre}#{file.file_id}'
-                ),
-            ]
-            for file in files
-        ]
-        btn.insert(0, 
-            [
-                InlineKeyboardButton("⇈ Sᴇʟᴇᴄᴛ Oᴘᴛɪᴏɴ Hᴇʀᴇ ⇈", 'reqinfo')
-            ]
-        )
-        btn.insert(0, 
-            [
-                InlineKeyboardButton("🎯 Fɪʟᴛᴇʀ", callback_data=f"qlf#{key}"),
-                InlineKeyboardButton("Sᴇᴀsᴏɴ", callback_data=f"seasons#{key}")
-            ]
-        )
-        btn.insert(0, [
-            InlineKeyboardButton("ʀᴇᴍᴏᴠᴇ ᴀᴅs", url=f"https://t.me/{temp.U_NAME}?start=premium"),
-            InlineKeyboardButton("Sᴇɴᴅ Aʟʟ", callback_data=f"sendfiles#{key}")
-            
-        ])
-
-    else:
-        btn = []
-        btn.insert(0, 
-            [
-                InlineKeyboardButton("⇈ Sᴇʟᴇᴄᴛ Oᴘᴛɪᴏɴ Hᴇʀᴇ ⇈", 'reqinfo')
-            ]
-        )
-        btn.insert(0, 
-            [
-                InlineKeyboardButton("🎯 Fɪʟᴛᴇʀ", callback_data=f"qlf#{key}"),
-                InlineKeyboardButton("Sᴇᴀsᴏɴ", callback_data=f"seasons#{key}")
-            ]
-        )
-        btn.insert(0, [
-            InlineKeyboardButton("ʀᴇᴍᴏᴠᴇ ᴀᴅs", url=f"https://t.me/{temp.U_NAME}?start=premium"),
-            InlineKeyboardButton("Sᴇɴᴅ Aʟʟ", callback_data=f"sendfiles#{key}")
-            
-        ])
+    btn = _make_file_buttons(files, key, pre, settings)
 
     if offset != "":
         req = message.from_user.id if message.from_user else 0
