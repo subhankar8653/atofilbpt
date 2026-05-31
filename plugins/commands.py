@@ -599,8 +599,9 @@ async def start(client, message):
                     return False
                 except UserNotParticipant:
                     return False
-                except Exception:
-                    return True  # Error = assume joined (safe fallback)
+                except Exception as e:
+                    logging.warning(f"[FSUB] is_member check failed for uid={uid} ch={ch_id}: {e}")
+                    return False  # Error = assume NOT joined (safe: better to show fsub button than bypass)
 
             for ch_id in channels:
                 mode = await db.get_channel_mode(ch_id)
@@ -627,8 +628,9 @@ async def start(client, message):
                     custom_name = await db.get_fsub_channel_name(ch_id)
                     btn_title = custom_name if custom_name else chat_obj.title
                     buttons.append([InlineKeyboardButton(btn_title, url=link)])
-                except Exception:
-                    buttons.append([InlineKeyboardButton("Join Channel", url="https://t.me/")])
+                except Exception as e:
+                    logging.warning(f"[FSUB] Button create failed for ch={ch_id}: {e}")
+                    buttons.append([InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/")])
 
             if buttons:
                 buttons.append([InlineKeyboardButton(
