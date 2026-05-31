@@ -64,11 +64,12 @@ async def cached_search(chat_id, search, offset=0):
     cache_key = (chat_id, search.lower().strip(), offset)
     now = _time.time()
     if cache_key in _SEARCH_CACHE:
-        files, ts = _SEARCH_CACHE[cache_key]
+        cached_val, ts = _SEARCH_CACHE[cache_key]
         if now - ts < _SEARCH_CACHE_TTL:
-            return files, 0, len(files)
+            files, n_offset, total = cached_val
+            return files, n_offset, total
     files, n_offset, total = await get_search_results(chat_id, search, offset=offset, filter=True)
-    _SEARCH_CACHE[cache_key] = (files, now)
+    _SEARCH_CACHE[cache_key] = ((files, n_offset, total), now)
     # Purana cache clean karo (100 se zyada entries mat rakho)
     if len(_SEARCH_CACHE) > 100:
         oldest = sorted(_SEARCH_CACHE.items(), key=lambda x: x[1][1])[:20]
@@ -471,13 +472,23 @@ async def _edit_msg(query, message, settings, btn, search, total_results, curr_t
         hours=curr_time.hour, minutes=curr_time.minute,
         seconds=curr_time.second + curr_time.microsecond/1e6
     )
-    remaining_seconds = "{:.2f}".format(td.total_seconds())
+    elapsed = td.total_seconds()
+    if elapsed < 0:
+        elapsed = 0.0
+    remaining_seconds = "{:.2f}".format(elapsed)
     cap = await get_cap(settings, remaining_seconds, files or [], query, total_results, search)
     try:
         await message.edit_text(text=cap, reply_markup=InlineKeyboardMarkup(btn),
                                 disable_web_page_preview=True)
     except MessageNotModified:
         pass
+    except FloodWait as e:
+        await asyncio.sleep(e.value)
+        try:
+            await message.edit_text(text=cap, reply_markup=InlineKeyboardMarkup(btn),
+                                    disable_web_page_preview=True)
+        except MessageNotModified:
+            pass
 
 
 # ── 🎯 Filter button → chips panel open ───────────────────
@@ -606,9 +617,10 @@ async def qlfc_action_handler(client: Client, query: CallbackQuery):
         url=f"https://suhani-search.vercel.app/?search={quote_plus(search)}"
     )])
 
+    # Pehle answer karo (Telegram ke 10s timeout se pehle)
     await query.answer(f"🎯 {q_label} · {l_label} — {total_results} files", show_alert=False)
 
-    # Message text bhi update karo (file links wala hissa)
+    # Phir single edit mein chips + files update karo
     await _edit_msg(query, message, settings, btn, search, total_results, curr_time, files=files)
 
 @Client.on_callback_query(filters.regex(r"^seasons#"))
