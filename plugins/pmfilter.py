@@ -16,7 +16,7 @@ from database.connections_mdb import active_connection, all_connections, delete_
 from info import *
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaPhoto, WebAppInfo
 from pyrogram import Client, filters, enums
-from pyrogram.errors import FloodWait, UserIsBlocked, MessageNotModified, PeerIdInvalid
+from pyrogram.errors import FloodWait, UserIsBlocked, MessageNotModified, PeerIdInvalid, MessageTooLong
 from utils import *
 from fuzzywuzzy import process
 from database.config_db import mdb
@@ -528,25 +528,41 @@ async def _edit_msg(query, message, settings, btn, search, total_results, curr_t
         elapsed = 0.0
     remaining_seconds = "{:.2f}".format(elapsed)
     cap = await get_cap(settings, remaining_seconds, files or [], query, total_results, search)
-    try:
-        await message.edit_text(text=cap, reply_markup=InlineKeyboardMarkup(btn),
-                                disable_web_page_preview=True)
-    except MessageNotModified:
-        # Text same tha — sirf keyboard update karo (✅ chips ke liye zaroori)
+
+    # Telegram hard limit: 4096 chars. Truncate safely.
+    if len(cap) > 4096:
+        cap = cap[:4090] + "…</b>"
+
+    markup = InlineKeyboardMarkup(btn)
+
+    async def _do_edit():
         try:
-            await message.edit_reply_markup(InlineKeyboardMarkup(btn))
-        except MessageNotModified:
-            pass
-    except FloodWait as e:
-        await asyncio.sleep(e.value)
-        try:
-            await message.edit_text(text=cap, reply_markup=InlineKeyboardMarkup(btn),
+            await message.edit_text(text=cap, reply_markup=markup,
                                     disable_web_page_preview=True)
         except MessageNotModified:
+            # Text same tha — keyboard force update karo (✅ chips)
             try:
-                await message.edit_reply_markup(InlineKeyboardMarkup(btn))
+                await message.edit_reply_markup(markup)
             except MessageNotModified:
                 pass
+        except MessageTooLong:
+            # Extreme case: sirf keyboard update karo
+            try:
+                await message.edit_reply_markup(markup)
+            except MessageNotModified:
+                pass
+        except FloodWait as e:
+            await asyncio.sleep(e.value)
+            try:
+                await message.edit_text(text=cap, reply_markup=markup,
+                                        disable_web_page_preview=True)
+            except (MessageNotModified, MessageTooLong):
+                try:
+                    await message.edit_reply_markup(markup)
+                except MessageNotModified:
+                    pass
+
+    await _do_edit()
 
 
 # ── 🎯 Filter button → chips panel open ───────────────────
