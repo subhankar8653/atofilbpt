@@ -487,7 +487,7 @@ async def qlfc_action_handler(client: Client, query: CallbackQuery):
         _append_pagination(btn, offset_str, req, key, total_results, settings)
         website_search_url = f"https://suhani-search.vercel.app/?search={quote_plus(fresh)}"
         btn.append([InlineKeyboardButton(text="🔍 Sᴇᴀʀᴄʜ ɪɴ Wᴇʙsɪᴛᴇ", url=website_search_url)])
-        await _edit_msg(query, message, settings, btn, fresh, total_results, curr_time)
+        await _edit_msg(query, message, settings, btn, fresh, total_results, curr_time, files=files)
         await query.answer()
         return
 
@@ -535,19 +535,20 @@ async def qlfc_action_handler(client: Client, query: CallbackQuery):
     settings = await get_settings(chat_id)
     pre = "filep" if settings["file_secure"] else "file"
 
-    # Panel stays open — file list update + panel re-render
-    # Re-open panel with updated chips
-    panel_btn = _build_qlf_panel(key)
+    # File list buttons banana (filtered results)
+    btn = _make_file_buttons(files, key, pre, settings)
+    offset_str = offset if isinstance(offset, str) else str(offset)
+    _append_pagination(btn, offset_str, req, key, total_results, settings)
+    website_search_url = f"https://suhani-search.vercel.app/?search={quote_plus(search)}"
+    btn.append([InlineKeyboardButton(text="\U0001f50d S\u1d07\u1d00\u0280\u1d04\u029c \u026a\u0274 W\u1d07\u1d03s\u026a\u1d1b\u1d07", url=website_search_url)])
 
-    # Show toast with result count
+    # Toast with result count
     q_label = ql.get("q", "").upper() or "All"
     l_label = ql.get("l", "").title() or "All"
-    await query.answer(f"🎯 {q_label} · {l_label} — {total_results} files", show_alert=False)
+    await query.answer(f"\U0001f3af {q_label} \u00b7 {l_label} \u2014 {total_results} files", show_alert=False)
 
-    try:
-        await query.edit_message_reply_markup(InlineKeyboardMarkup(panel_btn))
-    except MessageNotModified:
-        pass
+    # Message edit — file list update karo (panel band, filtered files dikhao)
+    await _edit_msg(query, message, settings, btn, search, total_results, curr_time, files=files)
 
 
 def _make_file_buttons(files, key, pre, settings):
@@ -589,27 +590,23 @@ def _append_pagination(btn, offset, req, key, total_results, settings):
         btn.append([InlineKeyboardButton("↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
 
 
-async def _edit_msg(query, message, settings, btn, search, total_results, curr_time):
-    if not settings.get("button"):
-        cur_time = datetime.now(pytz.timezone("Asia/Kolkata")).time()
-        time_difference = timedelta(
-            hours=cur_time.hour, minutes=cur_time.minute,
-            seconds=(cur_time.second + cur_time.microsecond/1000000)
-        ) - timedelta(
-            hours=curr_time.hour, minutes=curr_time.minute,
-            seconds=(curr_time.second + curr_time.microsecond/1000000)
-        )
-        remaining_seconds = "{:.2f}".format(time_difference.total_seconds())
-        cap = await get_cap(settings, remaining_seconds, [], query, total_results, search)
-        try:
-            await message.edit_text(text=cap, reply_markup=InlineKeyboardMarkup(btn), disable_web_page_preview=True)
-        except MessageNotModified:
-            pass
-    else:
-        try:
-            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btn))
-        except MessageNotModified:
-            pass
+async def _edit_msg(query, message, settings, btn, search, total_results, curr_time, files=None):
+    cur_time = datetime.now(pytz.timezone("Asia/Kolkata")).time()
+    time_difference = timedelta(
+        hours=cur_time.hour, minutes=cur_time.minute,
+        seconds=(cur_time.second + cur_time.microsecond/1000000)
+    ) - timedelta(
+        hours=curr_time.hour, minutes=curr_time.minute,
+        seconds=(curr_time.second + curr_time.microsecond/1000000)
+    )
+    remaining_seconds = "{:.2f}".format(time_difference.total_seconds())
+    # files=None hone pe get_cap khud poster/imdb se cap banaega
+    _files = files or []
+    cap = await get_cap(settings, remaining_seconds, _files, query, total_results, search)
+    try:
+        await message.edit_text(text=cap, reply_markup=InlineKeyboardMarkup(btn), disable_web_page_preview=True)
+    except MessageNotModified:
+        pass
 
 
 @Client.on_callback_query(filters.regex(r"^seasons#"))
