@@ -467,142 +467,7 @@ async def start(client, message):
             await asyncio.sleep(600)
             await k.edit("<b>ʏᴏᴜʀ ᴍᴇꜱꜱᴀɢᴇ ɪꜱ ᴅᴇʟᴇᴛᴇᴅ !\nᴋɪɴᴅʟʏ ꜱᴇᴀʀᴄʜ ᴀɢᴀɪɴ.</b>")
             return    
-    elif data.startswith("all"):
-        files = temp.GETALL.get(file_id)
-        if not files:
-            return await message.reply('<b><i>ɴᴏ ꜱᴜᴄʜ ꜰɪʟᴇ ᴇxɪꜱᴛꜱ !</b></i>')
-
-        # ── FSub check — same as files branch ────────────────────────
-        from plugins.bot_mode import runtime_get_mode, runtime_get_shorteners, runtime_get_fake_link
-        _cur_mode = await runtime_get_mode()
-        user_id   = message.from_user.id
-
-        # check_fsub_inline needs file_id — use first file's id as reference
-        first_fid = files[0].file_id if files else file_id
-
-        async def _check_fsub_all(uid):
-            from pyrogram.errors.exceptions.bad_request_400 import UserNotParticipant
-            from pyrogram.enums import ChatMemberStatus as CMS
-            if await db.has_premium_access(uid):
-                return True, []
-            db_channels = await db.get_fsub_channels()
-            channels = db_channels if db_channels else MULTI_FSUB
-            if not channels:
-                return True, []
-            buttons = []
-            for ch_id in channels:
-                mode = await db.get_channel_mode(ch_id)
-                try:
-                    if mode == "on" and await db.req_user_exist(ch_id, uid):
-                        continue
-                    m = await client.get_chat_member(ch_id, uid)
-                    if m.status == CMS.BANNED:
-                        pass
-                    elif m.status in {CMS.OWNER, CMS.ADMINISTRATOR, CMS.MEMBER}:
-                        continue
-                except UserNotParticipant:
-                    pass
-                except Exception as e:
-                    logging.warning(f"[FSUB-ALL] is_member failed uid={uid} ch={ch_id}: {e}")
-                # Not joined — make button
-                try:
-                    chat_obj = await client.get_chat(ch_id)
-                    if mode == "on" and not chat_obj.username:
-                        inv = await client.create_chat_invite_link(chat_id=ch_id, creates_join_request=True)
-                        link = inv.invite_link
-                    elif chat_obj.username:
-                        link = f"https://t.me/{chat_obj.username}"
-                    else:
-                        inv = await client.create_chat_invite_link(chat_id=ch_id)
-                        link = inv.invite_link
-                    custom_name = await db.get_fsub_channel_name(ch_id)
-                    btn_title = custom_name if custom_name else chat_obj.title
-                    buttons.append([InlineKeyboardButton(btn_title, url=link)])
-                except Exception as e:
-                    logging.warning(f"[FSUB-ALL] button create failed ch={ch_id}: {e}")
-                    buttons.append([InlineKeyboardButton("📢 Join Channel", url="https://t.me/")])
-            if buttons:
-                buttons.append([InlineKeyboardButton(
-                    "✅ I Joined",
-                    url=f"https://telegram.me/{temp.U_NAME}?start=allfiles_{file_id}"
-                )])
-                return False, buttons
-            return True, []
-
-        fsub_ok, fsub_btns = await _check_fsub_all(user_id)
-        if not fsub_ok:
-            try:
-                fake = await runtime_get_fake_link()
-                fake_btn = [[InlineKeyboardButton(fake.get("button_text", "🔗 Click Here"), url=fake["url"])]] if fake and fake.get("url") else []
-            except Exception:
-                fake_btn = []
-            all_btns = (fake_btn + fsub_btns) if fake_btn else fsub_btns
-            return await message.reply_text(
-                "<b>⚠️ ᴩʟᴇᴀsᴇ ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs ᴛᴏ ɢᴇᴛ ᴛʜᴇ ꜰɪʟᴇ!</b>",
-                reply_markup=InlineKeyboardMarkup(all_btns),
-                protect_content=False
-            )
-        # ── End FSub check ────────────────────────────────────────────
-        filesarr = []
-        for file in files:
-            file_id = file.file_id
-            files_ = await get_file_details(file_id)
-            files1 = files_[0]
-            title = ' '.join(filter(lambda x: not x.startswith('[') and not x.startswith('@') and not x.startswith('www.'), files1.file_name.split()))
-            size = get_size(files1.file_size)
-            f_caption = files1.caption
-
-            if CUSTOM_FILE_CAPTION:
-                try:
-                    f_caption=CUSTOM_FILE_CAPTION.format(file_name= '' if title is None else title, file_size='' if size is None else size, file_caption='' if f_caption is None else f_caption)
-                except Exception as e:
-                    logger.exception(e)
-                    f_caption = f_caption
-
-            if f_caption is None:
-                f_caption = f"{' '.join(filter(lambda x: not x.startswith('[') and not x.startswith('@') and not x.startswith('www.'), files1.file_name.split()))}"
-            if await db.has_premium_access(message.from_user.id):
-                pass  
-            else:
-                if not await check_verification(client, message.from_user.id) and VERIFY == True:
-                    btn = [[
-                       InlineKeyboardButton("ᴄʟɪᴄᴋ ʜᴇʀᴇ ᴛᴏ ᴠᴇʀɪғʏ", url=await get_token(client, message.from_user.id, f"https://telegram.me/{temp.U_NAME}?start=", file_id))
-                       ],[
-                       InlineKeyboardButton("ʜᴏᴡ ᴛᴏ ᴠᴇʀɪғʏ", url=HOW_TO_VERIFY)
-                   ]]
-                    l = await message.reply_text(
-                        text=f"<blockquote><b>ʜᴇʏ ʙʀᴏ,\n\n ‼️ ʏᴏᴜ'ʀᴇ ɴᴏᴛ ᴠᴇʀɪғɪᴇᴅ ᴛᴏᴅᴀʏ ‼️\n\n ›› ᴘʟᴇᴀsᴇ ᴠᴇʀɪғʏ ᴀɴᴅ ɢᴇᴛ ᴜɴʟɪᴍɪᴛᴇᴅ ᴀᴄᴄᴇss ғᴏʀ {VERIFY_EXPIRE} ʜᴏᴜʀs ✅</blockquote></b>",
-                        protect_content=False,
-                        reply_markup=InlineKeyboardMarkup(btn)
-                    )
-                    await asyncio.sleep(180)
-                    await l.delete()
-                    return
-            if STREAM_MODE:
-                btn = [
-                    [InlineKeyboardButton('🚀 ꜰᴀꜱᴛ ᴅᴏᴡɴʟᴏᴀᴅ / ᴡᴀᴛᴄʜ ᴏɴʟɪɴᴇ 🖥️', callback_data=f'generate_stream_link:{file_id}')],
-                    [InlineKeyboardButton('📌 ᴊᴏɪɴ ᴜᴘᴅᴀᴛᴇꜱ ᴄʜᴀɴɴᴇʟ 📌', url=MOVIE_UPDATE_CHANNEL_LNK)]  # Keep this line unchanged  
-                ]
-            else:
-                btn = [
-                    [InlineKeyboardButton('📌 ᴊᴏɪɴ ᴜᴘᴅᴀᴛᴇꜱ ᴄʜᴀɴɴᴇʟ 📌', url=MOVIE_UPDATE_CHANNEL_LNK)]
-                ]
-
-            msg = await client.send_cached_media(
-                chat_id=message.from_user.id,
-                file_id=file_id,
-                caption=f_caption,
-                protect_content=True if pre == 'filep' else False,
-                reply_markup=InlineKeyboardMarkup(btn)
-            )
-            filesarr.append(msg)
-        k = await client.send_message(chat_id=message.from_user.id, text=f"<b><u>❗️❗️❗️IMPORTANT❗️️❗️❗️</u></b>\n\nᴛʜɪꜱ ᴍᴏᴠɪᴇ ꜰɪʟᴇ/ᴠɪᴅᴇᴏ ᴡɪʟʟ ʙᴇ ᴅᴇʟᴇᴛᴇᴅ ɪɴ <b><u><code>{get_time(DELETE_TIME)}</code></u> 🫥 <i></b>(ᴅᴜᴇ ᴛᴏ ᴄᴏᴘʏʀɪɢʜᴛ ɪꜱꜱᴜᴇꜱ)</i>.\n\n<b><i>ᴘʟᴇᴀꜱᴇ ꜰᴏʀᴡᴀʀᴅ ᴛʜɪꜱ ꜰɪʟᴇ ᴛᴏ ꜱᴏᴍᴇᴡʜᴇʀᴇ ᴇʟꜱᴇ ᴀɴᴅ ꜱᴛᴀʀᴛ ᴅᴏᴡɴʟᴏᴀᴅɪɴɢ ᴛʜᴇʀᴇ</i></b>")
-        await asyncio.sleep(DELETE_TIME)
-        for x in filesarr:
-            await x.delete()
-        await k.edit_text("<b>ʏᴏᴜʀ ᴀʟʟ ᴠɪᴅᴇᴏꜱ/ꜰɪʟᴇꜱ ᴀʀᴇ ᴅᴇʟᴇᴛᴇᴅ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ !\nᴋɪɴᴅʟʏ ꜱᴇᴀʀᴄʜ ᴀɢᴀɪɴ</b>")
-        return
-    elif data.startswith("files") or data.startswith("file_") or data.startswith("filep_"):
+    elif data.startswith("files") or data.startswith("file_") or data.startswith("filep_") or data.startswith("all"):
         # ══════════════════════════════════════════════════════════════
         # BOT MODE LOGIC: free | normal | earn
         # Premium users → seedha file, koi check nahi
@@ -612,6 +477,12 @@ async def start(client, message):
         _cur_shorteners = await runtime_get_shorteners()
         user_id = message.from_user.id
         chat_id = temp.SHORT.get(user_id)
+
+        # ── ALL BRANCH: agar allfiles_ data hai toh fsub/verify ke baad yahan handle karo ──
+        if data.startswith("all"):
+            files = temp.GETALL.get(file_id)
+            if not files:
+                return await message.reply('<b><i>ɴᴏ ꜱᴜᴄʜ ꜰɪʟᴇ ᴇxɪꜱᴛꜱ !</b></i>')
 
         # ── Helper: FSUB check + return buttons (Request + Normal mode) ──
         async def check_fsub_inline(uid):
@@ -671,9 +542,8 @@ async def start(client, message):
                     return False
                 except UserNotParticipant:
                     return False
-                except Exception as e:
-                    logging.warning(f"[FSUB] is_member check failed for uid={uid} ch={ch_id}: {e}")
-                    return False  # Error = assume NOT joined (safe: better to show fsub button than bypass)
+                except Exception:
+                    return True  # Error = assume joined (safe fallback)
 
             for ch_id in channels:
                 mode = await db.get_channel_mode(ch_id)
@@ -700,9 +570,8 @@ async def start(client, message):
                     custom_name = await db.get_fsub_channel_name(ch_id)
                     btn_title = custom_name if custom_name else chat_obj.title
                     buttons.append([InlineKeyboardButton(btn_title, url=link)])
-                except Exception as e:
-                    logging.warning(f"[FSUB] Button create failed for ch={ch_id}: {e}")
-                    buttons.append([InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/")])
+                except Exception:
+                    buttons.append([InlineKeyboardButton("Join Channel", url="https://t.me/")])
 
             if buttons:
                 buttons.append([InlineKeyboardButton(
@@ -737,6 +606,74 @@ async def start(client, message):
                 if sh['url'] not in done:
                     return sh
             return None  # Sab complete kar liye
+
+        # ── ALL BRANCH: fsub + verify check, phir files send karo ────
+        if data.startswith("all"):
+            # FSub check
+            fsub_ok, fsub_btns = await check_fsub_inline(user_id)
+            if not fsub_ok:
+                fake_btn = await get_fake_link_btn()
+                all_btns = (fake_btn + fsub_btns) if fake_btn else fsub_btns
+                return await message.reply_text(
+                    "<b>⚠️ ᴩʟᴇᴀsᴇ ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs ᴛᴏ ɢᴇᴛ ᴛʜᴇ ꜰɪʟᴇ!</b>",
+                    reply_markup=InlineKeyboardMarkup(all_btns),
+                    protect_content=False
+                )
+            # Verify check
+            if not await db.has_premium_access(user_id):
+                if VERIFY and not await check_verification(client, user_id):
+                    verify_url = await get_token(client, user_id, f"https://telegram.me/{temp.U_NAME}?start=", file_id)
+                    btn = [
+                        [InlineKeyboardButton("🔓 ᴠᴇʀɪꜰʏ ᴛᴏ ɢᴇᴛ ꜰɪʟᴇ", url=verify_url)],
+                        [InlineKeyboardButton("❓ ʜᴏᴡ ᴛᴏ ᴠᴇʀɪꜰʏ", url=HOW_TO_VERIFY)]
+                    ]
+                    l = await message.reply_text(
+                        f"<blockquote><b>ʜᴇʏ {message.from_user.mention},\n\n"
+                        f"‼️ ᴩʟᴇᴀsᴇ ᴠᴇʀɪꜰʏ ᴏɴᴄᴇ ᴇᴠᴇʀʏ {VERIFY_EXPIRE} ʜᴏᴜʀs ᴛᴏ ɢᴇᴛ ʏᴏᴜʀ ꜰɪʟᴇ ✅\n\n"
+                        "💡 ᴩʀᴇᴍɪᴜᴍ ᴜsᴇʀs ɴᴇᴠᴇʀ ɴᴇᴇᴅ ᴛᴏ ᴠᴇʀɪꜰʏ!</blockquote></b>",
+                        reply_markup=InlineKeyboardMarkup(btn),
+                        protect_content=False
+                    )
+                    await asyncio.sleep(180)
+                    await l.delete()
+                    return
+            # Send all files
+            filesarr = []
+            for file in files:
+                fid = file.file_id
+                files_ = await get_file_details(fid)
+                files1 = files_[0]
+                title = ' '.join(filter(lambda x: not x.startswith('[') and not x.startswith('@') and not x.startswith('www.'), files1.file_name.split()))
+                size = get_size(files1.file_size)
+                f_caption = files1.caption
+                if CUSTOM_FILE_CAPTION:
+                    try:
+                        f_caption = CUSTOM_FILE_CAPTION.format(file_name='' if title is None else title, file_size='' if size is None else size, file_caption='' if f_caption is None else f_caption)
+                    except Exception as e:
+                        logger.exception(e)
+                if f_caption is None:
+                    f_caption = f"{' '.join(filter(lambda x: not x.startswith('[') and not x.startswith('@') and not x.startswith('www.'), files1.file_name.split()))}"
+                if STREAM_MODE:
+                    btn = [
+                        [InlineKeyboardButton('🚀 ꜰᴀꜱᴛ ᴅᴏᴡɴʟᴏᴀᴅ / ᴡᴀᴛᴄʜ ᴏɴʟɪɴᴇ 🖥️', callback_data=f'generate_stream_link:{fid}')],
+                        [InlineKeyboardButton('📌 ᴊᴏɪɴ ᴜᴘᴅᴀᴛᴇꜱ ᴄʜᴀɴɴᴇʟ 📌', url=MOVIE_UPDATE_CHANNEL_LNK)]
+                    ]
+                else:
+                    btn = [[InlineKeyboardButton('📌 ᴊᴏɪɴ ᴜᴘᴅᴀᴛᴇꜱ ᴄʜᴀɴɴᴇʟ 📌', url=MOVIE_UPDATE_CHANNEL_LNK)]]
+                msg = await client.send_cached_media(
+                    chat_id=message.from_user.id,
+                    file_id=fid,
+                    caption=f_caption,
+                    protect_content=True if pre == 'filep' else False,
+                    reply_markup=InlineKeyboardMarkup(btn)
+                )
+                filesarr.append(msg)
+            k = await client.send_message(chat_id=message.from_user.id, text=f"<b><u>❗️❗️❗️IMPORTANT❗️️❗️❗️</u></b>\n\nᴛʜɪꜱ ᴍᴏᴠɪᴇ ꜰɪʟᴇ/ᴠɪᴅᴇᴏ ᴡɪʟʟ ʙᴇ ᴅᴇʟᴇᴛᴇᴅ ɪɴ <b><u><code>{get_time(DELETE_TIME)}</code></u> 🫥 <i></b>(ᴅᴜᴇ ᴛᴏ ᴄᴏᴘʏʀɪɢʜᴛ ɪꜱꜱᴜᴇꜱ)</i>.\n\n<b><i>ᴘʟᴇᴀꜱᴇ ꜰᴏʀᴡᴀʀᴅ ᴛʜɪꜱ ꜰɪʟᴇ ᴛᴏ ꜱᴏᴍᴇᴡʜᴇʀᴇ ᴇʟꜱᴇ ᴀɴᴅ ꜱᴛᴀʀᴛ ᴅᴏᴡɴʟᴏᴀᴅɪɴɢ ᴛʜᴇʀᴇ</i></b>")
+            await asyncio.sleep(DELETE_TIME)
+            for x in filesarr:
+                await x.delete()
+            await k.edit_text("<b>ʏᴏᴜʀ ᴀʟʟ ᴠɪᴅᴇᴏꜱ/ꜰɪʟᴇꜱ ᴀʀᴇ ᴅᴇʟᴇᴛᴇᴅ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ !\nᴋɪɴᴅʟʏ ꜱᴇᴀʀᴄʜ ᴀɢᴀɪɴ</b>")
+            return
 
         # ── PREMIUM CHECK: All modes bypass ───────────────────────────
         if await db.has_premium_access(user_id):
