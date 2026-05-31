@@ -431,13 +431,8 @@ async def qualities_cb_handler(client: Client, query: CallbackQuery):
 async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
     _, qual, key = query.data.split("#")
     curr_time = datetime.now(pytz.timezone('Asia/Kolkata')).time()
-    search = BUTTONS.get(key) or FRESH.get(key) or ""
-    search = search.replace("_", " ")
-    baal = qual in search
-    if baal:
-        search = search.replace(qual, "")
-    else:
-        search = search
+    # FRESH se hamesha original search lo — BUTTONS ka stale state use mat karo
+    fresh_search = (FRESH.get(key) or "").replace("_", " ").strip()
     req = query.from_user.id
     chat_id = query.message.chat.id
     message = query.message
@@ -450,7 +445,10 @@ async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
     except:
         pass
     if qual != "homepage":
-        search = f"{search} {qual}" 
+        search = f"{fresh_search} {qual}".strip()
+    else:
+        # Back to files — original search restore karo
+        search = fresh_search
     BUTTONS[key] = search
 
     files, offset, total_results = await cached_search(chat_id, search, offset=0)
@@ -598,13 +596,8 @@ async def languages_cb_handler(client: Client, query: CallbackQuery):
 async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
     _, lang, key = query.data.split("#")
     curr_time = datetime.now(pytz.timezone('Asia/Kolkata')).time()
-    search = BUTTONS.get(key) or FRESH.get(key) or ""
-    search = search.replace("_", " ")
-    baal = lang in search
-    if baal:
-        search = search.replace(lang, "")
-    else:
-        search = search
+    # FRESH se hamesha original search lo — BUTTONS ka stale state use mat karo
+    fresh_search = (FRESH.get(key) or "").replace("_", " ").strip()
     req = query.from_user.id
     chat_id = query.message.chat.id
     message = query.message
@@ -617,7 +610,10 @@ async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
     except:
         pass
     if lang != "homepage":
-        search = f"{search} {lang}" 
+        search = f"{fresh_search} {lang}".strip()
+    else:
+        # Back to files — original search restore karo
+        search = fresh_search
     BUTTONS[key] = search
 
     files, offset, total_results = await cached_search(chat_id, search, offset=0)
