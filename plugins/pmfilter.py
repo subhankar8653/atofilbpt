@@ -3,7 +3,6 @@ import re
 import ast
 import math
 import random
-import time as _time
 import pytz
 from datetime import datetime, timedelta, date, time
 lock = asyncio.Lock()
@@ -52,6 +51,30 @@ FRESH = {}
 BUTTONS0 = {}
 BUTTONS1 = {}
 BUTTONS2 = {}
+
+# ── Search results cache — Quality/Language/Season filter ke liye ──────────────
+# key: (chat_id, search_query) → (files, timestamp)
+# 5 minute cache — har click pe DB query nahi hogi
+_SEARCH_CACHE = {}
+_SEARCH_CACHE_TTL = 300  # seconds
+
+async def cached_search(chat_id, search, offset=0):
+    """get_search_results ka cached wrapper. Same query 5 min mein dobara DB se nahi aayegi."""
+    import time as _time
+    cache_key = (chat_id, search.lower().strip(), offset)
+    now = _time.time()
+    if cache_key in _SEARCH_CACHE:
+        files, ts = _SEARCH_CACHE[cache_key]
+        if now - ts < _SEARCH_CACHE_TTL:
+            return files, 0, len(files)
+    files, n_offset, total = await get_search_results(chat_id, search, offset=offset, filter=True)
+    _SEARCH_CACHE[cache_key] = (files, now)
+    # Purana cache clean karo (100 se zyada entries mat rakho)
+    if len(_SEARCH_CACHE) > 100:
+        oldest = sorted(_SEARCH_CACHE.items(), key=lambda x: x[1][1])[:20]
+        for k, _ in oldest:
+            _SEARCH_CACHE.pop(k, None)
+    return files, n_offset, total
 SPELL_CHECK = {}
 
 
@@ -430,7 +453,7 @@ async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
         search = f"{search} {qual}" 
     BUTTONS[key] = search
 
-    files, offset, total_results = await get_search_results(chat_id, search, offset=0, filter=True)
+    files, offset, total_results = await cached_search(chat_id, search, offset=0)
     if not files:
         await query.answer("ɴᴏ ꜰɪʟᴇꜱ ᴡᴇʀᴇ ꜰᴏᴜɴᴅ", show_alert=1)
         return
@@ -597,7 +620,7 @@ async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
         search = f"{search} {lang}" 
     BUTTONS[key] = search
 
-    files, offset, total_results = await get_search_results(chat_id, search, offset=0, filter=True)
+    files, offset, total_results = await cached_search(chat_id, search, offset=0)
     if not files:
         await query.answer("ɴᴏ ꜰɪʟᴇꜱ ᴡᴇʀᴇ ꜰᴏᴜɴᴅ", show_alert=1)
         return
@@ -2798,15 +2821,7 @@ async def auto_filter(client, msg, spoll=False):
                 #await m.delete()
                 if settings["spell_check"]:
                     ai_sts = await m.edit('ᴘʟᴇᴀꜱᴇ ᴡᴀɪᴛ, ꜱᴜʜᴀɴɪ ɪꜱ ᴄʜᴇᴄᴋɪɴɢ ʏᴏᴜʀ ꜱᴘᴇʟʟɪɴɢ...')
-                    try:
-                        is_misspelled = await asyncio.wait_for(
-                            ai_spell_check(chat_id=message.chat.id, wrong_name=search),
-                            timeout=15  # 15 sec max — stuck hone se bachao
-                        )
-                    except asyncio.TimeoutError:
-                        is_misspelled = None
-                    except Exception:
-                        is_misspelled = None
+                    is_misspelled = await ai_spell_check(chat_id = message.chat.id,wrong_name=search)
                     if is_misspelled:
                         await ai_sts.edit(f'<b>✅ꜱᴜʜᴀɴɪ sᴜɢɢᴇsᴛᴇᴅ <code> {is_misspelled}</code> \nsᴏ ɪᴍ sᴇᴀʀᴄʜɪɴɢ ғᴏᴛ <code>{is_misspelled}</code></b>')
                         await asyncio.sleep(2)
@@ -2829,12 +2844,12 @@ async def auto_filter(client, msg, spoll=False):
     temp.GETALL[key] = files
     temp.SHORT[message.from_user.id] = message.chat.id
     temp.SEARCH_REQ[key] = message.from_user.id if message.from_user else 0  # track who searched
-    # Store requester for EVERY file_id — works for both button and no-button modes
-    # Format: (user_id, timestamp) — commands.py mein 24hr expiry check hota hai
+    # Store requester for EVERY file_id — sirf tab overwrite karo jab record nahi hai
+    # Agar kisi aur ne pehle same file_id claim kiya hai toh mat chheḍo
     _requester_id = message.from_user.id if message.from_user else 0
-    _req_timestamp = _time.time()
     for _file in files:
-        temp.FILE_REQ[_file.file_id] = (_requester_id, _req_timestamp)
+        if _file.file_id not in temp.FILE_REQ:
+            temp.FILE_REQ[_file.file_id] = _requester_id
     if settings["button"]:
         btn = [
             [
@@ -3018,44 +3033,22 @@ async def auto_filter(client, msg, spoll=False):
             await message.delete()
 
 async def ai_spell_check(chat_id, wrong_name):
-    # TMDB/OMDB (get_poster) use karo — imdb.search_movie nahi (koi config nahi tha)
-    try:
-        results = await asyncio.wait_for(
-            get_poster(wrong_name, bulk=True),
-            timeout=10
-        )
-    except Exception:
-        return None
-
-    if not results:
-        return None
-
-    # Movie titles list banao
-    movie_list = []
-    for r in results:
-        title = r.get('Title') or r.get('title') or ''
-        if title:
-            movie_list.append(title)
-
+    async def search_movie(wrong_name):
+        search_results = imdb.search_movie(wrong_name)
+        movie_list = [movie['title'] for movie in search_results]
+        return movie_list
+    movie_list = await search_movie(wrong_name)
     if not movie_list:
-        return None
-
+        return
     for _ in range(5):
         closest_match = process.extractOne(wrong_name, movie_list)
-        if not closest_match or closest_match[1] <= 60:
-            return None
+        if not closest_match or closest_match[1] <= 80:
+            return 
         movie = closest_match[0]
-        try:
-            files, offset, total_results = await asyncio.wait_for(
-                get_search_results(chat_id=chat_id, query=movie),
-                timeout=8
-            )
-        except asyncio.TimeoutError:
-            return None
+        files, offset, total_results = await get_search_results(chat_id=chat_id, query=movie)
         if files:
             return movie
         movie_list.remove(movie)
-    return None
 
 async def advantage_spell_chok(client, message):
     mv_id = message.id

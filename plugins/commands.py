@@ -897,8 +897,23 @@ async def start(client, message):
             # Sab shorteners complete → 24hrs free
     user = message.from_user.id
 
-    # ── Access control DISABLED — FILE_REQ RAM-based hai, unreliable ──
-    # Same file multiple users search kar sakte hain — overwrite hota hai
+    # ── Access control: sirf original searcher hi file le sakta hai ──
+    # (User A ka search result User B nahi le sakta)
+    if pre in ("file", "filep", "files"):
+        _original_requester = temp.FILE_REQ.get(file_id, 0)
+        _is_authorized = (
+            _original_requester == 0 or          # koi record nahi = open
+            user == _original_requester or        # same user
+            str(user) in ADMINS                   # admin bypass
+        )
+        if not _is_authorized:
+            return await message.reply_text(
+                f"⚠️ <b>Hey {message.from_user.mention},</b>\n\n"
+                "This file does not belong to your search result.\n\n"
+                "Please go to our group, search for the file yourself, "
+                "and then click on the result to get it.",
+                disable_web_page_preview=True
+            )
     # ──────────────────────────────────────────────────────────────────
 
     files_ = await get_file_details(file_id)        
