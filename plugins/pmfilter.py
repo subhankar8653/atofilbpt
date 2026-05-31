@@ -481,14 +481,21 @@ async def _edit_msg(query, message, settings, btn, search, total_results, curr_t
         await message.edit_text(text=cap, reply_markup=InlineKeyboardMarkup(btn),
                                 disable_web_page_preview=True)
     except MessageNotModified:
-        pass
+        # Text same tha — sirf keyboard update karo (✅ chips ke liye zaroori)
+        try:
+            await message.edit_reply_markup(InlineKeyboardMarkup(btn))
+        except MessageNotModified:
+            pass
     except FloodWait as e:
         await asyncio.sleep(e.value)
         try:
             await message.edit_text(text=cap, reply_markup=InlineKeyboardMarkup(btn),
                                     disable_web_page_preview=True)
         except MessageNotModified:
-            pass
+            try:
+                await message.edit_reply_markup(InlineKeyboardMarkup(btn))
+            except MessageNotModified:
+                pass
 
 
 # ── 🎯 Filter button → chips panel open ───────────────────
@@ -555,9 +562,15 @@ async def qlfc_action_handler(client: Client, query: CallbackQuery):
         ACTIVE_QL.pop(key, None)
         ql = {}
     elif typ == "q":
-        ql["q"] = "" if ql.get("q") == val else val
+        if ql.get("q") == val:
+            ql.pop("q", None)   # same click = deselect
+        else:
+            ql["q"] = val
     elif typ == "l":
-        ql["l"] = "" if ql.get("l") == val else val
+        if ql.get("l") == val:
+            ql.pop("l", None)   # same click = deselect
+        else:
+            ql["l"] = val
     ACTIVE_QL[key] = ql
 
     # ── Search string banana ─────────────────────────────────
