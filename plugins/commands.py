@@ -471,6 +471,78 @@ async def start(client, message):
         files = temp.GETALL.get(file_id)
         if not files:
             return await message.reply('<b><i>ɴᴏ ꜱᴜᴄʜ ꜰɪʟᴇ ᴇxɪꜱᴛꜱ !</b></i>')
+
+        # ── FSub check — same as files branch ────────────────────────
+        from plugins.bot_mode import runtime_get_mode, runtime_get_shorteners, runtime_get_fake_link
+        _cur_mode = await runtime_get_mode()
+        user_id   = message.from_user.id
+
+        # check_fsub_inline needs file_id — use first file's id as reference
+        first_fid = files[0].file_id if files else file_id
+
+        async def _check_fsub_all(uid):
+            from pyrogram.errors.exceptions.bad_request_400 import UserNotParticipant
+            from pyrogram.enums import ChatMemberStatus as CMS
+            if await db.has_premium_access(uid):
+                return True, []
+            db_channels = await db.get_fsub_channels()
+            channels = db_channels if db_channels else MULTI_FSUB
+            if not channels:
+                return True, []
+            buttons = []
+            for ch_id in channels:
+                mode = await db.get_channel_mode(ch_id)
+                try:
+                    if mode == "on" and await db.req_user_exist(ch_id, uid):
+                        continue
+                    m = await client.get_chat_member(ch_id, uid)
+                    if m.status == CMS.BANNED:
+                        pass
+                    elif m.status in {CMS.OWNER, CMS.ADMINISTRATOR, CMS.MEMBER}:
+                        continue
+                except UserNotParticipant:
+                    pass
+                except Exception as e:
+                    logging.warning(f"[FSUB-ALL] is_member failed uid={uid} ch={ch_id}: {e}")
+                # Not joined — make button
+                try:
+                    chat_obj = await client.get_chat(ch_id)
+                    if mode == "on" and not chat_obj.username:
+                        inv = await client.create_chat_invite_link(chat_id=ch_id, creates_join_request=True)
+                        link = inv.invite_link
+                    elif chat_obj.username:
+                        link = f"https://t.me/{chat_obj.username}"
+                    else:
+                        inv = await client.create_chat_invite_link(chat_id=ch_id)
+                        link = inv.invite_link
+                    custom_name = await db.get_fsub_channel_name(ch_id)
+                    btn_title = custom_name if custom_name else chat_obj.title
+                    buttons.append([InlineKeyboardButton(btn_title, url=link)])
+                except Exception as e:
+                    logging.warning(f"[FSUB-ALL] button create failed ch={ch_id}: {e}")
+                    buttons.append([InlineKeyboardButton("📢 Join Channel", url="https://t.me/")])
+            if buttons:
+                buttons.append([InlineKeyboardButton(
+                    "✅ I Joined",
+                    url=f"https://telegram.me/{temp.U_NAME}?start=allfiles_{file_id}"
+                )])
+                return False, buttons
+            return True, []
+
+        fsub_ok, fsub_btns = await _check_fsub_all(user_id)
+        if not fsub_ok:
+            try:
+                fake = await runtime_get_fake_link()
+                fake_btn = [[InlineKeyboardButton(fake.get("button_text", "🔗 Click Here"), url=fake["url"])]] if fake and fake.get("url") else []
+            except Exception:
+                fake_btn = []
+            all_btns = (fake_btn + fsub_btns) if fake_btn else fsub_btns
+            return await message.reply_text(
+                "<b>⚠️ ᴩʟᴇᴀsᴇ ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs ᴛᴏ ɢᴇᴛ ᴛʜᴇ ꜰɪʟᴇ!</b>",
+                reply_markup=InlineKeyboardMarkup(all_btns),
+                protect_content=False
+            )
+        # ── End FSub check ────────────────────────────────────────────
         filesarr = []
         for file in files:
             file_id = file.file_id
