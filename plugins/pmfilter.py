@@ -254,6 +254,7 @@ async def next_page(bot, query):
 
     if not files:
         return
+    files = _sort_files_by_episode(files)
     temp.GETALL[key] = files
     temp.SHORT[query.from_user.id] = query.message.chat.id
     settings = await get_settings(query.message.chat.id)
@@ -408,6 +409,31 @@ async def advantage_spoll_choker(bot, query):
 # ACTIVE_PANEL[key] = "q" | "l" | None  (konsa panel open hai)
 ACTIVE_QL    = {}
 ACTIVE_PANEL = {}
+
+def _sort_files_by_episode(files):
+    """
+    Files ko episode number ke hisaab se sort karo (ascending).
+    Pattern: S01E02, S01E02E04, E02, ep02, etc.
+    Agar episode nahi mila toh file size se sort (chota pehle).
+    """
+    import re
+    def ep_key(f):
+        name = f.file_name.lower()
+        # SxxExx ya SxxExxExx
+        m = re.search(r's\d+e(\d+)', name)
+        if m:
+            return (0, int(m.group(1)), f.file_size)
+        # Standalone Exx ya epxx
+        m = re.search(r'(?<![a-z])e(\d{2,3})(?!\d)', name)
+        if m:
+            return (0, int(m.group(1)), f.file_size)
+        m = re.search(r'ep[\s._-]?(\d+)', name)
+        if m:
+            return (0, int(m.group(1)), f.file_size)
+        # Episode number nahi mila — size se sort (chota pehle)
+        return (1, 0, f.file_size)
+    return sorted(files, key=ep_key)
+
 
 QUALITIES_LIST  = ["360p", "480p", "720p", "1080p", "1440p", "2160p"]
 LANGUAGES_LIST  = ["hindi", "english", "tamil", "telugu", "malayalam",
@@ -687,6 +713,7 @@ async def qlfc_action_handler(client: Client, query: CallbackQuery):
         BUTTONS.pop(key, None)
         fresh  = (FRESH.get(key) or "").replace("_", " ").strip()
         files, offset, total_results = await cached_search(chat_id, fresh, offset=0)
+        files = _sort_files_by_episode(files)
         if not files:
             return await query.answer("ɴᴏ ꜰɪʟᴇꜱ ꜰᴏᴜɴᴅ", show_alert=True)
         temp.GETALL[key] = files
@@ -737,6 +764,7 @@ async def qlfc_action_handler(client: Client, query: CallbackQuery):
         extra_search = f"{fresh} {ql['l']} {ql['q']}".strip()
 
     files, offset, total_results = await cached_search(chat_id, search, offset=0, extra_search=extra_search)
+    files = _sort_files_by_episode(files)
 
     if not files:
         # No results — chips panel mein ✅ wapas dikhao aur popup alert
