@@ -402,10 +402,12 @@ async def advantage_spoll_choker(bot, query):
                 
 #Qualities 
 # ═══════════════════════════════════════════════════════════
-# COMBINED QUALITY + LANGUAGE FILTER (Web-style, instant)
+# COMBINED QUALITY + LANGUAGE FILTER (Toggle-style)
 # ═══════════════════════════════════════════════════════════
-# ACTIVE_QL[key] = {"q": "480p", "l": "hindi"}
-ACTIVE_QL = {}
+# ACTIVE_QL[key]    = {"q": "480p", "l": "hindi"}
+# ACTIVE_PANEL[key] = "q" | "l" | None  (konsa panel open hai)
+ACTIVE_QL    = {}
+ACTIVE_PANEL = {}
 
 QUALITIES_LIST  = ["360p", "480p", "720p", "1080p", "1440p", "2160p"]
 LANGUAGES_LIST  = ["hindi", "english", "tamil", "telugu", "malayalam",
@@ -414,96 +416,130 @@ LANGUAGES_LIST  = ["hindi", "english", "tamil", "telugu", "malayalam",
                    "japanese", "korean", "chinese", "french", "spanish"]
 
 
-def _build_qlf_chips(key):
-    """Sirf filter chips wali keyboard — file buttons nahi"""
-    ql    = ACTIVE_QL.get(key, {})
-    sel_q = ql.get("q", "")
-    sel_l = ql.get("l", "")
-    btn   = []
+def _build_home_buttons(files, key, pre, settings):
+    """
+    Home screen: Remove Ads | Send All
+                 Season | Quality | Language   (toggle buttons)
+                 [agar quality/language open ho to uske chips]
+                 Clear All  (agar koi selection ho)
+                 file list
+    """
+    ql      = ACTIVE_QL.get(key, {})
+    sel_q   = ql.get("q", "")
+    sel_l   = ql.get("l", "")
+    panel   = ACTIVE_PANEL.get(key)   # "q" | "l" | None
+    btn     = []
 
-    btn.append([InlineKeyboardButton("― ǫᴜᴀʟɪᴛʏ ―", callback_data="ident")])
-    row = []
-    for q in QUALITIES_LIST:
-        row.append(InlineKeyboardButton(
-            ("✅ " if sel_q == q else "") + q.upper(),
-            callback_data=f"qlfc#q#{q}#{key}"
-        ))
-        if len(row) == 3:
-            btn.append(row); row = []
-    if row: btn.append(row)
-
-    btn.append([InlineKeyboardButton("― ʟᴀɴɢᴜᴀɢᴇ ―", callback_data="ident")])
-    row = []
-    for lg in LANGUAGES_LIST:
-        row.append(InlineKeyboardButton(
-            ("✅ " if sel_l == lg else "") + lg.title(),
-            callback_data=f"qlfc#l#{lg}#{key}"
-        ))
-        if len(row) == 3:
-            btn.append(row); row = []
-    if row: btn.append(row)
-
-    btn.append([
-        InlineKeyboardButton("🗑 Cʟᴇᴀʀ Aʟʟ", callback_data=f"qlfc#clear#all#{key}"),
-        InlineKeyboardButton("↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭", callback_data=f"qlfc#back#home#{key}")
-    ])
-    return btn
-
-
-def _make_file_buttons(files, key, pre, settings):
-    """Normal file list — Quality+Language chips seedha home pe"""
-    ql    = ACTIVE_QL.get(key, {})
-    sel_q = ql.get("q", "")
-    sel_l = ql.get("l", "")
-    btn   = []
-
-    # Top action buttons
+    # Row 1: Remove Ads + Send All
     btn.append([
         InlineKeyboardButton("ʀᴇᴍᴏᴠᴇ ᴀᴅs", url=f"https://t.me/{temp.U_NAME}?start=premium"),
         InlineKeyboardButton("Sᴇɴᴅ Aʟʟ",   callback_data=f"sendfiles#{key}")
     ])
+
+    # Row 2: Season | Quality (selected badge) | Language (selected badge)
+    q_label = f"✅ {sel_q.upper()}" if sel_q else "🎬 Qᴜᴀʟɪᴛʏ"
+    l_label = f"✅ {sel_l.title()}" if sel_l else "🌐 Lᴀɴɢᴜᴀɢᴇ"
     btn.append([
-        InlineKeyboardButton("Sᴇᴀsᴏɴ", callback_data=f"seasons#{key}")
+        InlineKeyboardButton("📅 Sᴇᴀsᴏɴ",  callback_data=f"seasons#{key}"),
+        InlineKeyboardButton(q_label,        callback_data=f"panel#q#{key}"),
+        InlineKeyboardButton(l_label,        callback_data=f"panel#l#{key}"),
     ])
 
-    # Quality chips
-    btn.append([InlineKeyboardButton("― ǫᴜᴀʟɪᴛʏ ―", callback_data="ident")])
-    row = []
-    for q in QUALITIES_LIST:
-        row.append(InlineKeyboardButton(
-            ("✅ " if sel_q == q else "") + q.upper(),
-            callback_data=f"qlfc#q#{q}#{key}"
-        ))
-        if len(row) == 3:
-            btn.append(row); row = []
-    if row: btn.append(row)
+    # Quality panel (expand karo agar panel == "q")
+    if panel == "q":
+        btn.append([InlineKeyboardButton("― ǫᴜᴀʟɪᴛʏ ―", callback_data="ident")])
+        row = []
+        for q in QUALITIES_LIST:
+            row.append(InlineKeyboardButton(
+                ("✅ " if sel_q == q else "") + q.upper(),
+                callback_data=f"qlfc#q#{q}#{key}"
+            ))
+            if len(row) == 3:
+                btn.append(row); row = []
+        if row: btn.append(row)
 
-    # Language chips
-    btn.append([InlineKeyboardButton("― ʟᴀɴɢᴜᴀɢᴇ ―", callback_data="ident")])
-    row = []
-    for lg in LANGUAGES_LIST:
-        row.append(InlineKeyboardButton(
-            ("✅ " if sel_l == lg else "") + lg.title(),
-            callback_data=f"qlfc#l#{lg}#{key}"
-        ))
-        if len(row) == 3:
-            btn.append(row); row = []
-    if row: btn.append(row)
+    # Language panel (expand karo agar panel == "l")
+    if panel == "l":
+        btn.append([InlineKeyboardButton("― ʟᴀɴɢᴜᴀɢᴇ ―", callback_data="ident")])
+        row = []
+        for lg in LANGUAGES_LIST:
+            row.append(InlineKeyboardButton(
+                ("✅ " if sel_l == lg else "") + lg.title(),
+                callback_data=f"qlfc#l#{lg}#{key}"
+            ))
+            if len(row) == 3:
+                btn.append(row); row = []
+        if row: btn.append(row)
 
-    # Clear All
-    btn.append([
-        InlineKeyboardButton("🗑 Cʟᴇᴀʀ Aʟʟ", callback_data=f"qlfc#clear#all#{key}")
-    ])
+    # Clear All — sirf tab dikhao jab koi selection ho
+    if sel_q or sel_l:
+        btn.append([
+            InlineKeyboardButton("🗑 Cʟᴇᴀʀ Aʟʟ", callback_data=f"qlfc#clear#all#{key}")
+        ])
 
     # File list
     if settings.get("button"):
         btn.append([InlineKeyboardButton("⇈ Sᴇʟᴇᴄᴛ Oᴘᴛɪᴏɴ Hᴇʀᴇ ⇈", callback_data="reqinfo")])
         for f in files:
-            clean = " ".join(x for x in f.file_name.split() if not x.startswith("[") and not x.startswith("@") and not x.startswith("www."))
+            clean = " ".join(x for x in f.file_name.split()
+                             if not x.startswith("[") and not x.startswith("@") and not x.startswith("www."))
             btn.append([InlineKeyboardButton(
                 f"[{get_size(f.file_size)}] {clean}",
                 callback_data=f"{pre}#{f.file_id}"
             )])
+    return btn
+
+
+# Legacy alias — baaki code jo _make_file_buttons / _build_qlf_chips call karta hai woh bhi kaam kare
+def _make_file_buttons(files, key, pre, settings):
+    return _build_home_buttons(files, key, pre, settings)
+
+def _build_qlf_chips(key):
+    """Filter apply hone ke baad keyboard — home buttons + open panel"""
+    # Filtered state mein bhi same home layout use karo (panel as-is)
+    # files/pre/settings yahan nahi hote, isliye sirf chips return karo
+    ql    = ACTIVE_QL.get(key, {})
+    sel_q = ql.get("q", "")
+    sel_l = ql.get("l", "")
+    panel = ACTIVE_PANEL.get(key)
+    btn   = []
+
+    q_label = f"✅ {sel_q.upper()}" if sel_q else "🎬 Qᴜᴀʟɪᴛʏ"
+    l_label = f"✅ {sel_l.title()}" if sel_l else "🌐 Lᴀɴɢᴜᴀɢᴇ"
+    btn.append([
+        InlineKeyboardButton("📅 Sᴇᴀsᴏɴ",  callback_data=f"seasons#{key}"),
+        InlineKeyboardButton(q_label,        callback_data=f"panel#q#{key}"),
+        InlineKeyboardButton(l_label,        callback_data=f"panel#l#{key}"),
+    ])
+
+    if panel == "q":
+        btn.append([InlineKeyboardButton("― ǫᴜᴀʟɪᴛʏ ―", callback_data="ident")])
+        row = []
+        for q in QUALITIES_LIST:
+            row.append(InlineKeyboardButton(
+                ("✅ " if sel_q == q else "") + q.upper(),
+                callback_data=f"qlfc#q#{q}#{key}"
+            ))
+            if len(row) == 3:
+                btn.append(row); row = []
+        if row: btn.append(row)
+
+    if panel == "l":
+        btn.append([InlineKeyboardButton("― ʟᴀɴɢᴜᴀɢᴇ ―", callback_data="ident")])
+        row = []
+        for lg in LANGUAGES_LIST:
+            row.append(InlineKeyboardButton(
+                ("✅ " if sel_l == lg else "") + lg.title(),
+                callback_data=f"qlfc#l#{lg}#{key}"
+            ))
+            if len(row) == 3:
+                btn.append(row); row = []
+        if row: btn.append(row)
+
+    if sel_q or sel_l:
+        btn.append([
+            InlineKeyboardButton("🗑 Cʟᴇᴀʀ Aʟʟ", callback_data=f"qlfc#clear#all#{key}"),
+        ])
     return btn
 
 
@@ -573,7 +609,41 @@ async def _edit_msg(query, message, settings, btn, search, total_results, curr_t
     await _do_edit()
 
 
-# ── 🎯 Filter button → chips panel open ───────────────────
+# ── Panel toggle: Quality/Language button click ──────────────
+@Client.on_callback_query(filters.regex(r"^panel#"))
+async def panel_toggle_handler(client: Client, query: CallbackQuery):
+    try:
+        if int(query.from_user.id) not in [query.message.reply_to_message.from_user.id, 0]:
+            return await query.answer(
+                f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
+                show_alert=True)
+    except Exception:
+        pass
+    _, typ, key = query.data.split("#", 2)
+    cur = ACTIVE_PANEL.get(key)
+    # Toggle: same button dobara press = close, alag = open
+    ACTIVE_PANEL[key] = None if cur == typ else typ
+
+    # Keyboard rebuild: files/settings chahiye
+    chat_id  = query.message.chat.id
+    settings = await get_settings(chat_id)
+    pre      = "filep" if settings["file_secure"] else "file"
+    files    = temp.GETALL.get(key, [])
+
+    btn = _build_home_buttons(files, key, pre, settings)
+    # Pagination + website search wapas lagao
+    fresh = (FRESH.get(key) or "").replace("_", " ").strip()
+    search = BUTTONS.get(key) or fresh
+    req   = query.from_user.id
+    # offset nahi chahiye yahan — sirf keyboard update
+    try:
+        await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
+    except MessageNotModified:
+        pass
+    await query.answer()
+
+
+# ── 🎯 Filter button → chips panel open (legacy, kept for safety) ─
 @Client.on_callback_query(filters.regex(r"^qlf#"))
 async def qlf_panel_handler(client: Client, query: CallbackQuery):
     try:
@@ -613,6 +683,7 @@ async def qlfc_action_handler(client: Client, query: CallbackQuery):
     # ── back: filters saaf, original results wapas ──────────
     if typ == "back":
         ACTIVE_QL.pop(key, None)
+        ACTIVE_PANEL[key] = None
         BUTTONS.pop(key, None)
         fresh  = (FRESH.get(key) or "").replace("_", " ").strip()
         files, offset, total_results = await cached_search(chat_id, fresh, offset=0)
@@ -635,6 +706,7 @@ async def qlfc_action_handler(client: Client, query: CallbackQuery):
     # ── State update ─────────────────────────────────────────
     if typ == "clear":
         ACTIVE_QL.pop(key, None)
+        ACTIVE_PANEL[key] = None
         ql = {}
     elif typ == "q":
         if ql.get("q") == val:
@@ -647,6 +719,7 @@ async def qlfc_action_handler(client: Client, query: CallbackQuery):
         else:
             ql["l"] = val
     ACTIVE_QL[key] = ql
+    ACTIVE_PANEL[key] = None  # chip select hone ke baad panel close
 
     # ── Search string banana ─────────────────────────────────
     fresh  = (FRESH.get(key) or "").replace("_", " ").strip()
