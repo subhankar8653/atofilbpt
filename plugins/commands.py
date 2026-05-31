@@ -470,7 +470,12 @@ async def start(client, message):
     elif data.startswith("all"):
         files = temp.GETALL.get(file_id)
         if not files:
-            return await message.reply('<b><i>ɴᴏ ꜱᴜᴄʜ ꜰɪʟᴇ ᴇxɪꜱᴛꜱ !</b></i>')
+            return await message.reply_text(
+                f"⚠️ <b>Hey {message.from_user.mention},</b>\n\n"
+                "Yeh session expire ho gaya hai ya bot restart hua hai.\n\n"
+                "Please group mein dobara search karein aur <b>Send All</b> button click karein. 🔄",
+                disable_web_page_preview=True
+            )
 
         # ── FSub check (same as files branch) ────────────────────────
         from plugins.bot_mode import runtime_get_fake_link
@@ -516,10 +521,10 @@ async def start(client, message):
                         link = inv.invite_link
                     custom_name = await db.get_fsub_channel_name(ch_id)
                     btn_title = custom_name if custom_name else chat_obj.title
-                    buttons.append([InlineKeyboardButton(f"➕ {btn_title}", url=link)])
+                    buttons.append([InlineKeyboardButton(f"{btn_title}", url=link)])
                 except Exception as e:
                     logging.warning(f"[FSUB-ALL] button create error ch={ch_id}: {e}")
-                    buttons.append([InlineKeyboardButton("➕ Join Channel", url="https://t.me/")])
+                    buttons.append([InlineKeyboardButton("Join Channel", url="https://t.me/")])
             if buttons:
                 buttons.append([InlineKeyboardButton(
                     "✅ I Joined",
@@ -698,9 +703,9 @@ async def start(client, message):
                         link = inv.invite_link
                     custom_name = await db.get_fsub_channel_name(ch_id)
                     btn_title = custom_name if custom_name else chat_obj.title
-                    buttons.append([InlineKeyboardButton(f"➕ {btn_title}", url=link)])
+                    buttons.append([InlineKeyboardButton(f"{btn_title}", url=link)])
                 except Exception:
-                    buttons.append([InlineKeyboardButton("➕ Join Channel", url="https://t.me/")])
+                    buttons.append([InlineKeyboardButton("Join Channel", url="https://t.me/")])
 
             if buttons:
                 buttons.append([InlineKeyboardButton(
@@ -892,23 +897,8 @@ async def start(client, message):
             # Sab shorteners complete → 24hrs free
     user = message.from_user.id
 
-    # ── Access control: only the user who searched can get this file ──
-    if pre in ("file", "filep", "files"):
-        _original_requester = temp.FILE_REQ.get(file_id, 0)
-        _is_authorized = (
-            _original_requester == 0 or
-            user == _original_requester or
-            str(user) in ADMINS
-        )
-        if not _is_authorized:
-            await message.reply_text(
-                f"⚠️ <b>Hey {message.from_user.mention},</b>\n\n"
-                "This file does not belong to your search result.\n\n"
-                "Please go to our group, search for the file yourself, "
-                "and then click on the result to get it. ",
-                disable_web_page_preview=True
-            )
-            return
+    # ── Access control DISABLED — FILE_REQ RAM-based hai, unreliable ──
+    # Same file multiple users search kar sakte hain — overwrite hota hai
     # ──────────────────────────────────────────────────────────────────
 
     files_ = await get_file_details(file_id)        
