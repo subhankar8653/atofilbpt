@@ -381,107 +381,68 @@ async def advantage_spoll_choker(bot, query):
 # ═══════════════════════════════════════════════════════════
 # COMBINED QUALITY + LANGUAGE FILTER (Web-style, instant)
 # ═══════════════════════════════════════════════════════════
-# State: ACTIVE_QL[key] = {"q": "480p", "l": "hindi"}
+# ACTIVE_QL[key] = {"q": "480p", "l": "hindi"}
 ACTIVE_QL = {}
 
-QUALITIES_LIST = ["360p", "480p", "720p", "1080p", "1440p", "2160p"]
-LANGUAGES_LIST = ["hindi", "english", "tamil", "telugu", "malayalam", "kannada", "gujarati", "marathi", "punjabi"]
+QUALITIES_LIST  = ["360p", "480p", "720p", "1080p", "1440p", "2160p"]
+LANGUAGES_LIST  = ["hindi", "english", "tamil", "telugu", "malayalam",
+                   "kannada", "gujarati", "marathi", "punjabi"]
 
 
-def _build_combined_keyboard(key, files, pre, settings, offset, req, total_results):
-    """
-    Web-style: Filter panel (upar) + file list (neeche) — ek hi keyboard mein.
-    Chip click pe sirf yahi keyboard re-render hoti hai, message text nahi badlta.
-    """
-    ql = ACTIVE_QL.get(key, {})
+def _build_qlf_chips(key):
+    """Sirf filter chips wali keyboard — file buttons nahi"""
+    ql    = ACTIVE_QL.get(key, {})
     sel_q = ql.get("q", "")
     sel_l = ql.get("l", "")
-    btn = []
+    btn   = []
 
-    # ── Quality chips ──────────────────────────────────────
     btn.append([InlineKeyboardButton("― ǫᴜᴀʟɪᴛʏ ―", callback_data="ident")])
-    q_row = []
+    row = []
     for q in QUALITIES_LIST:
-        label = ("✅ " if sel_q == q else "") + q.upper()
-        q_row.append(InlineKeyboardButton(label, callback_data=f"qlfc#q#{q}#{key}"))
-        if len(q_row) == 3:
-            btn.append(q_row); q_row = []
-    if q_row:
-        btn.append(q_row)
+        row.append(InlineKeyboardButton(
+            ("✅ " if sel_q == q else "") + q.upper(),
+            callback_data=f"qlfc#q#{q}#{key}"
+        ))
+        if len(row) == 3:
+            btn.append(row); row = []
+    if row: btn.append(row)
 
-    # ── Language chips ─────────────────────────────────────
     btn.append([InlineKeyboardButton("― ʟᴀɴɢᴜᴀɢᴇ ―", callback_data="ident")])
-    l_row = []
+    row = []
     for lg in LANGUAGES_LIST:
-        label = ("✅ " if sel_l == lg else "") + lg.title()
-        l_row.append(InlineKeyboardButton(label, callback_data=f"qlfc#l#{lg}#{key}"))
-        if len(l_row) == 3:
-            btn.append(l_row); l_row = []
-    if l_row:
-        btn.append(l_row)
+        row.append(InlineKeyboardButton(
+            ("✅ " if sel_l == lg else "") + lg.title(),
+            callback_data=f"qlfc#l#{lg}#{key}"
+        ))
+        if len(row) == 3:
+            btn.append(row); row = []
+    if row: btn.append(row)
 
-    # ── Clear ──────────────────────────────────────────────
     btn.append([
-        InlineKeyboardButton("🗑 Cʟᴇᴀʀ", callback_data=f"qlfc#clear#all#{key}"),
-        InlineKeyboardButton("✖ Cʟᴏsᴇ Fɪʟᴛᴇʀ", callback_data=f"qlfc#close#x#{key}")
+        InlineKeyboardButton("🗑 Cʟᴇᴀʀ Aʟʟ", callback_data=f"qlfc#clear#all#{key}"),
+        InlineKeyboardButton("↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭", callback_data=f"qlfc#back#home#{key}")
     ])
-
-    # ── Separator ──────────────────────────────────────────
-    q_label = sel_q.upper() or "Aʟʟ"
-    l_label = sel_l.title() or "Aʟʟ"
-    btn.append([InlineKeyboardButton(
-        f"― {total_results} ʀᴇsᴜʟᴛs · {q_label} · {l_label} ―",
-        callback_data="ident"
-    )])
-
-    # ── File buttons (filtered results) ────────────────────
-    if files and settings.get("button"):
-        for file in files:
-            clean_name = " ".join(
-                x for x in file.file_name.split()
-                if not x.startswith("[") and not x.startswith("@") and not x.startswith("www.")
-            )
-            btn.append([InlineKeyboardButton(
-                f"[{get_size(file.file_size)}] {clean_name}",
-                callback_data=f"{pre}#{file.file_id}"
-            )])
-
-    # ── Pagination ─────────────────────────────────────────
-    if offset and offset != "":
-        try:
-            per_page = 10 if settings.get("max_btn", True) else int(MAX_B_TN)
-        except:
-            per_page = 10
-        btn.append([
-            InlineKeyboardButton("ᴘᴀɢᴇ", callback_data="pages"),
-            InlineKeyboardButton(f"1/{math.ceil(int(total_results)/per_page)}", callback_data="pages"),
-            InlineKeyboardButton("ɴᴇxᴛ ⋟", callback_data=f"next_{req}_{key}_{offset}")
-        ])
-    else:
-        btn.append([InlineKeyboardButton("↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ↭", callback_data="pages")])
-
     return btn
 
 
 def _make_file_buttons(files, key, pre, settings):
-    """Normal (non-filter) file list buttons — Filter button ke saath"""
+    """Normal (non-filter) file list — 🎯 Filter button ke saath"""
     btn = []
     if settings.get("button"):
         btn = [
             [InlineKeyboardButton(
-                text=f"[{get_size(file.file_size)}] {' '.join(filter(lambda x: not x.startswith('[') and not x.startswith('@') and not x.startswith('www.'), file.file_name.split()))}",
-                callback_data=f"{pre}#{file.file_id}"
-            )]
-            for file in files
+                text=f"[{get_size(f.file_size)}] {' '.join(x for x in f.file_name.split() if not x.startswith('[') and not x.startswith('@') and not x.startswith('www.'))}",
+                callback_data=f"{pre}#{f.file_id}"
+            )] for f in files
         ]
     btn.insert(0, [InlineKeyboardButton("⇈ Sᴇʟᴇᴄᴛ Oᴘᴛɪᴏɴ Hᴇʀᴇ ⇈", "reqinfo")])
     btn.insert(0, [
         InlineKeyboardButton("🎯 Fɪʟᴛᴇʀ", callback_data=f"qlf#{key}"),
-        InlineKeyboardButton("Sᴇᴀsᴏɴ", callback_data=f"seasons#{key}")
+        InlineKeyboardButton("Sᴇᴀsᴏɴ",   callback_data=f"seasons#{key}")
     ])
     btn.insert(0, [
         InlineKeyboardButton("ʀᴇᴍᴏᴠᴇ ᴀᴅs", url=f"https://t.me/{temp.U_NAME}?start=premium"),
-        InlineKeyboardButton("Sᴇɴᴅ Aʟʟ", callback_data=f"sendfiles#{key}")
+        InlineKeyboardButton("Sᴇɴᴅ Aʟʟ",   callback_data=f"sendfiles#{key}")
     ])
     return btn
 
@@ -490,7 +451,7 @@ def _append_pagination(btn, offset, req, key, total_results, settings):
     if offset and offset != "":
         try:
             per_page = 10 if settings.get("max_btn", True) else int(MAX_B_TN)
-        except:
+        except Exception:
             per_page = 10
         btn.append([
             InlineKeyboardButton("ᴘᴀɢᴇ", callback_data="pages"),
@@ -503,45 +464,34 @@ def _append_pagination(btn, offset, req, key, total_results, settings):
 
 async def _edit_msg(query, message, settings, btn, search, total_results, curr_time, files=None):
     cur_time = datetime.now(pytz.timezone("Asia/Kolkata")).time()
-    time_difference = timedelta(
+    td = timedelta(
         hours=cur_time.hour, minutes=cur_time.minute,
-        seconds=(cur_time.second + cur_time.microsecond/1000000)
+        seconds=cur_time.second + cur_time.microsecond/1e6
     ) - timedelta(
         hours=curr_time.hour, minutes=curr_time.minute,
-        seconds=(curr_time.second + curr_time.microsecond/1000000)
+        seconds=curr_time.second + curr_time.microsecond/1e6
     )
-    remaining_seconds = "{:.2f}".format(time_difference.total_seconds())
-    _files = files or []
-    cap = await get_cap(settings, remaining_seconds, _files, query, total_results, search)
+    remaining_seconds = "{:.2f}".format(td.total_seconds())
+    cap = await get_cap(settings, remaining_seconds, files or [], query, total_results, search)
     try:
-        await message.edit_text(text=cap, reply_markup=InlineKeyboardMarkup(btn), disable_web_page_preview=True)
+        await message.edit_text(text=cap, reply_markup=InlineKeyboardMarkup(btn),
+                                disable_web_page_preview=True)
     except MessageNotModified:
         pass
 
 
-# ── 🎯 Filter button click — panel open karo ──────────────
+# ── 🎯 Filter button → chips panel open ───────────────────
 @Client.on_callback_query(filters.regex(r"^qlf#"))
 async def qlf_panel_handler(client: Client, query: CallbackQuery):
-    """Filter panel open — file list ke saath combined keyboard dikhao"""
     try:
         if int(query.from_user.id) not in [query.message.reply_to_message.from_user.id, 0]:
             return await query.answer(
                 f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
-                show_alert=True,
-            )
-    except:
+                show_alert=True)
+    except Exception:
         pass
     _, key = query.data.split("#")
-    chat_id = query.message.chat.id
-    req = query.from_user.id
-
-    # Current search (filtered ya fresh)
-    search = (BUTTONS.get(key) or FRESH.get(key) or "").replace("_", " ").strip()
-    files, offset, total_results = await cached_search(chat_id, search, offset=0)
-    settings = await get_settings(chat_id)
-    pre = "filep" if settings["file_secure"] else "file"
-
-    btn = _build_combined_keyboard(key, files or [], pre, settings, offset, req, total_results)
+    btn = _build_qlf_chips(key)
     try:
         await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
     except MessageNotModified:
@@ -549,92 +499,117 @@ async def qlf_panel_handler(client: Client, query: CallbackQuery):
     await query.answer()
 
 
-# ── Chip click — toggle, instant results update ────────────
+# ── Chip click → filter apply, message text + keyboard update ─
 @Client.on_callback_query(filters.regex(r"^qlfc#"))
 async def qlfc_action_handler(client: Client, query: CallbackQuery):
-    """Chip click — state toggle, file list turant update (panel band nahi hoti)"""
     _, typ, val, key = query.data.split("#", 3)
-
     try:
         if int(query.from_user.id) not in [query.message.reply_to_message.from_user.id, 0]:
             return await query.answer(
                 f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
-                show_alert=True,
-            )
-    except:
+                show_alert=True)
+    except Exception:
         pass
 
-    chat_id = query.message.chat.id
-    message = query.message
-    req = query.from_user.id
+    curr_time = datetime.now(pytz.timezone("Asia/Kolkata")).time()
+    chat_id   = query.message.chat.id
+    message   = query.message
+    req       = query.from_user.id
+    ql        = ACTIVE_QL.get(key, {}).copy()
 
-    ql = ACTIVE_QL.get(key, {}).copy()
-
-    if typ == "close":
-        # Filter band karo — normal file list wapas dikhao
+    # ── back: filters saaf, original results wapas ──────────
+    if typ == "back":
         ACTIVE_QL.pop(key, None)
-        search = (FRESH.get(key) or "").replace("_", " ").strip()
-        BUTTONS[key] = search
-        files, offset, total_results = await cached_search(chat_id, search, offset=0)
+        BUTTONS.pop(key, None)
+        fresh  = (FRESH.get(key) or "").replace("_", " ").strip()
+        files, offset, total_results = await cached_search(chat_id, fresh, offset=0)
+        if not files:
+            return await query.answer("ɴᴏ ꜰɪʟᴇꜱ ꜰᴏᴜɴᴅ", show_alert=True)
+        temp.GETALL[key] = files
         settings = await get_settings(chat_id)
-        pre = "filep" if settings["file_secure"] else "file"
-        btn = _make_file_buttons(files or [], key, pre, settings)
-        _append_pagination(btn, offset if isinstance(offset, str) else str(offset), req, key, total_results, settings)
-        btn.append([InlineKeyboardButton(text="🔍 Sᴇᴀʀᴄʜ ɪɴ Wᴇʙsɪᴛᴇ", url=f"https://suhani-search.vercel.app/?search={quote_plus(search)}")])
-        try:
-            await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
-        except MessageNotModified:
-            pass
+        pre  = "filep" if settings["file_secure"] else "file"
+        btn  = _make_file_buttons(files, key, pre, settings)
+        _append_pagination(btn, offset if isinstance(offset, str) else str(offset),
+                           req, key, total_results, settings)
+        btn.append([InlineKeyboardButton(
+            "🔍 Sᴇᴀʀᴄʜ ɪɴ Wᴇʙsɪᴛᴇ",
+            url=f"https://suhani-search.vercel.app/?search={quote_plus(fresh)}"
+        )])
+        await _edit_msg(query, message, settings, btn, fresh, total_results, curr_time, files=files)
         await query.answer()
         return
 
-    elif typ == "clear":
+    # ── State update ─────────────────────────────────────────
+    if typ == "clear":
         ACTIVE_QL.pop(key, None)
         ql = {}
     elif typ == "q":
         ql["q"] = "" if ql.get("q") == val else val
     elif typ == "l":
         ql["l"] = "" if ql.get("l") == val else val
-
     ACTIVE_QL[key] = ql
 
-    # Search build karo — FRESH + selected filters
-    fresh = (FRESH.get(key) or "").replace("_", " ").strip()
+    # ── Search string banana ─────────────────────────────────
+    fresh  = (FRESH.get(key) or "").replace("_", " ").strip()
     search = fresh
-    if ql.get("q"):
-        search = f"{search} {ql['q']}"
-    if ql.get("l"):
-        search = f"{search} {ql['l']}"
+    if ql.get("q"): search = f"{search} {ql['q']}"
+    if ql.get("l"): search = f"{search} {ql['l']}"
     search = search.strip()
     BUTTONS[key] = search
 
+    # ── DB search ────────────────────────────────────────────
     files, offset, total_results = await cached_search(chat_id, search, offset=0)
-    settings = await get_settings(chat_id)
-    pre = "filep" if settings["file_secure"] else "file"
 
     if not files:
-        # No results — chips update karo, file area empty rakho
-        btn = _build_combined_keyboard(key, [], pre, settings, "", req, 0)
+        # No results — chips panel wapas dikhao (filters with ✅), file area blank
+        btn = _build_qlf_chips(key)
         try:
             await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
         except MessageNotModified:
             pass
-        q_txt = ql.get("q", "").upper() or ""
-        l_txt = ql.get("l", "").title() or ""
-        await query.answer(f"❌ {q_txt} {l_txt} — ɴᴏ ꜰɪʟᴇꜱ ꜰᴏᴜɴᴅ".strip(), show_alert=False)
+        q_txt = ql.get("q", "").upper()
+        l_txt = ql.get("l", "").title()
+        await query.answer(
+            f"❌ {q_txt}{' · ' if q_txt and l_txt else ''}{l_txt} — ɴᴏ ꜰɪʟᴇꜱ ꜰᴏᴜɴᴅ",
+            show_alert=False)
         return
 
     temp.GETALL[key] = files
+    settings = await get_settings(chat_id)
+    pre      = "filep" if settings["file_secure"] else "file"
 
-    # Panel + file list ek saath update — sirf keyboard edit, message text same
-    btn = _build_combined_keyboard(key, files, pre, settings, offset, req, total_results)
+    # ── Keyboard: filter chips (upar) + file buttons (neeche) ─
+    # Filter chips panel
+    btn = _build_qlf_chips(key)
+
+    # File buttons neeche add karo (ek separator ke baad)
     q_label = ql.get("q", "").upper() or "Aʟʟ"
     l_label = ql.get("l", "").title() or "Aʟʟ"
+    btn.append([InlineKeyboardButton(
+        f"✦ {total_results} ꜰɪʟᴇs · {q_label} · {l_label} ✦",
+        callback_data="ident"
+    )])
+
+    if settings.get("button"):
+        for f in files:
+            clean = " ".join(x for x in f.file_name.split()
+                             if not x.startswith("[") and not x.startswith("@") and not x.startswith("www."))
+            btn.append([InlineKeyboardButton(
+                f"[{get_size(f.file_size)}] {clean}",
+                callback_data=f"{pre}#{f.file_id}"
+            )])
+
+    _append_pagination(btn, offset if isinstance(offset, str) else str(offset),
+                       req, key, total_results, settings)
+    btn.append([InlineKeyboardButton(
+        "🔍 Sᴇᴀʀᴄʜ ɪɴ Wᴇʙsɪᴛᴇ",
+        url=f"https://suhani-search.vercel.app/?search={quote_plus(search)}"
+    )])
+
     await query.answer(f"🎯 {q_label} · {l_label} — {total_results} files", show_alert=False)
-    try:
-        await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
-    except MessageNotModified:
-        pass
+
+    # Message text bhi update karo (file links wala hissa)
+    await _edit_msg(query, message, settings, btn, search, total_results, curr_time, files=files)
 
 @Client.on_callback_query(filters.regex(r"^seasons#"))
 async def seasons_cb_handler(client: Client, query: CallbackQuery):
