@@ -58,24 +58,75 @@ BUTTONS2 = {}
 _SEARCH_CACHE = {}
 _SEARCH_CACHE_TTL = 300  # seconds
 
-async def cached_search(chat_id, search, offset=0):
-    """get_search_results ka cached wrapper. Same query 5 min mein dobara DB se nahi aayegi."""
+async def cached_search(chat_id, search, offset=0, extra_search=None):
+    """get_search_results ka cached wrapper. Same query 5 min mein dobara DB se nahi aayegi.
+    extra_search: agar diya ho toh dono searches merge karke return karo (order-independent match).
+    """
     import time as _time
-    cache_key = (chat_id, search.lower().strip(), offset)
+
+    def _store(key, val):
+        _SEARCH_CACHE[key] = (val, _time.time())
+        if len(_SEARCH_CACHE) > 100:
+            oldest = sorted(_SEARCH_CACHE.items(), key=lambda x: x[1][1])[:20]
+            for k, _ in oldest:
+                _SEARCH_CACHE.pop(k, None)
+
     now = _time.time()
+    cache_key = (chat_id, search.lower().strip(), offset)
+
+    # Single search (no extra_search)
+    if not extra_search:
+        if cache_key in _SEARCH_CACHE:
+            cached_val, ts = _SEARCH_CACHE[cache_key]
+            if now - ts < _SEARCH_CACHE_TTL:
+                return cached_val
+        files, n_offset, total = await get_search_results(chat_id, search, offset=offset, filter=True)
+        _store(cache_key, (files, n_offset, total))
+        return files, n_offset, total
+
+    # Dual search: dono orders mein search, merge & deduplicate by file_id
+    cache_key2 = (chat_id, extra_search.lower().strip(), offset)
+
+    # Search 1
     if cache_key in _SEARCH_CACHE:
-        cached_val, ts = _SEARCH_CACHE[cache_key]
-        if now - ts < _SEARCH_CACHE_TTL:
-            files, n_offset, total = cached_val
-            return files, n_offset, total
-    files, n_offset, total = await get_search_results(chat_id, search, offset=offset, filter=True)
-    _SEARCH_CACHE[cache_key] = ((files, n_offset, total), now)
-    # Purana cache clean karo (100 se zyada entries mat rakho)
-    if len(_SEARCH_CACHE) > 100:
-        oldest = sorted(_SEARCH_CACHE.items(), key=lambda x: x[1][1])[:20]
-        for k, _ in oldest:
-            _SEARCH_CACHE.pop(k, None)
-    return files, n_offset, total
+        r1, ts1 = _SEARCH_CACHE[cache_key]
+        if now - ts1 < _SEARCH_CACHE_TTL:
+            files1, _, total1 = r1
+        else:
+            files1, _, total1 = await get_search_results(chat_id, search, offset=0, filter=True)
+            _store(cache_key, (files1, '', total1))
+    else:
+        files1, _, total1 = await get_search_results(chat_id, search, offset=0, filter=True)
+        _store(cache_key, (files1, '', total1))
+
+    # Search 2
+    if cache_key2 in _SEARCH_CACHE:
+        r2, ts2 = _SEARCH_CACHE[cache_key2]
+        if now - ts2 < _SEARCH_CACHE_TTL:
+            files2, _, total2 = r2
+        else:
+            files2, _, total2 = await get_search_results(chat_id, extra_search, offset=0, filter=True)
+            _store(cache_key2, (files2, '', total2))
+    else:
+        files2, _, total2 = await get_search_results(chat_id, extra_search, offset=0, filter=True)
+        _store(cache_key2, (files2, '', total2))
+
+    # Merge — file_id se deduplicate, order preserve
+    seen = set()
+    merged = []
+    for f in files1 + files2:
+        fid = getattr(f, 'file_id', str(f))
+        if fid not in seen:
+            seen.add(fid)
+            merged.append(f)
+
+    total = len(seen)
+    # Pagination: offset apply
+    page = merged[offset:offset + 10]
+    n_offset = offset + len(page)
+    if n_offset >= total:
+        n_offset = ''
+    return page, n_offset, total
 SPELL_CHECK = {}
 
 
@@ -581,11 +632,17 @@ async def qlfc_action_handler(client: Client, query: CallbackQuery):
     search = search.strip()
     BUTTONS[key] = search
 
-    # ── DB search ────────────────────────────────────────────
-    files, offset, total_results = await cached_search(chat_id, search, offset=0)
+    # ── DB search (order-independent jab dono q+l selected ho) ──
+    # File names mein kabhi quality pehle, kabhi language pehle hota hai
+    # Dono orders mein search karke merge karo
+    extra_search = None
+    if ql.get("q") and ql.get("l"):
+        extra_search = f"{fresh} {ql['l']} {ql['q']}".strip()
+
+    files, offset, total_results = await cached_search(chat_id, search, offset=0, extra_search=extra_search)
 
     if not files:
-        # No results — chips panel wapas dikhao (filters with ✅), file area blank
+        # No results — chips panel mein ✅ wapas dikhao aur popup alert
         btn = _build_qlf_chips(key)
         try:
             await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
@@ -593,9 +650,10 @@ async def qlfc_action_handler(client: Client, query: CallbackQuery):
             pass
         q_txt = ql.get("q", "").upper()
         l_txt = ql.get("l", "").title()
+        filter_label = " · ".join(x for x in [q_txt, l_txt] if x)
         await query.answer(
-            f"❌ {q_txt}{' · ' if q_txt and l_txt else ''}{l_txt} — ɴᴏ ꜰɪʟᴇꜱ ꜰᴏᴜɴᴅ",
-            show_alert=False)
+            f"❌ No files found for: {filter_label or 'this filter'}\n\nTry a different quality or language.",
+            show_alert=True)
         return
 
     temp.GETALL[key] = files
