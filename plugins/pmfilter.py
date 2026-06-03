@@ -1213,17 +1213,17 @@ async def cb_handler(client: Client, query: CallbackQuery):
         if f_caption is None:
             f_caption = f"{files.file_name}"
 
-        # Check if this file was requested by this user via group search
-        original_requester = temp.FILE_REQ.get(file_id, 0)
-        # Allow if: user is the original searcher, or no record (0 means open/admin), or user is admin
-        is_authorized = (
-            original_requester == 0 or
-            clicked == original_requester or
-            str(clicked) in ADMINS
+        # Check if this file belongs to this user's search session (key-based, restart-safe)
+        _key = f"{query.message.chat.id}-{query.message.id}"
+        _original_requester = temp.SEARCH_REQ.get(_key, 0)
+        _is_authorized = (
+            _original_requester == 0 or          # no record = open (restart ke baad bhi graceful)
+            clicked == _original_requester or     # same user jo search kiya
+            str(clicked) in ADMINS               # admin bypass
         )
-        if not is_authorized:
+        if not _is_authorized:
             return await query.answer(
-                f"⚠️ Hey {query.from_user.first_name},\n\nThis file is not from your search result.\n\nPlease join our group and search yourself to get files. 👇",
+                f"⚠️ Hey {query.from_user.first_name},\n\nThis file is not from your search result.\n\nPlease go to our group, search for the file yourself, and then click on the result to get it.",
                 show_alert=True
             )
 
@@ -2930,13 +2930,7 @@ async def auto_filter(client, msg, spoll=False):
     FRESH[key] = search
     temp.GETALL[key] = files
     temp.SHORT[message.from_user.id] = message.chat.id
-    temp.SEARCH_REQ[key] = message.from_user.id if message.from_user else 0  # track who searched
-    # Store requester for EVERY file_id — sirf tab overwrite karo jab record nahi hai
-    # Agar kisi aur ne pehle same file_id claim kiya hai toh mat chheḍo
-    _requester_id = message.from_user.id if message.from_user else 0
-    for _file in files:
-        if _file.file_id not in temp.FILE_REQ:
-            temp.FILE_REQ[_file.file_id] = _requester_id
+    temp.SEARCH_REQ[key] = message.from_user.id if message.from_user else 0  # track who searched (key-based, correct)
     btn = _make_file_buttons(files, key, pre, settings)
 
     if offset != "":
