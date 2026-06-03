@@ -66,8 +66,7 @@ class temp(object):
     SETTINGS = {}
     IMDB_CAP = {}
     VERIFY = {}
-    SEARCH_REQ = {}  # key -> requester user_id (who originally searched)
-    FILE_REQ = {}    # file_id -> requester user_id (who can access this file link)
+    SEARCH_REQ = {}  # key (chat_id-msg_id) -> requester user_id (who originally searched)
 
 
 async def is_req_subscribed(bot, query):
