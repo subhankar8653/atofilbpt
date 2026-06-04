@@ -2905,18 +2905,35 @@ async def auto_filter(client, msg, spoll=False):
             files, offset, total_results = await get_search_results(message.chat.id ,search, offset=0, filter=True)
             settings = await get_settings(message.chat.id)
             if not files:
-                #await m.delete()
                 if settings["spell_check"]:
-                    ai_sts = await m.edit('ᴘʟᴇᴀꜱᴇ ᴡᴀɪᴛ, ꜱᴜʜᴀɴɪ ɪꜱ ᴄʜᴇᴄᴋɪɴɢ ʏᴏᴜʀ ꜱᴘᴇʟʟɪɴɢ...')
-                    is_misspelled = await ai_spell_check(chat_id = message.chat.id,wrong_name=search)
+                    # Silently check if a fuzzy-similar name exists in DB
+                    is_misspelled = await ai_spell_check(chat_id=message.chat.id, wrong_name=search)
                     if is_misspelled:
-                        await ai_sts.edit(f'<b>✅ꜱᴜʜᴀɴɪ sᴜɢɢᴇsᴛᴇᴅ <code> {is_misspelled}</code> \nsᴏ ɪᴍ sᴇᴀʀᴄʜɪɴɢ ғᴏᴛ <code>{is_misspelled}</code></b>')
-                        await asyncio.sleep(2)
-                        message.text = is_misspelled
-                        await ai_sts.delete()
-                        return await auto_filter(client, message)
-                    await ai_sts.delete()
-                    return await advantage_spell_chok(client, message)
+                        # Similar name found in DB — suggest Google search so user can fix spelling
+                        google_query = search.replace(" ", "+")
+                        button = [[
+                            InlineKeyboardButton(
+                                "🔍 Gᴏᴏɢʟᴇ ꜱᴇᴀʀᴄʜ",
+                                url=f"https://www.google.com/search?q={google_query}"
+                            )
+                        ]]
+                        k = await m.edit(
+                            f"<b>❌ Nᴏ ʀᴇꜱᴜʟᴛꜱ ꜰᴏᴜɴᴅ ꜰᴏʀ</b> <code>{search}</code>\n\n"
+                            f"<i>ꜱᴘᴇʟʟɪɴɢ ᴍɪɢʜᴛ ʙᴇ ᴡʀᴏɴɢ. Tʀʏ Gᴏᴏɢʟᴇ ᴛᴏ ꜰɪɴᴅ ᴛʜᴇ ᴄᴏʀʀᴇᴄᴛ ꜱᴘᴇʟʟɪɴɢ ᴀɴᴅ ꜱᴇᴀʀᴄʜ ᴀɢᴀɪɴ.</i>",
+                            reply_markup=InlineKeyboardMarkup(button)
+                        )
+                        await asyncio.sleep(60)
+                        await k.delete()
+                        try:
+                            await message.delete()
+                        except:
+                            pass
+                    else:
+                        # No similar name in DB at all — stay completely silent
+                        await m.delete()
+                else:
+                    # spell_check disabled — stay completely silent
+                    await m.delete()
         else:
             return
     else:
