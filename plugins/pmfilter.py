@@ -2982,7 +2982,6 @@ async def auto_filter(client, msg, spoll=False):
                         f"📢 Neeche button se request karo!",
                         reply_markup=InlineKeyboardMarkup(req_btn) if req_btn else None
                     )
-                    )
                 schedule_delete(k, message, delay=45)
     else:
         message = msg.message.reply_to_message  # msg will be callback query
