@@ -2021,37 +2021,4 @@ async def confirmation_handler(client, callback_query):
     await callback_query.answer()
 
 
-# ══════════════════════════════════════════════════════════════════════
-# BOT MODE COMMANDS (Admin only)
-# ══════════════════════════════════════════════════════════════════════
-
-@Client.on_message(filters.command("setfakelink") & filters.user(ADMINS) & filters.private)
-async def set_fake_link_cmd(client, message):
-    """
-    /setfakelink <url> <button_text>
-    Example: /setfakelink https://example.com Click Here
-    """
-    args = message.text.split(None, 2)
-    if len(args) < 3:
-        return await message.reply_text(
-            "<b>Usage:</b> <code>/setfakelink https://url.com Button Text</code>\n\n"
-            "Fake link set ho jayega jo FSub buttons ke upar dikhega."
-        )
-    url = args[1]
-    btn_text = args[2]
-    ok = await db.set_fake_link(url, btn_text)
-    if ok:
-        await message.reply_text(f"✅ Fake link set!\n\nURL: <code>{url}</code>\nButton: <b>{btn_text}</b>")
-    else:
-        await message.reply_text("❌ Error setting fake link.")
-
-
-@Client.on_message(filters.command("removefakelink") & filters.user(ADMINS) & filters.private)
-async def remove_fake_link_cmd(client, message):
-    ok = await db.remove_fake_link()
-    if ok:
-        await message.reply_text("✅ Fake link removed!")
-    else:
-        await message.reply_text("❌ Error removing fake link.")
-
 
