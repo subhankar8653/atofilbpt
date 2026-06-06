@@ -74,8 +74,9 @@ async def _cleanup_key(key: str, delay: int = 1800):
     BUTTONS0.pop(key, None)
     BUTTONS1.pop(key, None)
     BUTTONS2.pop(key, None)
-    ACTIVE_QL.pop(key, None)
-    ACTIVE_PANEL.pop(key, None)
+    # ACTIVE_QL / ACTIVE_PANEL line 435 ke baad define hote hain, isliye globals() se safe access
+    globals().get("ACTIVE_QL", {}).pop(key, None)
+    globals().get("ACTIVE_PANEL", {}).pop(key, None)
     temp.GETALL.pop(key, None)
     temp.SEARCH_REQ.pop(key, None)
 
@@ -93,6 +94,11 @@ async def cached_search(chat_id, search, offset=0, extra_search=None):
 
     def _store(key, val):
         _SEARCH_CACHE[key] = (val, _time.time())
+        # TTL-expired entries bhi saaf karo (memory leak fix)
+        expired_keys = [k for k, (_, ts) in _SEARCH_CACHE.items() if _time.time() - ts > _SEARCH_CACHE_TTL]
+        for k in expired_keys:
+            _SEARCH_CACHE.pop(k, None)
+        # Agar phir bhi 100 se zyada ho toh LRU 20 hata do
         if len(_SEARCH_CACHE) > 100:
             oldest = sorted(_SEARCH_CACHE.items(), key=lambda x: x[1][1])[:20]
             for k, _ in oldest:
@@ -647,7 +653,16 @@ async def _edit_msg(query, message, settings, btn, search, total_results, curr_t
             except MessageNotModified:
                 pass
         except FloodWait as e:
-            await asyncio.sleep(e.value)
+            wait_sec = e.value
+            try:
+                await message.reply_text(
+                    f"⚡ <b>Bahut zyada requests aa rahe hain!</b>\n"
+                    f"Thoda ruko... <code>{wait_sec} seconds</code> mein ready ho jaayega. 🙏",
+                    quote=True
+                )
+            except Exception:
+                pass
+            await asyncio.sleep(wait_sec)
             try:
                 await message.edit_text(text=cap, reply_markup=markup,
                                         disable_web_page_preview=True)
@@ -2937,6 +2952,14 @@ async def auto_filter(client, msg, spoll=False):
             if not files:
                 # Fast local fuzzy check — no external API, no hang
                 suggestion = await local_fuzzy_suggest(search)
+                from info import REQST_CHANNEL, temp as _t
+                req_btn = []
+                if REQST_CHANNEL:
+                    try:
+                        req_link = await message._client.create_chat_invite_link(REQST_CHANNEL)
+                        req_btn = [[InlineKeyboardButton("📩 Request this Movie", url=req_link.invite_link)]]
+                    except Exception:
+                        pass
                 if suggestion:
                     # Spelling galat thi, similar file DB mein hai
                     btn = [[
@@ -2944,7 +2967,7 @@ async def auto_filter(client, msg, spoll=False):
                             f"🔎 Search: {suggestion}",
                             switch_inline_query_current_chat=suggestion
                         )
-                    ]]
+                    ]] + req_btn
                     k = await m.edit(
                         f"<b>❌ Nᴏ ʀᴇꜱᴜʟᴛꜱ ꜰᴏʀ</b> <code>{search}</code>\n\n"
                         f"💡 <b>Dɪᴅ ʏᴏᴜ ᴍᴇᴀɴ:</b> <code>{suggestion}</code>?\n\n"
@@ -2956,7 +2979,9 @@ async def auto_filter(client, msg, spoll=False):
                     k = await m.edit(
                         f"<b>📭 Nᴏᴛ Fᴏᴜɴᴅ:</b> <code>{search}</code>\n\n"
                         f"<i>Yᴇʜ ꜰɪʟᴇ ᴀʙʜɪ ᴛᴀᴋ ᴜᴘʟᴏᴀᴅ ɴᴀʜɪɴ ʜᴜɪ ʜᴀɪ.</i>\n"
-                        f"📢 Request karne ke liye admin se sampark karen."
+                        f"📢 Neeche button se request karo!",
+                        reply_markup=InlineKeyboardMarkup(req_btn) if req_btn else None
+                    )
                     )
                 schedule_delete(k, message, delay=45)
     else:

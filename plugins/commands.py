@@ -30,6 +30,29 @@ TIMEZONE = "Asia/Kolkata"
 BATCH_FILES = {}
 
 @Client.on_message(filters.command("start") & filters.incoming)
+def _get_greeting(hour: int) -> str:
+    """Time ke hisaab se greeting return karo — duplicate code ek jagah."""
+    if hour < 12:
+        return "ɢᴏᴏᴅ ᴍᴏʀɴɪɴɢ 👋"
+    elif hour < 17:
+        return "ɢᴏᴏᴅ ᴀғᴛᴇʀɴᴏᴏɴ 👋"
+    elif hour < 21:
+        return "ɢᴏᴏᴅ ᴇᴠᴇɴɪɴɢ 👋"
+    else:
+        return "ɢᴏᴏᴅ ɴɪɢʜᴛ 👋"
+
+async def _run_start_animation(message) -> None:
+    """Shared welcome animation — duplicate code se bachao."""
+    m = await message.reply_text("<i>ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ <b>ꜱᴜʜᴀɴɪ</b>.\nʜᴏᴘᴇ ʏᴏᴜ'ʀᴇ ᴅᴏɪɴɢ ᴡᴇʟʟ...</i>")
+    await asyncio.sleep(0.4)
+    await m.edit_text("⏳")
+    await asyncio.sleep(0.5)
+    await m.edit_text("👀")
+    await asyncio.sleep(0.5)
+    await m.edit_text("<b><i>ꜱᴛᴀʀᴛɪɴɢ...</i></b>")
+    await asyncio.sleep(0.4)
+    await m.delete()
+
 async def start(client, message):
     if EMOJI_MODE:    
         await message.react(emoji=random.choice(REACTIONS), big=True) 
@@ -71,24 +94,9 @@ async def start(client, message):
                   ]]
         reply_markup = InlineKeyboardMarkup(buttons)
         current_time = datetime.now(pytz.timezone(TIMEZONE))
-        curr_time = current_time.hour        
-        if curr_time < 12:
-            gtxt = "ɢᴏᴏᴅ ᴍᴏʀɴɪɴɢ 👋" 
-        elif curr_time < 17:
-            gtxt = "ɢᴏᴏᴅ ᴀғᴛᴇʀɴᴏᴏɴ 👋" 
-        elif curr_time < 21:
-            gtxt = "ɢᴏᴏᴅ ᴇᴠᴇɴɪɴɢ 👋"
-        else:
-            gtxt = "ɢᴏᴏᴅ ɴɪɢʜᴛ 👋"
-        m=await message.reply_text("<i>ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ <b>ꜱᴜʜᴀɴɪ</b>.\nʜᴏᴘᴇ ʏᴏᴜ'ʀᴇ ᴅᴏɪɴɢ ᴡᴇʟʟ...</i>")
-        await asyncio.sleep(0.4)
-        await m.edit_text("⏳")
-        await asyncio.sleep(0.5)
-        await m.edit_text("👀")
-        await asyncio.sleep(0.5)
-        await m.edit_text("<b><i>ꜱᴛᴀʀᴛɪɴɢ...</i></b>")
-        await asyncio.sleep(0.4)
-        await m.delete()        
+        curr_time = current_time.hour
+        gtxt = _get_greeting(curr_time)
+        await _run_start_animation(message)
         m=await message.reply_sticker("CAACAgUAAxkBAAJFeWd037UWP-vgb_dWo55DCPZS9zJzAAJpEgACqXaJVxBrhzahNnwSHgQ") 
         await asyncio.sleep(1)
         await m.delete()
@@ -120,24 +128,9 @@ async def start(client, message):
                   ]]
         reply_markup = InlineKeyboardMarkup(buttons)
         current_time = datetime.now(pytz.timezone(TIMEZONE))
-        curr_time = current_time.hour        
-        if curr_time < 12:
-            gtxt = "ɢᴏᴏᴅ ᴍᴏʀɴɪɴɢ 👋" 
-        elif curr_time < 17:
-            gtxt = "ɢᴏᴏᴅ ᴀғᴛᴇʀɴᴏᴏɴ 👋" 
-        elif curr_time < 21:
-            gtxt = "ɢᴏᴏᴅ ᴇᴠᴇɴɪɴɢ 👋"
-        else:
-            gtxt = "ɢᴏᴏᴅ ɴɪɢʜᴛ 👋"
-        m=await message.reply_text("ʜᴇʟʟᴏ ʙᴀʙʏ, ʜᴏᴡ ᴀʀᴇ ʏᴏᴜ \nᴡᴀɪᴛ ᴀ ᴍᴏᴍᴇɴᴛ ʙᴀʙʏ . . .")
-        await asyncio.sleep(0.4)
-        await m.edit_text("🎊")
-        await asyncio.sleep(0.5)
-        await m.edit_text("⚡")
-        await asyncio.sleep(0.5)
-        await m.edit_text("ꜱᴛᴀʀᴛɪɴɢ ʙᴀʙʏ...")
-        await asyncio.sleep(0.4)
-        await m.delete()        
+        curr_time = current_time.hour
+        gtxt = _get_greeting(curr_time)
+        await _run_start_animation(message)
         m=await message.reply_sticker("CAACAgUAAxkBAAECroBmQKMAAQ-Gw4nibWoj_pJou2vP1a4AAlQIAAIzDxlVkNBkTEb1Lc4eBA") 
         await asyncio.sleep(1)
         await m.delete()
@@ -166,7 +159,7 @@ async def start(client, message):
             return 	    
         referdb.add_user(message.from_user.id)
         fromuse = referdb.get_refer_points(user_id) + 10
-        if fromuse == 100:
+        if fromuse >= 100:
             referdb.add_refer_points(user_id, 0) 
             await message.reply_text(f"🎉 𝗖𝗼𝗻𝗴𝗿𝗮𝘁𝘂𝗹𝗮𝘁𝗶𝗼𝗻𝘀! 𝗬𝗼𝘂 𝘄𝗼𝗻 𝟭𝟬 𝗥𝗲𝗳𝗲𝗿𝗿𝗮𝗹 𝗽𝗼𝗶𝗻𝘁 𝗯𝗲𝗰𝗮𝘂𝘀𝗲 𝗬𝗼𝘂 𝗵𝗮𝘃𝗲 𝗯𝗲𝗲𝗻 𝗦𝘂𝗰𝗰𝗲𝘀𝘀𝗳𝘂𝗹𝗹𝘆 𝗜𝗻𝘃𝗶𝘁𝗲𝗱 ☞ {uss.mention}!")		    
             await client.send_message(user_id, f"You have been successfully invited by {message.from_user.mention}!")
@@ -177,7 +170,7 @@ async def start(client, message):
                 await db.update_user(user_data)  # Use the update_user method to update or insert user data		    
                 await client.send_message(
                 chat_id=user_id,
-                text=f"<b>Hᴇʏ {uss.mention}\n\nYᴏᴜ ɢᴏᴛ 1 ᴍᴏɴᴛʜ ᴘʀᴇᴍɪᴜᴍ sᴜʙsᴄʀɪᴘᴛɪᴏɴ ʙʏ ɪɴᴠɪᴛɪɴɢ 10 ᴜsᴇʀs ❗", disable_web_page_preview=True              
+                text=f"<b>Hᴇʏ {uss.mention}\n\nYᴏᴜ ɢᴏᴛ 1 ᴍᴏɴᴛʜ ᴘʀᴇᴍɪᴜᴍ sᴜʙsᴄʀɪᴘᴛɪᴏɴ ʙʏ ɪɴᴠɪᴛɪɴɢ 10 ᴜsᴇʀs ❗</b>", disable_web_page_preview=True              
                 )
             for admin in ADMINS:
                 await client.send_message(chat_id=admin, text=f"Sᴜᴄᴄᴇss ғᴜʟʟʏ ᴛᴀsᴋ ᴄᴏᴍᴘʟᴇᴛᴇᴅ ʙʏ ᴛʜɪs ᴜsᴇʀ:\n\nuser Nᴀᴍᴇ: {uss.mention}\n\nUsᴇʀ ɪᴅ: {uss.id}!")	
