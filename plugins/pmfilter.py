@@ -544,7 +544,7 @@ def _build_home_buttons(files, key, pre, settings):
                              if not x.startswith("[") and not x.startswith("@") and not x.startswith("www."))
             btn.append([InlineKeyboardButton(
                 f"[{get_size(f.file_size)}] {clean}",
-                callback_data=f"{pre}#{f.file_id}"
+                url=f"https://t.me/{temp.U_NAME}?start={pre}_{f.file_id}"
             )])
     return btn
 
@@ -836,7 +836,7 @@ async def qlfc_action_handler(client: Client, query: CallbackQuery):
                              if not x.startswith("[") and not x.startswith("@") and not x.startswith("www."))
             btn.append([InlineKeyboardButton(
                 f"[{get_size(f.file_size)}] {clean}",
-                callback_data=f"{pre}#{f.file_id}"
+                url=f"https://t.me/{temp.U_NAME}?start={pre}_{f.file_id}"
             )])
 
     _append_pagination(btn, offset if isinstance(offset, str) else str(offset),
@@ -968,7 +968,8 @@ async def filter_seasons_cb_handler(client: Client, query: CallbackQuery):
         btn = [
             [
                 InlineKeyboardButton(
-                    text=f"[{get_size(file.file_size)}] {' '.join(filter(lambda x: not x.startswith('[') and not x.startswith('@') and not x.startswith('www.'), file.file_name.split()))}", callback_data=f'{pre}#{file.file_id}'
+                    text=f"[{get_size(file.file_size)}] {' '.join(filter(lambda x: not x.startswith('[') and not x.startswith('@') and not x.startswith('www.'), file.file_name.split()))}",
+                    url=f"https://t.me/{temp.U_NAME}?start={pre}_{file.file_id}"
                 ),
             ]
             for file in files
