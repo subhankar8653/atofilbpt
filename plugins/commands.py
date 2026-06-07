@@ -29,7 +29,6 @@ logger = logging.getLogger(__name__)
 TIMEZONE = "Asia/Kolkata"
 BATCH_FILES = {}
 
-@Client.on_message(filters.command("start") & filters.incoming)
 def _get_greeting(hour: int) -> str:
     """Time ke hisaab se greeting return karo — duplicate code ek jagah."""
     if hour < 12:
@@ -53,6 +52,7 @@ async def _run_start_animation(message) -> None:
     await asyncio.sleep(0.4)
     await m.delete()
 
+@Client.on_message(filters.command("start") & filters.incoming)
 async def start(client, message):
     if EMOJI_MODE:    
         await message.react(emoji=random.choice(REACTIONS), big=True) 
