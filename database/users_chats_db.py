@@ -40,6 +40,7 @@ class Database:
         # FSub channel collections (Link-sharing-bot style)
         self.fsub_data = self.db["fsub_channels"]
         self.rqst_fsub_data = self.db["request_fsub_users"]
+        self.grp_sessions = self.db["grp_sessions"]  # grpflow persistent sessions
 
     async def find_join_req(self, id):
         return bool(await self.req.find_one({'id': id})) 
@@ -494,6 +495,43 @@ class Database:
             {"channel_id": int(channel_id)},
             {"$pull": {"user_ids": int(user_id)}}
         )
+
+
+    async def save_grp_session(self, user_id: int, session_data: dict):
+        """grpflow session MongoDB mein save karo (bot restart pe bhi survive kare)."""
+        import datetime
+        doc = {
+            "_id": f"gf_{user_id}",
+            "user_id": user_id,
+            "search": session_data.get("search", ""),
+            "chat_id": session_data.get("chat_id", 0),
+            "pre": session_data.get("pre", "file"),
+            "lang": session_data.get("lang"),
+            "qual": session_data.get("qual"),
+            "offset": session_data.get("offset", 0),
+            "updated_at": datetime.datetime.utcnow(),
+        }
+        # all_files store nahi karte (too large) — rebuild karte hain from DB on demand
+        await self.grp_sessions.update_one(
+            {"_id": doc["_id"]},
+            {"$set": doc},
+            upsert=True
+        )
+
+    async def get_grp_session(self, user_id: int):
+        """grpflow session MongoDB se load karo. Returns dict or None."""
+        try:
+            doc = await self.grp_sessions.find_one({"_id": f"gf_{user_id}"})
+            return doc
+        except Exception:
+            return None
+
+    async def delete_grp_session(self, user_id: int):
+        """grpflow session delete karo."""
+        try:
+            await self.grp_sessions.delete_one({"_id": f"gf_{user_id}"})
+        except Exception:
+            pass
 
 
 db = Database(DATABASE_URI, DATABASE_NAME)
