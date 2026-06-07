@@ -1010,87 +1010,20 @@ async def filter_seasons_cb_handler(client: Client, query: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^grp_detail#"))
 async def grp_detail_dm_handler(client: Client, query: CallbackQuery):
     """
-    Group card ke kisi bhi button pe click → group mein hi poora file list expand karo.
-    DM nahi, sidha yahan dikhao.
+    Group card button click → seedha bot pe redirect (t.me/bot?start=grpkey_KEY).
     """
     parts = query.data.split("#", 2)
     key = parts[1]
-    try:
-        req_uid = int(parts[2])
-    except Exception:
-        req_uid = 0
 
     store = _GRP_CARD_STORE.get(key)
     if not store:
         return await query.answer("⏰ Result expire ho gaya. Dobara search karo.", show_alert=True)
 
-    search    = store["search"]
-    chat_id   = store["chat_id"]
-    user_id   = query.from_user.id
-
-    settings  = await get_settings(chat_id)
-    pre       = 'filep' if settings['file_secure'] else 'file'
-    files     = temp.GETALL.get(key, [])
-
-    if not files:
-        # Re-fetch from DB if evicted from memory
-        files, offset, total_results = await get_search_results(chat_id, search, offset=0, filter=True)
-        files = _sort_files_by_episode(files)
-        temp.GETALL[key] = files
-    else:
-        offset = ""
-        total_results = len(files)
-
-    if not files:
-        return await query.answer("❌ Koi file nahi mili.", show_alert=True)
-
-    await query.answer()
-
-    # Build full file buttons (same as normal result)
-    btn = _make_file_buttons(files, key, pre, settings)
-
-    if offset and offset != "":
-        req = user_id
-        try:
-            if settings['max_btn']:
-                btn.append([
-                    InlineKeyboardButton("ᴘᴀɢᴇ", callback_data="pages"),
-                    InlineKeyboardButton(f"1/{math.ceil(int(total_results)/10)}", callback_data="pages"),
-                    InlineKeyboardButton("ɴᴇxᴛ ⋟", callback_data=f"next_{req}_{key}_{offset}")
-                ])
-            else:
-                btn.append([
-                    InlineKeyboardButton("ᴘᴀɢᴇ", callback_data="pages"),
-                    InlineKeyboardButton(f"1/{math.ceil(int(total_results)/int(MAX_B_TN))}", callback_data="pages"),
-                    InlineKeyboardButton("ɴᴇxᴛ ⋟", callback_data=f"next_{req}_{key}_{offset}")
-                ])
-        except Exception:
-            btn.append([
-                InlineKeyboardButton("ᴘᴀɢᴇ", callback_data="pages"),
-                InlineKeyboardButton(f"1/{math.ceil(int(total_results)/10)}", callback_data="pages"),
-                InlineKeyboardButton("ɴᴇxᴛ ⋟", callback_data=f"next_{user_id}_{key}_{offset}")
-            ])
-    else:
-        btn.append([InlineKeyboardButton("↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
-
-    # Group mein hi edit karo — DM nahi
     try:
-        cap = f"<b>🎬 {search.title()}\n📂 Files: {total_results}</b>"
-        try:
-            await query.message.edit_caption(
-                caption=cap,
-                reply_markup=InlineKeyboardMarkup(btn)
-            )
-        except Exception:
-            # Agar photo message nahi hai (text message hai)
-            await query.message.edit_text(
-                text=cap,
-                reply_markup=InlineKeyboardMarkup(btn),
-                disable_web_page_preview=True
-            )
+        await query.answer(url=f"https://t.me/{temp.U_NAME}?start=grpkey_{key}")
     except Exception as e:
         logger.exception(e)
-        await query.answer("⚠️ Kuch error aaya, dobara try karo.", show_alert=True)
+        await query.answer("⚠️ Redirect nahi hua, dobara try karo.", show_alert=True)
 
 
 @Client.on_callback_query()

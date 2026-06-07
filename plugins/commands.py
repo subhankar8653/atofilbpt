@@ -407,6 +407,30 @@ async def start(client, message):
                     [InlineKeyboardButton("📁 ɢᴇᴛ ꜰɪʟᴇ", url=f"https://telegram.me/{temp.U_NAME}?start=files_{earn_fileid}")]
                 ])
             )
+    if data.startswith("grpkey_"):
+        # Group card se redirect aya — DM mein file list dikhao
+        from plugins.pmfilter import _GRP_CARD_STORE, _make_file_buttons, _sort_files_by_episode
+        key = data[len("grpkey_"):]
+        store = _GRP_CARD_STORE.get(key)
+        if not store:
+            return await message.reply_text("<b>⏰ Result expire ho gaya. Group mein dobara search karo.</b>")
+        search   = store["search"]
+        chat_id  = store["chat_id"]
+        settings = await get_settings(chat_id)
+        pre      = "filep" if settings["file_secure"] else "file"
+        files    = temp.GETALL.get(key, [])
+        if not files:
+            files, offset, total_results = await get_search_results(chat_id, search, offset=0, filter=True)
+            files = _sort_files_by_episode(files)
+            temp.GETALL[key] = files
+        if not files:
+            return await message.reply_text("<b>❌ Koi file nahi mili.</b>")
+        btn = _make_file_buttons(files, key, pre, settings)
+        btn.append([InlineKeyboardButton("↭ ʙᴀᴄᴋ ᴛᴏ Gʀᴏᴜᴘ ↭", url=f"https://t.me/c/{str(chat_id).replace('-100', '')}/1")])
+        cap = f"<b>🎬 {search.title()}\n📂 Files: {len(files)}</b>"
+        await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn), disable_web_page_preview=True)
+        return
+
     if data.startswith("sendfiles"):
         current_time = datetime.now(pytz.timezone(TIMEZONE))
         curr_time = current_time.hour        
