@@ -94,7 +94,8 @@ async def Suhani_start():
     await idle()
     
 if __name__ == '__main__':
+    loop = asyncio.get_event_loop()
     try:
-        asyncio.run(Suhani_start())
+        loop.run_until_complete(Suhani_start())
     except KeyboardInterrupt:
         logging.info('Service Stopped Bye 👋')
