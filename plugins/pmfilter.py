@@ -1040,6 +1040,10 @@ async def grp_detail_dm_handler(client: Client, query: CallbackQuery):
 
 @Client.on_callback_query()
 async def cb_handler(client: Client, query: CallbackQuery):
+    # grpflow ke callbacks yahan handle nahi honge — unke apne handlers hain
+    if query.data and query.data.startswith(("gf_lang#", "gf_qual#", "gf_more#", "gf_noop", "bm_")):
+        return
+
     lazyData = query.data
     try:
         link = await client.create_chat_invite_link(int(REQST_CHANNEL))
