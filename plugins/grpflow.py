@@ -474,8 +474,7 @@ async def gf_lang_cb(client: Client, query: CallbackQuery):
     avail_langs = _extract_langs(all_files)
     if lang not in avail_langs:
         return await query.answer(
-            f"❌ {lang.upper()} mein koi file nahi hai!
-Dusri language choose karo.",
+            f"❌ {lang.upper()} mein koi file nahi hai!\nDusri language choose karo.",
             show_alert=True
         )
 
