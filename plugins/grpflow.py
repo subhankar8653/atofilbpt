@@ -507,14 +507,17 @@ async def gf_lang_cb(client: Client, query: CallbackQuery):
             global_files, _, _ = await get_search_results(None, search, max_results=200, filter=True)
             global_langs = _extract_langs(global_files)
             if lang in global_langs:
-                # Dusre group se files use karo
-                sess["all_files"] = global_files
-                sess["lang"] = lang
-                sess["offset"] = 0
-                _GF_SESSION[sk] = sess
-                await _save_session(uid)
-                await query.answer(f"⚠️ {lang.capitalize()} files dusre group se mil rahi hain!")
-                return await _show_qual_step(client, query, uid, send=False)
+                # Dusre group se SIRF us language ki files lo — poori global_files replace mat karo
+                # Warna galat movie ke files aa jayenge (e.g. Pushpa ki jagah 3 Idiots)
+                lang_filtered = _filter_files(global_files, lang=lang)
+                if lang_filtered:
+                    sess["all_files"] = lang_filtered
+                    sess["lang"] = lang
+                    sess["offset"] = 0
+                    _GF_SESSION[sk] = sess
+                    await _save_session(uid)
+                    await query.answer(f"⚠️ {lang.capitalize()} files dusre group se mil rahi hain!")
+                    return await _show_qual_step(client, query, uid, send=False)
         except Exception:
             pass
         return await query.answer(
