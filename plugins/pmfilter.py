@@ -1002,6 +1002,183 @@ async def filter_seasons_cb_handler(client: Client, query: CallbackQuery):
     await query.answer()
 
                               
+@Client.on_callback_query(filters.regex(r"^grp_detail#"))
+async def grp_detail_dm_handler(client: Client, query: CallbackQuery):
+    """
+    Group card ke kisi bhi button pe click → bot user ko DM mein
+    poora detail (IMDB info + file buttons + filters) bhejta hai.
+    """
+    parts = query.data.split("#", 2)
+    key = parts[1]
+    try:
+        req_uid = int(parts[2])
+    except Exception:
+        req_uid = 0
+
+    store = _GRP_CARD_STORE.get(key)
+    if not store:
+        return await query.answer("⏰ Result expire ho gaya. Dobara search karo.", show_alert=True)
+
+    search    = store["search"]
+    chat_id   = store["chat_id"]
+    user_id   = query.from_user.id
+
+    settings  = await get_settings(chat_id)
+    pre       = 'filep' if settings['file_secure'] else 'file'
+    files     = temp.GETALL.get(key, [])
+
+    if not files:
+        # Re-fetch from DB if evicted from memory
+        files, offset, total_results = await get_search_results(chat_id, search, offset=0, filter=True)
+        files = _sort_files_by_episode(files)
+        temp.GETALL[key] = files
+    else:
+        offset = ""
+        total_results = len(files)
+
+    if not files:
+        return await query.answer("❌ Koi file nahi mili.", show_alert=True)
+
+    await query.answer("📨 DM mein bhej raha hun...", show_alert=False)
+
+    # Build full DM buttons (same as normal result)
+    btn = _make_file_buttons(files, key, pre, settings)
+
+    if offset and offset != "":
+        req = user_id
+        try:
+            if settings['max_btn']:
+                btn.append([
+                    InlineKeyboardButton("ᴘᴀɢᴇ", callback_data="pages"),
+                    InlineKeyboardButton(f"1/{math.ceil(int(total_results)/10)}", callback_data="pages"),
+                    InlineKeyboardButton("ɴᴇxᴛ ⋟", callback_data=f"next_{req}_{key}_{offset}")
+                ])
+            else:
+                btn.append([
+                    InlineKeyboardButton("ᴘᴀɢᴇ", callback_data="pages"),
+                    InlineKeyboardButton(f"1/{math.ceil(int(total_results)/int(MAX_B_TN))}", callback_data="pages"),
+                    InlineKeyboardButton("ɴᴇxᴛ ⋟", callback_data=f"next_{req}_{key}_{offset}")
+                ])
+        except Exception:
+            btn.append([
+                InlineKeyboardButton("ᴘᴀɢᴇ", callback_data="pages"),
+                InlineKeyboardButton(f"1/{math.ceil(int(total_results)/10)}", callback_data="pages"),
+                InlineKeyboardButton("ɴᴇxᴛ ⋟", callback_data=f"next_{user_id}_{key}_{offset}")
+            ])
+    else:
+        btn.append([InlineKeyboardButton("↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
+
+    btn.append([InlineKeyboardButton(
+        "🔍 Sᴇᴀʀᴄʜ ɪɴ Wᴇʙsɪᴛᴇ",
+        url=f"https://suhani-search.vercel.app/?search={quote_plus(search)}"
+    )])
+
+    # IMDB caption for DM
+    imdb = await get_poster(search, file=files[0].file_name) if settings["imdb"] else None
+    TEMPLATE = script.IMDB_TEMPLATE_TXT
+
+    if imdb:
+        try:
+            cap = TEMPLATE.format(
+                qurey=search,
+                title=imdb['title'],
+                votes=imdb['votes'],
+                aka=imdb["aka"],
+                seasons=imdb["seasons"],
+                box_office=imdb['box_office'],
+                localized_title=imdb['localized_title'],
+                kind=imdb['kind'],
+                imdb_id=imdb["imdb_id"],
+                cast=imdb["cast"],
+                runtime=imdb["runtime"],
+                countries=imdb["countries"],
+                certificates=imdb["certificates"],
+                languages=imdb["languages"],
+                director=imdb["director"],
+                writer=imdb["writer"],
+                producer=imdb["producer"],
+                composer=imdb["composer"],
+                cinematographer=imdb["cinematographer"],
+                music_team=imdb["music_team"],
+                distributors=imdb["distributors"],
+                release_date=imdb['release_date'],
+                year=imdb['year'],
+                genres=imdb['genres'],
+                poster=imdb['poster'],
+                plot=imdb['plot'],
+                rating=imdb['rating'],
+                url=imdb['url'],
+            )
+        except Exception:
+            cap = f"<b>🎬 {search.title()}\n\n📂 Total Files: {total_results}</b>"
+        if not settings["button"]:
+            cap += "\n\n<b>📚 <u>Your Requested Files</u> 👇\n\n</b>"
+            for file in files:
+                cap += f"<b>\n<a href='https://telegram.me/{temp.U_NAME}?start=files_{file.file_id}'> 📁 {get_size(file.file_size)} ▷ {' '.join(x for x in file.file_name.split() if not x.startswith('[') and not x.startswith('@') and not x.startswith('www.'))}\n</a></b>"
+    else:
+        cap = f"<b>›› ᴛɪᴛʟᴇ : <code>{search}</code>\n›› ᴛᴏᴛᴀʟ ꜰɪʟᴇꜱ : <code>{total_results}</code>\n›› ʀᴇǫᴜᴇsᴛᴇᴅ ʙʏ : {query.from_user.mention}\n\n›› 𝑹𝒆𝒒𝒖𝒆𝒔𝒕𝒆𝒅 𝑭𝒊𝒍𝒆𝒔 👇\n\n</b>"
+        if not settings["button"]:
+            for file in files:
+                cap += f"<b><a href='https://telegram.me/{temp.U_NAME}?start=files_{file.file_id}'> 📁 {get_size(file.file_size)} ▷ {' '.join(x for x in file.file_name.split() if not x.startswith('[') and not x.startswith('@') and not x.startswith('www.'))}\n\n</a></b>"
+
+    if len(cap) > 4096:
+        cap = cap[:4090] + "…</b>"
+
+    # Send to DM
+    try:
+        if imdb and imdb.get('poster'):
+            try:
+                await client.send_photo(
+                    chat_id=user_id,
+                    photo=imdb.get('poster'),
+                    caption=cap,
+                    reply_markup=InlineKeyboardMarkup(btn)
+                )
+            except (MediaEmpty, PhotoInvalidDimensions, WebpageMediaEmpty):
+                poster = imdb.get('poster', '').replace('.jpg', '._V1_UX360.jpg')
+                try:
+                    await client.send_photo(
+                        chat_id=user_id,
+                        photo=poster,
+                        caption=cap,
+                        reply_markup=InlineKeyboardMarkup(btn)
+                    )
+                except Exception:
+                    await client.send_message(
+                        chat_id=user_id,
+                        text=cap,
+                        reply_markup=InlineKeyboardMarkup(btn),
+                        disable_web_page_preview=True
+                    )
+            except Exception:
+                await client.send_message(
+                    chat_id=user_id,
+                    text=cap,
+                    reply_markup=InlineKeyboardMarkup(btn),
+                    disable_web_page_preview=True
+                )
+        else:
+            await client.send_message(
+                chat_id=user_id,
+                text=cap,
+                reply_markup=InlineKeyboardMarkup(btn),
+                disable_web_page_preview=True
+            )
+        # Group card mein ek notification dikhao
+        try:
+            await query.message.edit_caption(
+                caption=f"<b>{search.title()}</b>\n<i>📨 Result DM mein bheja gaya!</i>",
+                reply_markup=query.message.reply_markup
+            )
+        except Exception:
+            pass
+    except Exception as e:
+        logger.exception(e)
+        await query.answer(
+            f"⚠️ DM nahi bhej saka. Pehle bot ko start karo: @{temp.U_NAME}",
+            show_alert=True
+        )
+
 @Client.on_callback_query()
 async def cb_handler(client: Client, query: CallbackQuery):
     lazyData = query.data
@@ -3018,15 +3195,12 @@ async def auto_filter(client, msg, spoll=False):
         "user_id": req_user_id,
     }
 
-    # Group card buttons — alag alag rows
+    # Group card buttons — alag alag rows, no More Results button
+    audio_label = f"🔰AUDIO:- {lang_str.upper() if lang_str else 'MULTI'}🔰"
     grp_btn = [
-        [InlineKeyboardButton(f"🎬 {clean_title}", callback_data=f"grp_detail#{key}#{req_user_id}")],
-        [InlineKeyboardButton(lang_label, callback_data=f"grp_detail#{key}#{req_user_id}")],
+        [InlineKeyboardButton(clean_title, callback_data=f"grp_detail#{key}#{req_user_id}")],
+        [InlineKeyboardButton(audio_label, callback_data=f"grp_detail#{key}#{req_user_id}")],
     ]
-    if offset and offset != "":
-        grp_btn.append([
-            InlineKeyboardButton("📄 Mᴏʀᴇ Rᴇsᴜʟᴛs ᴀᴠᴀɪʟᴀʙʟᴇ", callback_data=f"grp_detail#{key}#{req_user_id}")
-        ])
 
     grp_markup = InlineKeyboardMarkup(grp_btn)
 
@@ -3055,231 +3229,115 @@ async def auto_filter(client, msg, spoll=False):
             logger.warning(f"Sticker convert error: {_e}")
             sticker_buf = None
 
-    # Send group card
-    if sticker_buf:
-        try:
-            sent = await message.reply_sticker(
-                sticker=sticker_buf,
-                reply_markup=grp_markup
-            )
-        except Exception as e:
-            logger.exception(e)
-            # Fallback to photo
-            if imdb and imdb.get('poster'):
-                raw = imdb.get('poster')
-                if hasattr(raw, 'seek'):
-                    raw.seek(0)
-                sent = await message.reply_photo(
-                    photo=raw,
-                    caption=f"<b>{clean_title}</b>",
-                    reply_markup=grp_markup
-                )
-            else:
-                sent = await message.reply_text(
-                    text=f"<b>🎬 {clean_title}</b>",
-                    reply_markup=grp_markup,
-                    disable_web_page_preview=True
-                )
-    else:
-        sent = await message.reply_text(
-            text=f"<b>🎬 {clean_title}</b>",
-            reply_markup=grp_markup,
+    # ── Helper: ek card send karna ──────────────────────────────────────────
+    async def _send_one_card(sbuf, markup, fallback_title):
+        if sbuf:
+            try:
+                return await message.reply_sticker(sticker=sbuf, reply_markup=markup)
+            except Exception as _se:
+                logger.warning(f"reply_sticker failed: {_se}")
+        # fallback text card
+        return await message.reply_text(
+            text=f"<b>{fallback_title}</b>",
+            reply_markup=markup,
             disable_web_page_preview=True
         )
 
+    # ── Multiple cards — same search ke 2-3 results ──────────────────────────
+    # Har result ka alag sticker + buttons bhejo (max 3)
+    # Pehla result already process hua hai (sticker_buf + imdb)
+    # Baaki results ke liye unique file groups dhundo
+
+    # Group files by "title year" to find distinct movies
+    import re as _re2
+    def _title_year(fname):
+        y = _re2.findall(r'[1-2]\d{3}', fname)
+        return y[0] if y else "0000"
+
+    # Deduplicate by year — max 3 distinct results
+    seen_years = set()
+    card_files_list = []  # list of (representative_file, year)
+    for _f in files:
+        _yr = _title_year(_f.file_name)
+        if _yr not in seen_years:
+            seen_years.add(_yr)
+            card_files_list.append((_f, _yr))
+        if len(card_files_list) >= 3:
+            break
+
+    sent_messages = []
+
+    if len(card_files_list) <= 1:
+        # Single result — normal send
+        s = await _send_one_card(sticker_buf, grp_markup, clean_title)
+        sent_messages.append(s)
+    else:
+        # Multiple distinct results — send first card (already fetched)
+        s = await _send_one_card(sticker_buf, grp_markup, clean_title)
+        sent_messages.append(s)
+
+        # Remaining cards
+        for _cf, _yr in card_files_list[1:]:
+            _imdb2 = await get_poster(search + " " + _yr, file=_cf.file_name) if settings["imdb"] else None
+            _lang2 = _extract_langs_from_files([_cf])
+            _audio2 = f"🔰AUDIO:- {_lang2.upper() if _lang2 else 'MULTI'}🔰"
+            _title2 = (_imdb2.get('title') if _imdb2 and _imdb2.get('title') else search).title()
+            _key2 = f"{key}-{_yr}"
+            _GRP_CARD_STORE[_key2] = {"search": search + " " + _yr, "key": key, "chat_id": message.chat.id, "user_id": req_user_id}
+            temp.GETALL[_key2] = files
+            _btn2 = [
+                [InlineKeyboardButton(_title2, callback_data=f"grp_detail#{_key2}#{req_user_id}")],
+                [InlineKeyboardButton(_audio2, callback_data=f"grp_detail#{_key2}#{req_user_id}")],
+            ]
+            _markup2 = InlineKeyboardMarkup(_btn2)
+
+            # Sticker for this card
+            _sbuf2 = None
+            if _imdb2 and _imdb2.get('poster'):
+                try:
+                    from PIL import Image as _PI2, ImageOps as _IO2
+                    import io as _io2
+                    _raw2 = _imdb2.get('poster')
+                    if isinstance(_raw2, _io2.BytesIO):
+                        _raw2.seek(0)
+                        _im2 = _PI2.open(_raw2).convert("RGBA")
+                    else:
+                        import aiohttp as _ah2
+                        async with _ah2.ClientSession() as _s2:
+                            async with _s2.get(_raw2) as _r2:
+                                _im2 = _PI2.open(_io2.BytesIO(await _r2.read())).convert("RGBA")
+                    _im2 = _im2.resize((960, 540), _PI2.LANCZOS)
+                    _sbuf2 = _io2.BytesIO()
+                    _im2.save(_sbuf2, format="WEBP", quality=95)
+                    _sbuf2.seek(0)
+                    _sbuf2.name = "sticker.webp"
+                except Exception as _e2:
+                    logger.warning(f"Card2 sticker error: {_e2}")
+
+            s2 = await _send_one_card(_sbuf2, _markup2, _title2)
+            sent_messages.append(s2)
+            await asyncio.sleep(0.3)  # flood wait se bachao
+
     await m.delete()
 
-    # Auto delete group card
+    # Auto delete all sent cards
     try:
         if settings['auto_delete']:
             await asyncio.sleep(DELETE_TIME)
-            await sent.delete()
+            for _sm in sent_messages:
+                try: await _sm.delete()
+                except: pass
             await message.delete()
     except KeyError:
         await save_group_settings(message.chat.id, 'auto_delete', True)
         await asyncio.sleep(DELETE_TIME)
-        await sent.delete()
+        for _sm in sent_messages:
+            try: await _sm.delete()
+            except: pass
         await message.delete()
 
 
 # ── DM Detail Handler — group card button click karne par DM mein full result ─
-@Client.on_callback_query(filters.regex(r"^grp_detail#"))
-async def grp_detail_dm_handler(client: Client, query: CallbackQuery):
-    """
-    Group card ke kisi bhi button pe click → bot user ko DM mein
-    poora detail (IMDB info + file buttons + filters) bhejta hai.
-    """
-    parts = query.data.split("#", 2)
-    key = parts[1]
-    try:
-        req_uid = int(parts[2])
-    except Exception:
-        req_uid = 0
-
-    store = _GRP_CARD_STORE.get(key)
-    if not store:
-        return await query.answer("⏰ Result expire ho gaya. Dobara search karo.", show_alert=True)
-
-    search    = store["search"]
-    chat_id   = store["chat_id"]
-    user_id   = query.from_user.id
-
-    settings  = await get_settings(chat_id)
-    pre       = 'filep' if settings['file_secure'] else 'file'
-    files     = temp.GETALL.get(key, [])
-
-    if not files:
-        # Re-fetch from DB if evicted from memory
-        files, offset, total_results = await get_search_results(chat_id, search, offset=0, filter=True)
-        files = _sort_files_by_episode(files)
-        temp.GETALL[key] = files
-    else:
-        offset = ""
-        total_results = len(files)
-
-    if not files:
-        return await query.answer("❌ Koi file nahi mili.", show_alert=True)
-
-    await query.answer("📨 DM mein bhej raha hun...", show_alert=False)
-
-    # Build full DM buttons (same as normal result)
-    btn = _make_file_buttons(files, key, pre, settings)
-
-    if offset and offset != "":
-        req = user_id
-        try:
-            if settings['max_btn']:
-                btn.append([
-                    InlineKeyboardButton("ᴘᴀɢᴇ", callback_data="pages"),
-                    InlineKeyboardButton(f"1/{math.ceil(int(total_results)/10)}", callback_data="pages"),
-                    InlineKeyboardButton("ɴᴇxᴛ ⋟", callback_data=f"next_{req}_{key}_{offset}")
-                ])
-            else:
-                btn.append([
-                    InlineKeyboardButton("ᴘᴀɢᴇ", callback_data="pages"),
-                    InlineKeyboardButton(f"1/{math.ceil(int(total_results)/int(MAX_B_TN))}", callback_data="pages"),
-                    InlineKeyboardButton("ɴᴇxᴛ ⋟", callback_data=f"next_{req}_{key}_{offset}")
-                ])
-        except Exception:
-            btn.append([
-                InlineKeyboardButton("ᴘᴀɢᴇ", callback_data="pages"),
-                InlineKeyboardButton(f"1/{math.ceil(int(total_results)/10)}", callback_data="pages"),
-                InlineKeyboardButton("ɴᴇxᴛ ⋟", callback_data=f"next_{user_id}_{key}_{offset}")
-            ])
-    else:
-        btn.append([InlineKeyboardButton("↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
-
-    btn.append([InlineKeyboardButton(
-        "🔍 Sᴇᴀʀᴄʜ ɪɴ Wᴇʙsɪᴛᴇ",
-        url=f"https://suhani-search.vercel.app/?search={quote_plus(search)}"
-    )])
-
-    # IMDB caption for DM
-    imdb = await get_poster(search, file=files[0].file_name) if settings["imdb"] else None
-    TEMPLATE = script.IMDB_TEMPLATE_TXT
-
-    if imdb:
-        try:
-            cap = TEMPLATE.format(
-                qurey=search,
-                title=imdb['title'],
-                votes=imdb['votes'],
-                aka=imdb["aka"],
-                seasons=imdb["seasons"],
-                box_office=imdb['box_office'],
-                localized_title=imdb['localized_title'],
-                kind=imdb['kind'],
-                imdb_id=imdb["imdb_id"],
-                cast=imdb["cast"],
-                runtime=imdb["runtime"],
-                countries=imdb["countries"],
-                certificates=imdb["certificates"],
-                languages=imdb["languages"],
-                director=imdb["director"],
-                writer=imdb["writer"],
-                producer=imdb["producer"],
-                composer=imdb["composer"],
-                cinematographer=imdb["cinematographer"],
-                music_team=imdb["music_team"],
-                distributors=imdb["distributors"],
-                release_date=imdb['release_date'],
-                year=imdb['year'],
-                genres=imdb['genres'],
-                poster=imdb['poster'],
-                plot=imdb['plot'],
-                rating=imdb['rating'],
-                url=imdb['url'],
-            )
-        except Exception:
-            cap = f"<b>🎬 {search.title()}\n\n📂 Total Files: {total_results}</b>"
-        if not settings["button"]:
-            cap += "\n\n<b>📚 <u>Your Requested Files</u> 👇\n\n</b>"
-            for file in files:
-                cap += f"<b>\n<a href='https://telegram.me/{temp.U_NAME}?start=files_{file.file_id}'> 📁 {get_size(file.file_size)} ▷ {' '.join(x for x in file.file_name.split() if not x.startswith('[') and not x.startswith('@') and not x.startswith('www.'))}\n</a></b>"
-    else:
-        cap = f"<b>›› ᴛɪᴛʟᴇ : <code>{search}</code>\n›› ᴛᴏᴛᴀʟ ꜰɪʟᴇꜱ : <code>{total_results}</code>\n›› ʀᴇǫᴜᴇsᴛᴇᴅ ʙʏ : {query.from_user.mention}\n\n›› 𝑹𝒆𝒒𝒖𝒆𝒔𝒕𝒆𝒅 𝑭𝒊𝒍𝒆𝒔 👇\n\n</b>"
-        if not settings["button"]:
-            for file in files:
-                cap += f"<b><a href='https://telegram.me/{temp.U_NAME}?start=files_{file.file_id}'> 📁 {get_size(file.file_size)} ▷ {' '.join(x for x in file.file_name.split() if not x.startswith('[') and not x.startswith('@') and not x.startswith('www.'))}\n\n</a></b>"
-
-    if len(cap) > 4096:
-        cap = cap[:4090] + "…</b>"
-
-    # Send to DM
-    try:
-        if imdb and imdb.get('poster'):
-            try:
-                await client.send_photo(
-                    chat_id=user_id,
-                    photo=imdb.get('poster'),
-                    caption=cap,
-                    reply_markup=InlineKeyboardMarkup(btn)
-                )
-            except (MediaEmpty, PhotoInvalidDimensions, WebpageMediaEmpty):
-                poster = imdb.get('poster', '').replace('.jpg', '._V1_UX360.jpg')
-                try:
-                    await client.send_photo(
-                        chat_id=user_id,
-                        photo=poster,
-                        caption=cap,
-                        reply_markup=InlineKeyboardMarkup(btn)
-                    )
-                except Exception:
-                    await client.send_message(
-                        chat_id=user_id,
-                        text=cap,
-                        reply_markup=InlineKeyboardMarkup(btn),
-                        disable_web_page_preview=True
-                    )
-            except Exception:
-                await client.send_message(
-                    chat_id=user_id,
-                    text=cap,
-                    reply_markup=InlineKeyboardMarkup(btn),
-                    disable_web_page_preview=True
-                )
-        else:
-            await client.send_message(
-                chat_id=user_id,
-                text=cap,
-                reply_markup=InlineKeyboardMarkup(btn),
-                disable_web_page_preview=True
-            )
-        # Group card mein ek notification dikhao
-        try:
-            await query.message.edit_caption(
-                caption=f"<b>{search.title()}</b>\n<i>📨 Result DM mein bheja gaya!</i>",
-                reply_markup=query.message.reply_markup
-            )
-        except Exception:
-            pass
-    except Exception as e:
-        logger.exception(e)
-        await query.answer(
-            f"⚠️ DM nahi bhej saka. Pehle bot ko start karo: @{temp.U_NAME}",
-            show_alert=True
-        )
-
 async def ai_spell_check(chat_id, wrong_name):
     async def search_movie(wrong_name):
         search_results = imdb.search_movie(wrong_name)
