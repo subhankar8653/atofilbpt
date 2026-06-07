@@ -453,6 +453,7 @@ _LANG_SHORT = {
 def _extract_langs_from_files(files):
     """
     file_name list se available languages extract karo.
+    Hindi ko hamesha pehle rakho (priority), baaki LANGUAGES_LIST order mein.
     Return: short-code string like 'hin-eng-tam', ya None agar koi nahi mila.
     """
     seen = []
@@ -463,6 +464,10 @@ def _extract_langs_from_files(files):
                 seen.append(lang)
     if not seen:
         return None
+    # Hindi ko pehle rakho agar available hai
+    if "hindi" in seen and seen[0] != "hindi":
+        seen.remove("hindi")
+        seen.insert(0, "hindi")
     return "-".join(_LANG_SHORT.get(l, l[:3]) for l in seen)
 
 # In-memory store for group card → key mapping (for DM detail callback)
@@ -1005,8 +1010,8 @@ async def filter_seasons_cb_handler(client: Client, query: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^grp_detail#"))
 async def grp_detail_dm_handler(client: Client, query: CallbackQuery):
     """
-    Group card ke kisi bhi button pe click → bot user ko DM mein
-    poora detail (IMDB info + file buttons + filters) bhejta hai.
+    Group card ke kisi bhi button pe click → group mein hi poora file list expand karo.
+    DM nahi, sidha yahan dikhao.
     """
     parts = query.data.split("#", 2)
     key = parts[1]
@@ -1039,9 +1044,9 @@ async def grp_detail_dm_handler(client: Client, query: CallbackQuery):
     if not files:
         return await query.answer("❌ Koi file nahi mili.", show_alert=True)
 
-    await query.answer("📨 DM mein bhej raha hun...", show_alert=False)
+    await query.answer()
 
-    # Build full DM buttons (same as normal result)
+    # Build full file buttons (same as normal result)
     btn = _make_file_buttons(files, key, pre, settings)
 
     if offset and offset != "":
@@ -1068,116 +1073,25 @@ async def grp_detail_dm_handler(client: Client, query: CallbackQuery):
     else:
         btn.append([InlineKeyboardButton("↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
 
-    btn.append([InlineKeyboardButton(
-        "🔍 Sᴇᴀʀᴄʜ ɪɴ Wᴇʙsɪᴛᴇ",
-        url=f"https://suhani-search.vercel.app/?search={quote_plus(search)}"
-    )])
-
-    # IMDB caption for DM
-    imdb = await get_poster(search, file=files[0].file_name) if settings["imdb"] else None
-    TEMPLATE = script.IMDB_TEMPLATE_TXT
-
-    if imdb:
+    # Group mein hi edit karo — DM nahi
+    try:
+        cap = f"<b>🎬 {search.title()}\n📂 Files: {total_results}</b>"
         try:
-            cap = TEMPLATE.format(
-                qurey=search,
-                title=imdb['title'],
-                votes=imdb['votes'],
-                aka=imdb["aka"],
-                seasons=imdb["seasons"],
-                box_office=imdb['box_office'],
-                localized_title=imdb['localized_title'],
-                kind=imdb['kind'],
-                imdb_id=imdb["imdb_id"],
-                cast=imdb["cast"],
-                runtime=imdb["runtime"],
-                countries=imdb["countries"],
-                certificates=imdb["certificates"],
-                languages=imdb["languages"],
-                director=imdb["director"],
-                writer=imdb["writer"],
-                producer=imdb["producer"],
-                composer=imdb["composer"],
-                cinematographer=imdb["cinematographer"],
-                music_team=imdb["music_team"],
-                distributors=imdb["distributors"],
-                release_date=imdb['release_date'],
-                year=imdb['year'],
-                genres=imdb['genres'],
-                poster=imdb['poster'],
-                plot=imdb['plot'],
-                rating=imdb['rating'],
-                url=imdb['url'],
+            await query.message.edit_caption(
+                caption=cap,
+                reply_markup=InlineKeyboardMarkup(btn)
             )
         except Exception:
-            cap = f"<b>🎬 {search.title()}\n\n📂 Total Files: {total_results}</b>"
-        if not settings["button"]:
-            cap += "\n\n<b>📚 <u>Your Requested Files</u> 👇\n\n</b>"
-            for file in files:
-                cap += f"<b>\n<a href='https://telegram.me/{temp.U_NAME}?start=files_{file.file_id}'> 📁 {get_size(file.file_size)} ▷ {' '.join(x for x in file.file_name.split() if not x.startswith('[') and not x.startswith('@') and not x.startswith('www.'))}\n</a></b>"
-    else:
-        cap = f"<b>›› ᴛɪᴛʟᴇ : <code>{search}</code>\n›› ᴛᴏᴛᴀʟ ꜰɪʟᴇꜱ : <code>{total_results}</code>\n›› ʀᴇǫᴜᴇsᴛᴇᴅ ʙʏ : {query.from_user.mention}\n\n›› 𝑹𝒆𝒒𝒖𝒆𝒔𝒕𝒆𝒅 𝑭𝒊𝒍𝒆𝒔 👇\n\n</b>"
-        if not settings["button"]:
-            for file in files:
-                cap += f"<b><a href='https://telegram.me/{temp.U_NAME}?start=files_{file.file_id}'> 📁 {get_size(file.file_size)} ▷ {' '.join(x for x in file.file_name.split() if not x.startswith('[') and not x.startswith('@') and not x.startswith('www.'))}\n\n</a></b>"
-
-    if len(cap) > 4096:
-        cap = cap[:4090] + "…</b>"
-
-    # Send to DM
-    try:
-        if imdb and imdb.get('poster'):
-            try:
-                await client.send_photo(
-                    chat_id=user_id,
-                    photo=imdb.get('poster'),
-                    caption=cap,
-                    reply_markup=InlineKeyboardMarkup(btn)
-                )
-            except (MediaEmpty, PhotoInvalidDimensions, WebpageMediaEmpty):
-                poster = imdb.get('poster', '').replace('.jpg', '._V1_UX360.jpg')
-                try:
-                    await client.send_photo(
-                        chat_id=user_id,
-                        photo=poster,
-                        caption=cap,
-                        reply_markup=InlineKeyboardMarkup(btn)
-                    )
-                except Exception:
-                    await client.send_message(
-                        chat_id=user_id,
-                        text=cap,
-                        reply_markup=InlineKeyboardMarkup(btn),
-                        disable_web_page_preview=True
-                    )
-            except Exception:
-                await client.send_message(
-                    chat_id=user_id,
-                    text=cap,
-                    reply_markup=InlineKeyboardMarkup(btn),
-                    disable_web_page_preview=True
-                )
-        else:
-            await client.send_message(
-                chat_id=user_id,
+            # Agar photo message nahi hai (text message hai)
+            await query.message.edit_text(
                 text=cap,
                 reply_markup=InlineKeyboardMarkup(btn),
                 disable_web_page_preview=True
             )
-        # Group card mein ek notification dikhao
-        try:
-            await query.message.edit_caption(
-                caption=f"<b>{search.title()}</b>\n<i>📨 Result DM mein bheja gaya!</i>",
-                reply_markup=query.message.reply_markup
-            )
-        except Exception:
-            pass
     except Exception as e:
         logger.exception(e)
-        await query.answer(
-            f"⚠️ DM nahi bhej saka. Pehle bot ko start karo: @{temp.U_NAME}",
-            show_alert=True
-        )
+        await query.answer("⚠️ Kuch error aaya, dobara try karo.", show_alert=True)
+
 
 @Client.on_callback_query()
 async def cb_handler(client: Client, query: CallbackQuery):
@@ -3196,7 +3110,12 @@ async def auto_filter(client, msg, spoll=False):
     }
 
     # Group card buttons — alag alag rows, no More Results button
-    audio_label = f"🔰AUDIO:- {lang_str.upper() if lang_str else 'MULTI'}🔰"
+    # Audio label: Hindi available hai toh pehle HINDI dikhao
+    _raw_langs = lang_str.upper() if lang_str else 'MULTI'
+    if lang_str and lang_str.startswith("hin"):
+        audio_label = f"🔰AUDIO:- HINDI ORG🔰"
+    else:
+        audio_label = f"🔰AUDIO:- {_raw_langs}🔰"
     grp_btn = [
         [InlineKeyboardButton(clean_title, callback_data=f"grp_detail#{key}#{req_user_id}")],
         [InlineKeyboardButton(audio_label, callback_data=f"grp_detail#{key}#{req_user_id}")],
