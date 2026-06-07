@@ -220,18 +220,32 @@ async def _show_lang_step(client, target, uid, langs, send=False):
     sk = _session_key(uid)
     sess = _GF_SESSION.get(sk, {})
     search = sess.get("search", "")
+    chat_id = sess.get("chat_id")
 
-    # Quality step jaisa — SAARI languages dikhao
-    # ✅ = files available hain  ❌ = nahi hain (click karne pe warning)
-    detected = set(langs)
+    # Is group ke files mein detected languages
+    group_detected = set(langs)
+
+    # Global detected — ALL groups mein search karo (chat_id=None)
+    # Website jaisa behavior: agar kisi bhi group mein file hai toh dikhao
+    global_detected = set()
+    try:
+        global_files, _, _ = await get_search_results(None, search, max_results=200, filter=True)
+        global_detected = set(_extract_langs(global_files))
+    except Exception:
+        global_detected = group_detected.copy()
 
     btn = []
     row = []
     for lang in LANGUAGES_LIST:
-        full = lang.capitalize()  # "hindi" -> "Hindi"
-        if lang in detected:
+        full = lang.capitalize()
+        if lang in group_detected:
+            # Is group mein available ✅
             label = f"✅ {full}"
+        elif lang in global_detected:
+            # Kisi aur group mein hai — ⚠️ (dusre group se milegi)
+            label = f"⚠️ {full}"
         else:
+            # Kahi bhi nahi ❌
             label = f"❌ {full}"
         row.append(InlineKeyboardButton(label, callback_data=f"gf_lang#{uid}#{lang}"))
         if len(row) == 3:
@@ -240,17 +254,14 @@ async def _show_lang_step(client, target, uid, langs, send=False):
     if row:
         btn.append(row)
 
-    # Unknown language button — jo LANGUAGES_LIST mein nahi par file mein hai
-    # Check: koi file hai jisme koi bhi known language alias match nahi hua
+    # Unknown language — jo kisi known language se match nahi karta
     unknown_files = []
     for f in sess.get("all_files", []):
         nl = f.file_name.lower()
-        matched = False
-        for lang in LANGUAGES_LIST:
-            aliases = _LANG_ALIASES.get(lang, [lang])
-            if any(alias in nl for alias in aliases):
-                matched = True
-                break
+        matched = any(
+            any(alias in nl for alias in _LANG_ALIASES.get(l, [l]))
+            for l in LANGUAGES_LIST
+        )
         if not matched:
             unknown_files.append(f)
 
@@ -269,7 +280,9 @@ async def _show_lang_step(client, target, uid, langs, send=False):
     text = (
         f"<b>🎬 {search.title()}</b>\n\n"
         f"<b>🌐 Language select karo:</b>\n"
-        f"<b>✅ = Available  ❌ = Nahi hai</b>"
+        f"<b>✅ = Is group mein available</b>\n"
+        f"<b>⚠️ = Dusre group mein hai</b>\n"
+        f"<b>❌ = Kahi nahi</b>"
     )
     markup = InlineKeyboardMarkup(btn)
 
@@ -469,12 +482,29 @@ async def gf_lang_cb(client: Client, query: CallbackQuery):
         await query.answer("✅ Unknown Language selected!")
         return await _show_qual_step(client, query, uid, send=False)
 
-    # Check if this language has files
+    # Check if this language has files in this group
     all_files = sess.get("all_files", [])
     avail_langs = _extract_langs(all_files)
+
     if lang not in avail_langs:
+        # Global check — kisi aur group mein hai?
+        try:
+            search = sess.get("search", "")
+            global_files, _, _ = await get_search_results(None, search, max_results=200, filter=True)
+            global_langs = _extract_langs(global_files)
+            if lang in global_langs:
+                # Dusre group se files use karo
+                sess["all_files"] = global_files
+                sess["lang"] = lang
+                sess["offset"] = 0
+                _GF_SESSION[sk] = sess
+                await _save_session(uid)
+                await query.answer(f"⚠️ {lang.capitalize()} files dusre group se mil rahi hain!")
+                return await _show_qual_step(client, query, uid, send=False)
+        except Exception:
+            pass
         return await query.answer(
-            f"❌ {lang.upper()} mein koi file nahi hai!\nDusri language choose karo.",
+            f"❌ {lang.capitalize()} mein koi file nahi hai!\nDusri language choose karo.",
             show_alert=True
         )
 
