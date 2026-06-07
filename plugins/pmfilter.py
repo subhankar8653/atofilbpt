@@ -2950,8 +2950,6 @@ async def auto_filter(client, msg, spoll=False):
             files, offset, total_results = await get_search_results(message.chat.id ,search, offset=0, filter=True)
             settings = await get_settings(message.chat.id)
             if not files:
-                # Fast local fuzzy check — no external API, no hang
-                suggestion = await local_fuzzy_suggest(search)
                 from info import REQST_CHANNEL, temp as _t
                 req_btn = []
                 if REQST_CHANNEL:
@@ -2960,29 +2958,36 @@ async def auto_filter(client, msg, spoll=False):
                         req_btn = [[InlineKeyboardButton("📩 Request this Movie", url=req_link.invite_link)]]
                     except Exception:
                         pass
-                if suggestion:
-                    # Spelling galat thi, similar file DB mein hai
-                    btn = [[
-                        InlineKeyboardButton(
-                            f"🔎 Search: {suggestion}",
-                            switch_inline_query_current_chat=suggestion
+                if settings["spell_check"]:
+                    # Fast local fuzzy check — no external API, no hang
+                    suggestion = await local_fuzzy_suggest(search)
+                    if suggestion:
+                        # Spelling galat thi, similar file DB mein hai
+                        btn = [[
+                            InlineKeyboardButton(
+                                f"🔎 Search: {suggestion}",
+                                switch_inline_query_current_chat=suggestion
+                            )
+                        ]] + req_btn
+                        k = await m.edit(
+                            f"<b>❌ Nᴏ ʀᴇꜱᴜʟᴛꜱ ꜰᴏʀ</b> <code>{search}</code>\n\n"
+                            f"💡 <b>Dɪᴅ ʏᴏᴜ ᴍᴇᴀɴ:</b> <code>{suggestion}</code>?\n\n"
+                            f"<i>Sᴘᴇʟʟɪɴɢ ᴄʜᴇᴄᴋ ᴋᴀʀᴋᴇ ᴅᴏʙᴀʀᴀ sᴇᴀʀᴄʜ ᴋᴀʀᴏ 👆</i>",
+                            reply_markup=InlineKeyboardMarkup(btn)
                         )
-                    ]] + req_btn
-                    k = await m.edit(
-                        f"<b>❌ Nᴏ ʀᴇꜱᴜʟᴛꜱ ꜰᴏʀ</b> <code>{search}</code>\n\n"
-                        f"💡 <b>Dɪᴅ ʏᴏᴜ ᴍᴇᴀɴ:</b> <code>{suggestion}</code>?\n\n"
-                        f"<i>Sᴘᴇʟʟɪɴɢ ᴄʜᴇᴄᴋ ᴋᴀʀᴋᴇ ᴅᴏʙᴀʀᴀ sᴇᴀʀᴄʜ ᴋᴀʀᴏ 👆</i>",
-                        reply_markup=InlineKeyboardMarkup(btn)
-                    )
+                        schedule_delete(k, message, delay=45)
+                    else:
+                        # DB mein kuch bhi similar nahi — file abhi upload nahi hua
+                        k = await m.edit(
+                            f"<b>📭 Nᴏᴛ Fᴏᴜɴᴅ:</b> <code>{search}</code>\n\n"
+                            f"<i>Yᴇʜ ꜰɪʟᴇ ᴀʙʜɪ ᴛᴀᴋ ᴜᴘʟᴏᴀᴅ ɴᴀʜɪɴ ʜᴜɪ ʜᴀɪ.</i>\n"
+                            f"📢 Neeche button se request karo!",
+                            reply_markup=InlineKeyboardMarkup(req_btn) if req_btn else None
+                        )
+                        schedule_delete(k, message, delay=45)
                 else:
-                    # DB mein kuch bhi similar nahi — file abhi upload nahi hua
-                    k = await m.edit(
-                        f"<b>📭 Nᴏᴛ Fᴏᴜɴᴅ:</b> <code>{search}</code>\n\n"
-                        f"<i>Yᴇʜ ꜰɪʟᴇ ᴀʙʜɪ ᴛᴀᴋ ᴜᴘʟᴏᴀᴅ ɴᴀʜɪɴ ʜᴜɪ ʜᴀɪ.</i>\n"
-                        f"📢 Neeche button se request karo!",
-                        reply_markup=InlineKeyboardMarkup(req_btn) if req_btn else None
-                    )
-                schedule_delete(k, message, delay=45)
+                    # spell_check disabled — silently delete searching message
+                    await m.delete()
     else:
         message = msg.message.reply_to_message  # msg will be callback query
         search, files, offset, total_results = spoll
