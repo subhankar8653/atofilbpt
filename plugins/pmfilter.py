@@ -3045,8 +3045,8 @@ async def auto_filter(client, msg, spoll=False):
                 async with _aiohttp.ClientSession() as _sess:
                     async with _sess.get(raw) as _r:
                         _img = _PilImage.open(_io.BytesIO(await _r.read())).convert("RGBA")
-            # 16:9 ratio — ImageOps.fit = center crop to exact size, no black bars
-            _img = _ImageOps.fit(_img, (960, 540), _PilImage.LANCZOS)
+            # 16:9 ratio — direct stretch, pura image fill hoga, koi crop nahi
+            _img = _img.resize((960, 540), _PilImage.LANCZOS)
             sticker_buf = _io.BytesIO()
             _img.save(sticker_buf, format="WEBP", quality=95)
             sticker_buf.seek(0)
