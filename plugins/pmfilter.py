@@ -2998,8 +2998,8 @@ async def auto_filter(client, msg, spoll=False):
         btn.append(
             [InlineKeyboardButton(text="↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭",callback_data="pages")]
         )
-    # ── GROUP CLEAN CARD (Naruto style) ────────────────────────────────────────
-    # IMDB poster fetch (for group card thumbnail)
+    # ── GROUP CLEAN CARD (Sticker style) ────────────────────────────────────────
+    # IMDB/OMDB poster fetch
     imdb = await get_poster(search, file=(files[0]).file_name) if settings["imdb"] else None
 
     # Language extraction from file names
@@ -3025,8 +3025,6 @@ async def auto_filter(client, msg, spoll=False):
             InlineKeyboardButton(lang_label, callback_data=f"grp_detail#{key}#{req_user_id}"),
         ]
     ]
-
-    # More Results button — agar same search ke 10+ results hain (next page available)
     if offset and offset != "":
         grp_btn.append([
             InlineKeyboardButton("📄 Mᴏʀᴇ Rᴇsᴜʟᴛs ᴀᴠᴀɪʟᴀʙʟᴇ", callback_data=f"grp_detail#{key}#{req_user_id}")
@@ -3034,35 +3032,57 @@ async def auto_filter(client, msg, spoll=False):
 
     grp_markup = InlineKeyboardMarkup(grp_btn)
 
-    # Send group card
+    # ── Poster → 512x512 WebP sticker convert ───────────────────────────────
+    sticker_buf = None
     if imdb and imdb.get('poster'):
         try:
-            sent = await message.reply_photo(
-                photo=imdb.get('poster'),
-                caption=f"<b>{clean_title}</b>",
+            from PIL import Image as _PilImage
+            import io as _io
+            raw = imdb.get('poster')
+            # raw is either BytesIO (already downloaded) or a URL string
+            if isinstance(raw, _io.BytesIO):
+                raw.seek(0)
+                _img = _PilImage.open(raw).convert("RGBA")
+            else:
+                import aiohttp as _aiohttp
+                async with _aiohttp.ClientSession() as _sess:
+                    async with _sess.get(raw) as _r:
+                        _img = _PilImage.open(_io.BytesIO(await _r.read())).convert("RGBA")
+            # Resize to 512x512 (sticker standard size)
+            _img = _img.resize((512, 512), _PilImage.LANCZOS)
+            sticker_buf = _io.BytesIO()
+            _img.save(sticker_buf, format="WEBP")
+            sticker_buf.seek(0)
+            sticker_buf.name = "sticker.webp"
+        except Exception as _e:
+            logger.warning(f"Sticker convert error: {_e}")
+            sticker_buf = None
+
+    # Send group card
+    if sticker_buf:
+        try:
+            sent = await message.reply_sticker(
+                sticker=sticker_buf,
                 reply_markup=grp_markup
             )
-        except (MediaEmpty, PhotoInvalidDimensions, WebpageMediaEmpty):
-            try:
-                poster = imdb.get('poster', '').replace('.jpg', '._V1_UX360.jpg')
+        except Exception as e:
+            logger.exception(e)
+            # Fallback to photo
+            if imdb and imdb.get('poster'):
+                raw = imdb.get('poster')
+                if hasattr(raw, 'seek'):
+                    raw.seek(0)
                 sent = await message.reply_photo(
-                    photo=poster,
+                    photo=raw,
                     caption=f"<b>{clean_title}</b>",
                     reply_markup=grp_markup
                 )
-            except Exception:
+            else:
                 sent = await message.reply_text(
                     text=f"<b>🎬 {clean_title}</b>",
                     reply_markup=grp_markup,
                     disable_web_page_preview=True
                 )
-        except Exception as e:
-            logger.exception(e)
-            sent = await message.reply_text(
-                text=f"<b>🎬 {clean_title}</b>",
-                reply_markup=grp_markup,
-                disable_web_page_preview=True
-            )
     else:
         sent = await message.reply_text(
             text=f"<b>🎬 {clean_title}</b>",
