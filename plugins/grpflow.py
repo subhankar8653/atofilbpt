@@ -31,10 +31,18 @@ _GF_SESSION = {}
 
 FILES_PER_PAGE = 10
 
+# ── Extra languages not in pmfilter's LANGUAGES_LIST ─────────────────────────
+_EXTRA_LANGUAGES = ["multi", "dual"]
+
+# Extended list = pmfilter list + our extras
+def _full_lang_list():
+    return LANGUAGES_LIST + [l for l in _EXTRA_LANGUAGES if l not in LANGUAGES_LIST]
+
 # ── Language aliases — same language different names in filenames ──────────────
 _LANG_ALIASES = {
-    "hindi":     ["hindi", "hin", "hind", "multi audio", "multi-audio",
-                  "dual audio", "dual-audio", "dubbed"],
+    "hindi":     ["hindi", "hin", "hind"],
+    "multi":     ["multi audio", "multi-audio", "multilingual", "multi lang", "multi language", "multi"],
+    "dual":      ["dual audio", "dual-audio", "dubbed", "dual"],
     "english":   ["english", "eng"],
     "tamil":     ["tamil", "tam"],
     "telugu":    ["telugu", "tel"],
@@ -60,7 +68,7 @@ def _extract_langs(files):
     seen = []
     for f in files:
         nl = f.file_name.lower()
-        for lang in LANGUAGES_LIST:
+        for lang in _full_lang_list():
             if lang not in seen:
                 aliases = _LANG_ALIASES.get(lang, [lang])
                 if any(alias in nl for alias in aliases):
@@ -236,7 +244,7 @@ async def _show_lang_step(client, target, uid, langs, send=False):
 
     btn = []
     row = []
-    for lang in LANGUAGES_LIST:
+    for lang in _full_lang_list():
         full = lang.capitalize()
         if lang in group_detected:
             # Is group mein available ✅
