@@ -145,34 +145,44 @@ async def get_search_results(chat_id, query, file_type=None, max_results=10, off
     if file_type:
         filter['file_type'] = file_type
 
-    total_results = ((await Media.count_documents(filter))+(await Media2.count_documents(filter)))
+    # Count results in each DB separately for correct pagination
+    total2 = await Media2.count_documents(filter)
+    total1 = await Media.count_documents(filter)
+    total_results = total2 + total1
 
-    #verifies max_results is an even number or not
-    if max_results%2 != 0: 
+    # Verify max_results is an even number
+    if max_results % 2 != 0:
         logger.info(f"Since max_results is an odd number ({max_results}), bot will use {max_results+1} as max_results to make it even.")
         max_results += 1
 
-    cursor = Media.find(filter)
-    cursor2 = Media2.find(filter)
+    files = []
+    remaining = max_results
 
-    cursor.sort('$natural', -1)
-    cursor2.sort('$natural', -1)
+    # --- Fetch from Media2 (secondary DB) first ---
+    if offset < total2:
+        # Still have results to serve from secondary DB
+        cursor2 = Media2.find(filter)
+        cursor2.sort('$natural', -1)
+        cursor2.skip(offset).limit(remaining)
+        fileList2 = await cursor2.to_list(length=remaining)
+        files.extend(fileList2)
+        remaining -= len(fileList2)
 
-    cursor2.skip(offset).limit(max_results)
+    # --- Fetch from Media (primary DB) if we still need more results ---
+    if remaining > 0:
+        # Calculate how far into primary DB we need to skip
+        # offset into primary = how much of offset spills past secondary DB
+        primary_offset = max(0, offset - total2)
+        cursor = Media.find(filter)
+        cursor.sort('$natural', -1)
+        cursor.skip(primary_offset).limit(remaining)
+        fileList1 = await cursor.to_list(length=remaining)
+        files.extend(fileList1)
 
-    fileList2 = await cursor2.to_list(length=max_results)
-    if len(fileList2)<max_results:
-        next_offset = offset+len(fileList2)
-        cursorSkipper = (next_offset-(await Media2.count_documents(filter)))
-        cursor.skip(cursorSkipper if cursorSkipper>=0 else 0).limit(max_results-len(fileList2))
-        fileList1 = await cursor.to_list(length=(max_results-len(fileList2)))
-        files = fileList2+fileList1
-        next_offset = next_offset + len(fileList1)
-    else:
-        files = fileList2
-        next_offset = offset + max_results
+    next_offset = offset + len(files)
     if next_offset >= total_results:
         next_offset = ''
+
     return files, next_offset, total_results
 
 
