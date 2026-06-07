@@ -213,7 +213,7 @@ async def start(client, message):
     # ── grpkey_ — SABSE PEHLE check karo, koi split nahi ──────────────────────
     if data.startswith("grpkey_"):
         import json
-        from plugins.pmfilter import _make_file_buttons, _sort_files_by_episode
+        from plugins.pmfilter import _sort_files_by_episode
         payload = data[len("grpkey_"):]
         try:
             decoded = json.loads(
@@ -229,12 +229,19 @@ async def start(client, message):
         files = _sort_files_by_episode(files)
         if not files:
             return await message.reply_text("<b>❌ Koi file nahi mili.</b>")
-        key = f"dm_{message.from_user.id}_{chat_id}"
-        temp.GETALL[key] = files
-        btn = _make_file_buttons(files, key, pre, settings)
-        btn.append([InlineKeyboardButton("↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
-        cap = f"<b>🎬 {search.title()}\n📂 Total Files: {total_results}</b>"
-        await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn), disable_web_page_preview=True)
+        # Screenshot jaisa text-link format
+        cap = f"<b>🎬 {search.title()}</b>\n\n"
+        cap += f"<b>📂 Total Files: {total_results}</b>\n\n"
+        cap += "<b>📚 <u>Your Requested Files</u> 👇\n\n</b>"
+        for file in files:
+            clean_name = ' '.join(
+                x for x in file.file_name.split()
+                if not x.startswith('[') and not x.startswith('@') and not x.startswith('www.')
+            )
+            cap += f"<b>\n<a href='https://telegram.me/{temp.U_NAME}?start={pre}_{file.file_id}'> 📁 {get_size(file.file_size)} ▷ {clean_name}\n</a></b>"
+        if len(cap) > 4096:
+            cap = cap[:4090] + "…</b>"
+        await message.reply_text(cap, disable_web_page_preview=True)
         return
     # ───────────────────────────────────────────────────────────────────────────
 
