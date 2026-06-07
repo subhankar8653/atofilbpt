@@ -214,15 +214,33 @@ async def start(client, message):
     if data.startswith("grpkey_"):
         import json
         from plugins.grpflow import start_grpflow
+        from plugins.pmfilter import _GRP_CARD_STORE
         payload = data[len("grpkey_"):]
-        try:
-            decoded = json.loads(
-                base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)).decode()
-            )
-            search  = decoded["s"]
-            chat_id = int(decoded["c"])
-        except Exception:
+
+        search = None
+        chat_id = None
+
+        # New format: payload is the key directly (e.g. "-1001234567890-12345")
+        # Key directly _GRP_CARD_STORE mein lookup karo
+        store = _GRP_CARD_STORE.get(payload)
+        if store:
+            search  = store.get("search")
+            chat_id = store.get("chat_id")
+
+        # Old format fallback: base64 encoded JSON (backward compat)
+        if not search or not chat_id:
+            try:
+                decoded = json.loads(
+                    base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)).decode()
+                )
+                search  = decoded["s"]
+                chat_id = int(decoded["c"])
+            except Exception:
+                pass
+
+        if not search or not chat_id:
             return await message.reply_text("<b>⏰ Link expire ho gaya. Group mein dobara search karo.</b>")
+
         await start_grpflow(client, message, search, chat_id)
         return
     # ───────────────────────────────────────────────────────────────────────────

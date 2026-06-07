@@ -1012,27 +1012,21 @@ async def filter_seasons_cb_handler(client: Client, query: CallbackQuery):
 async def grp_detail_dm_handler(client: Client, query: CallbackQuery):
     """
     Group card button click → seedha bot pe redirect.
-    search+chat_id base64 mein encode karke URL mein pass karo — store pe dependency nahi.
+    Key directly URL mein pass karo — base64 encoding se URL limit (64 chars) exceed hoti thi.
+    Key format: "chatid-msgid" — hamesha short, kabhi 64 chars se zyada nahi.
     """
-    import base64, json
     parts = query.data.split("#", 2)
     key = parts[1]
 
-    # Store se search/chat_id lo, fallback: key parse karo (format: chatid-msgid)
+    # Store mein check karo — agar nahi hai toh expire ho gaya
     store = _GRP_CARD_STORE.get(key)
-    if store:
-        search  = store["search"]
-        chat_id = store["chat_id"]
-    else:
-        # Store expire ho gaya — key se chat_id nikalte hain, search nahi milega
+    if not store:
         return await query.answer("⏰ Result expire ho gaya. Group mein dobara search karo.", show_alert=True)
 
     try:
-        # search aur chat_id encode karo taaki bot restart ke baad bhi kaam kare
-        payload = base64.urlsafe_b64encode(
-            json.dumps({"s": search, "c": str(chat_id)}).encode()
-        ).decode().rstrip("=")
-        await query.answer(url=f"https://t.me/{temp.U_NAME}?start=grpkey_{payload}")
+        # Key directly pass karo — no base64, no length issue
+        # commands.py mein grpkey_ handler key se store lookup karega
+        await query.answer(url=f"https://t.me/{temp.U_NAME}?start=grpkey_{key}")
     except Exception as e:
         logger.exception(e)
         await query.answer("⚠️ Redirect nahi hua, dobara try karo.", show_alert=True)
