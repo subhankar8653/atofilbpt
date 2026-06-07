@@ -110,14 +110,19 @@ def _filter_files(files, lang=None, qual=None):
         result = [f for f in result if qual in f.file_name.lower()]
     return result
 
-def _session_key(user_id):
+def _session_key(user_id, msg_id=None):
+    if msg_id:
+        return f"gf_{user_id}_{msg_id}"
     return f"gf_{user_id}"
 
 # ── Session save/load helpers ──────────────────────────────────────────────────
 
-async def _save_session(uid: int):
+async def _save_session(uid: int, msg_id=None):
     """In-memory session ko MongoDB mein persist karo."""
-    sk = _session_key(uid)
+    sk = _session_key(uid, msg_id)
+    if sk not in _GF_SESSION:
+        # Try without msg_id (backward compat)
+        sk = _session_key(uid)
     sess = _GF_SESSION.get(sk)
     if not sess:
         return
@@ -129,18 +134,19 @@ async def _save_session(uid: int):
         "lang":    sess.get("lang"),
         "qual":    sess.get("qual"),
         "offset":  sess.get("offset", 0),
+        "msg_id":  sess.get("msg_id", 0),
     }
     try:
         await db.save_grp_session(uid, meta)
     except Exception as e:
         logger.warning(f"Session save failed: {e}")
 
-async def _load_session(uid: int) -> bool:
+async def _load_session(uid: int, msg_id=None) -> bool:
     """
     MongoDB se session load karo aur files rebuild karo.
     Returns True agar session successfully load + rebuild hua.
     """
-    sk = _session_key(uid)
+    sk = _session_key(uid, msg_id)
     if sk in _GF_SESSION:
         return True  # already in memory
 
@@ -174,6 +180,8 @@ async def _load_session(uid: int) -> bool:
     if not files:
         return False
 
+    loaded_msg_id = doc.get("msg_id", 0) or msg_id or 0
+    sk = _session_key(uid, loaded_msg_id)
     _GF_SESSION[sk] = {
         "search":    search,
         "chat_id":   chat_id,
@@ -182,6 +190,7 @@ async def _load_session(uid: int) -> bool:
         "qual":      qual,
         "all_files": files,
         "offset":    offset,
+        "msg_id":    loaded_msg_id,
     }
     logger.info(f"Session rebuilt from MongoDB for uid={uid}, search='{search}'")
     return True
@@ -207,15 +216,18 @@ async def start_grpflow(client, message: Message, search: str, chat_id: int):
         return await message.reply_text("<b>❌ Koi file nahi mili. Group mein dobara search karo.</b>")
 
     uid = message.from_user.id
-    sk = _session_key(uid)
+    # msg_id use karo taaki har search ka alag session ho — mix nahi ho
+    msg_id = message.id
+    sk = _session_key(uid, msg_id)
     _GF_SESSION[sk] = {
         "search": search, "chat_id": chat_id, "pre": pre,
         "lang": None, "qual": None,
         "all_files": files, "offset": 0,
+        "msg_id": msg_id,
     }
 
     # MongoDB mein save karo immediately
-    await _save_session(uid)
+    await _save_session(uid, msg_id)
 
     langs = _extract_langs(files)
 
@@ -261,7 +273,7 @@ async def _show_lang_step(client, target, uid, langs, send=False):
         else:
             # Kahi bhi nahi ❌
             label = f"❌ {full}"
-        row.append(InlineKeyboardButton(label, callback_data=f"gf_lang#{uid}#{lang}#{chat_id}"))
+        row.append(InlineKeyboardButton(label, callback_data=f"gf_lang#{uid}#{lang}#{chat_id}#{sess.get('msg_id', 0)}"))
         if len(row) == 3:
             btn.append(row)
             row = []
@@ -282,13 +294,13 @@ async def _show_lang_step(client, target, uid, langs, send=False):
     if unknown_files:
         btn.append([InlineKeyboardButton(
             f"❓ Unknown Language ({len(unknown_files)} files)",
-            callback_data=f"gf_lang#{uid}#unknown#{chat_id}"
+            callback_data=f"gf_lang#{uid}#unknown#{chat_id}#{sess.get('msg_id', 0)}"
         )])
 
     # "All Languages" button — no filter
     btn.append([InlineKeyboardButton(
         "🌐 All Languages (No Filter)",
-        callback_data=f"gf_lang#{uid}#all#{chat_id}"
+        callback_data=f"gf_lang#{uid}#all#{chat_id}#{sess.get('msg_id', 0)}"
     )])
 
     text = (
@@ -321,11 +333,12 @@ async def _show_qual_step(client, target, uid, send=False):
     filtered = _filter_files(files, lang=lang)
     avail_quals = _extract_quals(filtered)
 
+    msg_id = sess.get("msg_id", 0)
     btn = []
     row = []
     for q in QUALITIES_LIST:
         label = f"✅ {q.upper()}" if q in avail_quals else f"❌ {q.upper()}"
-        row.append(InlineKeyboardButton(label, callback_data=f"gf_qual#{uid}#{q}"))
+        row.append(InlineKeyboardButton(label, callback_data=f"gf_qual#{uid}#{q}#{msg_id}"))
         if len(row) == 3:
             btn.append(row)
             row = []
@@ -347,8 +360,12 @@ async def _show_qual_step(client, target, uid, send=False):
 
 # ── Step 3: Send files ─────────────────────────────────────────────────────────
 
-async def _send_files(client, target, uid, is_more=False):
-    sk = _session_key(uid)
+async def _send_files(client, target, uid, is_more=False, msg_id=None):
+    sk = _session_key(uid, msg_id) if msg_id else _session_key(uid)
+    # Fallback: kisi bhi matching session se lo
+    if sk not in _GF_SESSION:
+        matching = [k for k in _GF_SESSION if k.startswith(f"gf_{uid}")]
+        sk = matching[0] if matching else sk
     sess = _GF_SESSION.get(sk)
     if not sess:
         return
@@ -394,10 +411,11 @@ async def _send_files(client, target, uid, is_more=False):
     await _save_session(uid)  # offset update MongoDB mein bhi
 
     btn = []
+    msg_id_for_btn = sess.get("msg_id", 0)
     if new_offset < total_filtered:
         btn.append([InlineKeyboardButton(
             f"📂 More Files ({total_filtered - new_offset} remaining)",
-            callback_data=f"gf_more#{uid}"
+            callback_data=f"gf_more#{uid}#{msg_id_for_btn}"
         )])
 
     btn.append([InlineKeyboardButton(
@@ -462,38 +480,30 @@ async def gf_lang_cb(client: Client, query: CallbackQuery):
     parts = query.data.split("#")
     uid = int(parts[1])
     lang = parts[2]
-    # chat_id from callback_data — session verify karne ke liye
     btn_chat_id = int(parts[3]) if len(parts) > 3 else None
+    btn_msg_id  = int(parts[4]) if len(parts) > 4 else None
 
     if query.from_user.id != uid:
         return await query.answer("❌ Ye tumhara result nahi hai!", show_alert=True)
 
-    sk = _session_key(uid)
-
-    # Session verify karo — agar memory mein galat session hai toh reload karo
-    if sk in _GF_SESSION:
-        sess_in_mem = _GF_SESSION[sk]
-        if btn_chat_id and sess_in_mem.get("chat_id") != btn_chat_id:
-            # Galat session memory mein hai — MongoDB se sahi wala load karo
-            logger.info(f"Session mismatch for uid={uid}: memory chat_id={sess_in_mem.get('chat_id')}, button chat_id={btn_chat_id}. Reloading...")
-            del _GF_SESSION[sk]
+    # msg_id se exact session key banao — har search ka alag session
+    sk = _session_key(uid, btn_msg_id) if btn_msg_id else _session_key(uid)
 
     if sk not in _GF_SESSION:
         # MongoDB se load karne ki koshish karo
-        loaded = await _load_session(uid)
+        loaded = await _load_session(uid, btn_msg_id)
         if not loaded:
             return await query.answer(
                 "⏰ Session expire ho gaya.\nGroup mein dobara Send All button dabao.",
                 show_alert=True
             )
-        # Loaded session bhi verify karo
-        if btn_chat_id and _GF_SESSION.get(sk, {}).get("chat_id") != btn_chat_id:
-            return await query.answer(
-                "⏰ Session expire ho gaya.\nGroup mein dobara Send All button dabao.",
-                show_alert=True
-            )
 
-    sess = _GF_SESSION[sk]
+    sess = _GF_SESSION.get(sk)
+    if not sess:
+        return await query.answer(
+            "⏰ Session expire ho gaya.\nGroup mein dobara Send All button dabao.",
+            show_alert=True
+        )
     # "all" = no language filter
     # "all" = no filter
     if lang == "all":
@@ -556,13 +566,14 @@ async def gf_qual_cb(client: Client, query: CallbackQuery):
     parts = query.data.split("#")
     uid = int(parts[1])
     qual = parts[2]
+    btn_msg_id = int(parts[3]) if len(parts) > 3 else None
 
     if query.from_user.id != uid:
         return await query.answer("❌ Ye tumhara result nahi hai!", show_alert=True)
 
-    sk = _session_key(uid)
+    sk = _session_key(uid, btn_msg_id) if btn_msg_id else _session_key(uid)
     if sk not in _GF_SESSION:
-        loaded = await _load_session(uid)
+        loaded = await _load_session(uid, btn_msg_id)
         if not loaded:
             return await query.answer(
                 "⏰ Session expire ho gaya.\nGroup mein dobara Send All button dabao.",
@@ -592,27 +603,28 @@ async def gf_qual_cb(client: Client, query: CallbackQuery):
     except Exception:
         pass
 
-    await _send_files(client, query, uid)
+    await _send_files(client, query, uid, msg_id=btn_msg_id)
 
 
 @Client.on_callback_query(filters.regex(r"^gf_more#"))
 async def gf_more_cb(client: Client, query: CallbackQuery):
-    _, uid_str = query.data.split("#", 1)
-    uid = int(uid_str)
+    parts = query.data.split("#")
+    uid = int(parts[1])
+    btn_msg_id = int(parts[2]) if len(parts) > 2 else None
 
     if query.from_user.id != uid:
         return await query.answer("❌ Ye tumhara result nahi hai!", show_alert=True)
 
-    sk = _session_key(uid)
+    sk = _session_key(uid, btn_msg_id) if btn_msg_id else _session_key(uid)
     if sk not in _GF_SESSION:
-        loaded = await _load_session(uid)
+        loaded = await _load_session(uid, btn_msg_id)
         if not loaded:
             return await query.answer(
                 "⏰ Session expire ho gaya.\nGroup mein dobara Send All button dabao.",
                 show_alert=True
             )
 
-    await _send_files(client, query, uid, is_more=True)
+    await _send_files(client, query, uid, is_more=True, msg_id=btn_msg_id)
 
 
 @Client.on_callback_query(filters.regex(r"^gf_noop$"))
