@@ -3018,12 +3018,10 @@ async def auto_filter(client, msg, spoll=False):
         "user_id": req_user_id,
     }
 
-    # Group card buttons: Title | Language, then optionally More Results
+    # Group card buttons — alag alag rows
     grp_btn = [
-        [
-            InlineKeyboardButton(f"🎬 {clean_title}", callback_data=f"grp_detail#{key}#{req_user_id}"),
-            InlineKeyboardButton(lang_label, callback_data=f"grp_detail#{key}#{req_user_id}"),
-        ]
+        [InlineKeyboardButton(f"🎬 {clean_title}", callback_data=f"grp_detail#{key}#{req_user_id}")],
+        [InlineKeyboardButton(lang_label, callback_data=f"grp_detail#{key}#{req_user_id}")],
     ]
     if offset and offset != "":
         grp_btn.append([
@@ -3032,14 +3030,13 @@ async def auto_filter(client, msg, spoll=False):
 
     grp_markup = InlineKeyboardMarkup(grp_btn)
 
-    # ── Poster → 512x512 WebP sticker convert ───────────────────────────────
+    # ── Poster → 16:9 WebP sticker convert (960x540, stretch fill, no black bars) ──
     sticker_buf = None
     if imdb and imdb.get('poster'):
         try:
-            from PIL import Image as _PilImage
+            from PIL import Image as _PilImage, ImageOps as _ImageOps
             import io as _io
             raw = imdb.get('poster')
-            # raw is either BytesIO (already downloaded) or a URL string
             if isinstance(raw, _io.BytesIO):
                 raw.seek(0)
                 _img = _PilImage.open(raw).convert("RGBA")
@@ -3048,10 +3045,10 @@ async def auto_filter(client, msg, spoll=False):
                 async with _aiohttp.ClientSession() as _sess:
                     async with _sess.get(raw) as _r:
                         _img = _PilImage.open(_io.BytesIO(await _r.read())).convert("RGBA")
-            # Resize to 512x512 (sticker standard size)
-            _img = _img.resize((512, 512), _PilImage.LANCZOS)
+            # 16:9 ratio — ImageOps.fit = center crop to exact size, no black bars
+            _img = _ImageOps.fit(_img, (960, 540), _PilImage.LANCZOS)
             sticker_buf = _io.BytesIO()
-            _img.save(sticker_buf, format="WEBP")
+            _img.save(sticker_buf, format="WEBP", quality=95)
             sticker_buf.seek(0)
             sticker_buf.name = "sticker.webp"
         except Exception as _e:
