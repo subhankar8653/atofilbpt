@@ -197,6 +197,12 @@ async def start_grpflow(client, message: Message, search: str, chat_id: int):
     files, _, total = await get_search_results(chat_id, search, offset=0, filter=True)
     files = _sort_files_by_episode(files)
 
+    # ── Fallback: agar is group mein file nahi mili, global search karo ─────
+    if not files:
+        logger.info(f"[grpflow] Group {chat_id} mein '{search}' nahi mila, global search try karo...")
+        files, _, total = await get_search_results(None, search, max_results=200, filter=True)
+        files = _sort_files_by_episode(files)
+
     if not files:
         return await message.reply_text("<b>❌ Koi file nahi mili. Group mein dobara search karo.</b>")
 
