@@ -232,18 +232,24 @@ async def start_grpflow(client, message: Message, search: str, chat_id: int):
     langs = _extract_langs(files)
 
     if len(langs) > 1:
-        await _show_lang_step(client, message, uid, langs, send=True)
+        await _show_lang_step(client, message, uid, langs, send=True, msg_id=msg_id)
     else:
         if langs:
             _GF_SESSION[sk]["lang"] = langs[0]
-            await _save_session(uid)
-        await _show_qual_step(client, message, uid, send=True)
+            await _save_session(uid, msg_id)
+        await _show_qual_step(client, message, uid, send=True, msg_id=msg_id)
 
 
 # ── Step 1: Language ───────────────────────────────────────────────────────────
 
-async def _show_lang_step(client, target, uid, langs, send=False):
-    sk = _session_key(uid)
+async def _show_lang_step(client, target, uid, langs, send=False, msg_id=None):
+    # msg_id wala sk dhundho pehle, fallback to uid-only
+    if msg_id:
+        sk = _session_key(uid, msg_id)
+    else:
+        # Koi bhi matching session lo (msg_id wala prefer karo)
+        matching = [k for k in _GF_SESSION if k.startswith(f"gf_{uid}")]
+        sk = max(matching, key=lambda k: _GF_SESSION[k].get("msg_id", 0)) if matching else _session_key(uid)
     sess = _GF_SESSION.get(sk, {})
     search = sess.get("search", "")
     chat_id = sess.get("chat_id")
@@ -323,8 +329,13 @@ async def _show_lang_step(client, target, uid, langs, send=False):
 
 # ── Step 2: Quality ────────────────────────────────────────────────────────────
 
-async def _show_qual_step(client, target, uid, send=False):
-    sk = _session_key(uid)
+async def _show_qual_step(client, target, uid, send=False, msg_id=None):
+    # msg_id wala sk dhundho pehle, fallback to any matching
+    if msg_id:
+        sk = _session_key(uid, msg_id)
+    else:
+        matching = [k for k in _GF_SESSION if k.startswith(f"gf_{uid}")]
+        sk = max(matching, key=lambda k: _GF_SESSION[k].get("msg_id", 0)) if matching else _session_key(uid)
     sess = _GF_SESSION.get(sk, {})
     search = sess.get("search", "")
     lang   = sess.get("lang")
@@ -512,7 +523,7 @@ async def gf_lang_cb(client: Client, query: CallbackQuery):
         _GF_SESSION[sk] = sess
         await _save_session(uid)
         await query.answer("✅ All Languages selected!")
-        return await _show_qual_step(client, query, uid, send=False)
+        return await _show_qual_step(client, query, uid, send=False, msg_id=btn_msg_id)
 
     # "unknown" = files jisme koi known language nahi hai
     if lang == "unknown":
@@ -521,7 +532,7 @@ async def gf_lang_cb(client: Client, query: CallbackQuery):
         _GF_SESSION[sk] = sess
         await _save_session(uid)
         await query.answer("✅ Unknown Language selected!")
-        return await _show_qual_step(client, query, uid, send=False)
+        return await _show_qual_step(client, query, uid, send=False, msg_id=btn_msg_id)
 
     # Check if this language has files in this group
     all_files = sess.get("all_files", [])
@@ -544,7 +555,7 @@ async def gf_lang_cb(client: Client, query: CallbackQuery):
                     _GF_SESSION[sk] = sess
                     await _save_session(uid)
                     await query.answer(f"⚠️ {lang.capitalize()} files dusre group se mil rahi hain!")
-                    return await _show_qual_step(client, query, uid, send=False)
+                    return await _show_qual_step(client, query, uid, send=False, msg_id=btn_msg_id)
         except Exception:
             pass
         return await query.answer(
@@ -558,7 +569,7 @@ async def gf_lang_cb(client: Client, query: CallbackQuery):
     await _save_session(uid)
 
     await query.answer(f"✅ {lang.upper()} selected!")
-    await _show_qual_step(client, query, uid, send=False)
+    await _show_qual_step(client, query, uid, send=False, msg_id=btn_msg_id)
 
 
 @Client.on_callback_query(filters.regex(r"^gf_qual#"))
