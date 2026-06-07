@@ -81,7 +81,21 @@ def _extract_quals(files):
 
 def _filter_files(files, lang=None, qual=None):
     result = files
-    if lang:
+    if lang == "unknown":
+        # Sirf wo files jo kisi bhi known language se match nahi karti
+        filtered = []
+        for f in files:
+            nl = f.file_name.lower()
+            matched = False
+            for l in LANGUAGES_LIST:
+                aliases = _LANG_ALIASES.get(l, [l])
+                if any(alias in nl for alias in aliases):
+                    matched = True
+                    break
+            if not matched:
+                filtered.append(f)
+        result = filtered
+    elif lang:
         aliases = _LANG_ALIASES.get(lang, [lang])
         result = [f for f in result if any(alias in f.file_name.lower() for alias in aliases)]
     if qual:
@@ -206,29 +220,47 @@ async def _show_lang_step(client, target, uid, langs, send=False):
     sk = _session_key(uid)
     sess = _GF_SESSION.get(sk, {})
     search = sess.get("search", "")
-    all_files = sess.get("all_files", [])
 
-    # Saari LANGUAGES_LIST mein se detected wale ✅, baaki ❌ show karo
-    # (quality step jaisi style)
-    detected = set(langs)  # ye already alias-matched hain
+    # Quality step jaisa — SAARI languages dikhao
+    # ✅ = files available hain  ❌ = nahi hain (click karne pe warning)
+    detected = set(langs)
 
     btn = []
     row = []
-
-    # Pehle detected (available) languages
     for lang in LANGUAGES_LIST:
+        full = lang.capitalize()  # "hindi" -> "Hindi"
         if lang in detected:
-            label = f"✅ {_LANG_SHORT.get(lang, lang[:3]).upper()}"
-            row.append(InlineKeyboardButton(label, callback_data=f"gf_lang#{uid}#{lang}"))
-            if len(row) == 3:
-                btn.append(row)
-                row = []
-
+            label = f"✅ {full}"
+        else:
+            label = f"❌ {full}"
+        row.append(InlineKeyboardButton(label, callback_data=f"gf_lang#{uid}#{lang}"))
+        if len(row) == 3:
+            btn.append(row)
+            row = []
     if row:
         btn.append(row)
-        row = []
 
-    # Agar koi bhi language filter na lagao — "All Languages" button
+    # Unknown language button — jo LANGUAGES_LIST mein nahi par file mein hai
+    # Check: koi file hai jisme koi bhi known language alias match nahi hua
+    unknown_files = []
+    for f in sess.get("all_files", []):
+        nl = f.file_name.lower()
+        matched = False
+        for lang in LANGUAGES_LIST:
+            aliases = _LANG_ALIASES.get(lang, [lang])
+            if any(alias in nl for alias in aliases):
+                matched = True
+                break
+        if not matched:
+            unknown_files.append(f)
+
+    if unknown_files:
+        btn.append([InlineKeyboardButton(
+            f"❓ Unknown Language ({len(unknown_files)} files)",
+            callback_data=f"gf_lang#{uid}#unknown"
+        )])
+
+    # "All Languages" button — no filter
     btn.append([InlineKeyboardButton(
         "🌐 All Languages (No Filter)",
         callback_data=f"gf_lang#{uid}#all"
@@ -237,7 +269,7 @@ async def _show_lang_step(client, target, uid, langs, send=False):
     text = (
         f"<b>🎬 {search.title()}</b>\n\n"
         f"<b>🌐 Language select karo:</b>\n"
-        f"<b>✅ = Available files hain</b>"
+        f"<b>✅ = Available  ❌ = Nahi hai</b>"
     )
     markup = InlineKeyboardMarkup(btn)
 
@@ -419,13 +451,40 @@ async def gf_lang_cb(client: Client, query: CallbackQuery):
 
     sess = _GF_SESSION[sk]
     # "all" = no language filter
-    sess["lang"] = None if lang == "all" else lang
+    # "all" = no filter
+    if lang == "all":
+        sess["lang"] = None
+        sess["offset"] = 0
+        _GF_SESSION[sk] = sess
+        await _save_session(uid)
+        await query.answer("✅ All Languages selected!")
+        return await _show_qual_step(client, query, uid, send=False)
+
+    # "unknown" = files jisme koi known language nahi hai
+    if lang == "unknown":
+        sess["lang"] = "unknown"
+        sess["offset"] = 0
+        _GF_SESSION[sk] = sess
+        await _save_session(uid)
+        await query.answer("✅ Unknown Language selected!")
+        return await _show_qual_step(client, query, uid, send=False)
+
+    # Check if this language has files
+    all_files = sess.get("all_files", [])
+    avail_langs = _extract_langs(all_files)
+    if lang not in avail_langs:
+        return await query.answer(
+            f"❌ {lang.upper()} mein koi file nahi hai!
+Dusri language choose karo.",
+            show_alert=True
+        )
+
+    sess["lang"] = lang
     sess["offset"] = 0
     _GF_SESSION[sk] = sess
     await _save_session(uid)
 
-    label = "All Languages" if lang == "all" else lang.upper()
-    await query.answer(f"✅ {label} selected!")
+    await query.answer(f"✅ {lang.upper()} selected!")
     await _show_qual_step(client, query, uid, send=False)
 
 
