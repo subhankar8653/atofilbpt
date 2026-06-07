@@ -1010,17 +1010,28 @@ async def filter_seasons_cb_handler(client: Client, query: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^grp_detail#"))
 async def grp_detail_dm_handler(client: Client, query: CallbackQuery):
     """
-    Group card button click → seedha bot pe redirect (t.me/bot?start=grpkey_KEY).
+    Group card button click → seedha bot pe redirect.
+    search+chat_id base64 mein encode karke URL mein pass karo — store pe dependency nahi.
     """
+    import base64, json
     parts = query.data.split("#", 2)
     key = parts[1]
 
+    # Store se search/chat_id lo, fallback: key parse karo (format: chatid-msgid)
     store = _GRP_CARD_STORE.get(key)
-    if not store:
-        return await query.answer("⏰ Result expire ho gaya. Dobara search karo.", show_alert=True)
+    if store:
+        search  = store["search"]
+        chat_id = store["chat_id"]
+    else:
+        # Store expire ho gaya — key se chat_id nikalte hain, search nahi milega
+        return await query.answer("⏰ Result expire ho gaya. Group mein dobara search karo.", show_alert=True)
 
     try:
-        await query.answer(url=f"https://t.me/{temp.U_NAME}?start=grpkey_{key}")
+        # search aur chat_id encode karo taaki bot restart ke baad bhi kaam kare
+        payload = base64.urlsafe_b64encode(
+            json.dumps({"s": search, "c": str(chat_id)}).encode()
+        ).decode().rstrip("=")
+        await query.answer(url=f"https://t.me/{temp.U_NAME}?start=grpkey_{payload}")
     except Exception as e:
         logger.exception(e)
         await query.answer("⚠️ Redirect nahi hua, dobara try karo.", show_alert=True)

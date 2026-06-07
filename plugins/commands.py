@@ -408,26 +408,30 @@ async def start(client, message):
                 ])
             )
     if data.startswith("grpkey_"):
-        # Group card se redirect aya — DM mein file list dikhao
-        from plugins.pmfilter import _GRP_CARD_STORE, _make_file_buttons, _sort_files_by_episode
-        key = data[len("grpkey_"):]
-        store = _GRP_CARD_STORE.get(key)
-        if not store:
-            return await message.reply_text("<b>⏰ Result expire ho gaya. Group mein dobara search karo.</b>")
-        search   = store["search"]
-        chat_id  = store["chat_id"]
+        # Group card se redirect aya — search+chat_id decode karo, DM mein file list dikhao
+        import json
+        from plugins.pmfilter import _make_file_buttons, _sort_files_by_episode
+        payload = data[len("grpkey_"):]
+        try:
+            decoded = json.loads(
+                base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)).decode()
+            )
+            search  = decoded["s"]
+            chat_id = int(decoded["c"])
+        except Exception:
+            return await message.reply_text("<b>⏰ Link expire ho gaya. Group mein dobara search karo.</b>")
         settings = await get_settings(chat_id)
         pre      = "filep" if settings["file_secure"] else "file"
-        files    = temp.GETALL.get(key, [])
-        if not files:
-            files, offset, total_results = await get_search_results(chat_id, search, offset=0, filter=True)
-            files = _sort_files_by_episode(files)
-            temp.GETALL[key] = files
+        # Har baar fresh DB search — store pe zero dependency
+        files, _, total_results = await get_search_results(chat_id, search, offset=0, filter=True)
+        files = _sort_files_by_episode(files)
         if not files:
             return await message.reply_text("<b>❌ Koi file nahi mili.</b>")
+        key = f"dm_{message.from_user.id}_{chat_id}"
+        temp.GETALL[key] = files
         btn = _make_file_buttons(files, key, pre, settings)
-        btn.append([InlineKeyboardButton("↭ ʙᴀᴄᴋ ᴛᴏ Gʀᴏᴜᴘ ↭", url=f"https://t.me/c/{str(chat_id).replace('-100', '')}/1")])
-        cap = f"<b>🎬 {search.title()}\n📂 Files: {len(files)}</b>"
+        btn.append([InlineKeyboardButton("↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
+        cap = f"<b>🎬 {search.title()}\n📂 Total Files: {total_results}</b>"
         await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn), disable_web_page_preview=True)
         return
 
