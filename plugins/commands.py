@@ -209,6 +209,35 @@ async def start(client, message):
         return
     
     data = message.command[1]
+
+    # ── grpkey_ — SABSE PEHLE check karo, koi split nahi ──────────────────────
+    if data.startswith("grpkey_"):
+        import json
+        from plugins.pmfilter import _make_file_buttons, _sort_files_by_episode
+        payload = data[len("grpkey_"):]
+        try:
+            decoded = json.loads(
+                base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)).decode()
+            )
+            search  = decoded["s"]
+            chat_id = int(decoded["c"])
+        except Exception:
+            return await message.reply_text("<b>⏰ Link expire ho gaya. Group mein dobara search karo.</b>")
+        settings = await get_settings(chat_id)
+        pre      = "filep" if settings["file_secure"] else "file"
+        files, _, total_results = await get_search_results(chat_id, search, offset=0, filter=True)
+        files = _sort_files_by_episode(files)
+        if not files:
+            return await message.reply_text("<b>❌ Koi file nahi mili.</b>")
+        key = f"dm_{message.from_user.id}_{chat_id}"
+        temp.GETALL[key] = files
+        btn = _make_file_buttons(files, key, pre, settings)
+        btn.append([InlineKeyboardButton("↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
+        cap = f"<b>🎬 {search.title()}\n📂 Total Files: {total_results}</b>"
+        await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn), disable_web_page_preview=True)
+        return
+    # ───────────────────────────────────────────────────────────────────────────
+
     try:
         pre, file_id = data.split('_', 1)
     except:
@@ -407,34 +436,6 @@ async def start(client, message):
                     [InlineKeyboardButton("📁 ɢᴇᴛ ꜰɪʟᴇ", url=f"https://telegram.me/{temp.U_NAME}?start=files_{earn_fileid}")]
                 ])
             )
-    if data.startswith("grpkey_"):
-        # Group card se redirect aya — search+chat_id decode karo, DM mein file list dikhao
-        import json
-        from plugins.pmfilter import _make_file_buttons, _sort_files_by_episode
-        payload = data[len("grpkey_"):]
-        try:
-            decoded = json.loads(
-                base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)).decode()
-            )
-            search  = decoded["s"]
-            chat_id = int(decoded["c"])
-        except Exception:
-            return await message.reply_text("<b>⏰ Link expire ho gaya. Group mein dobara search karo.</b>")
-        settings = await get_settings(chat_id)
-        pre      = "filep" if settings["file_secure"] else "file"
-        # Har baar fresh DB search — store pe zero dependency
-        files, _, total_results = await get_search_results(chat_id, search, offset=0, filter=True)
-        files = _sort_files_by_episode(files)
-        if not files:
-            return await message.reply_text("<b>❌ Koi file nahi mili.</b>")
-        key = f"dm_{message.from_user.id}_{chat_id}"
-        temp.GETALL[key] = files
-        btn = _make_file_buttons(files, key, pre, settings)
-        btn.append([InlineKeyboardButton("↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
-        cap = f"<b>🎬 {search.title()}\n📂 Total Files: {total_results}</b>"
-        await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn), disable_web_page_preview=True)
-        return
-
     if data.startswith("sendfiles"):
         current_time = datetime.now(pytz.timezone(TIMEZONE))
         curr_time = current_time.hour        
