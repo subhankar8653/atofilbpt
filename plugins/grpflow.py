@@ -3,6 +3,8 @@ grpflow.py — Group card button se DM mein multi-step flow:
   Step 1: Language select (agar >1 language available)
   Step 2: Quality select
   Step 3: 10 files send + More button
+
+  Session: In-memory (_GF_SESSION) + MongoDB (grp_sessions collection) — bot restart safe.
 """
 import asyncio
 import base64
@@ -23,40 +25,33 @@ from utils import get_size, get_time, temp
 
 logger = logging.getLogger(__name__)
 
-# ── In-memory session store ────────────────────────────────────────────────────
-# key = f"gf_{user_id}"
-# value = {
-#   "search": str, "chat_id": int, "pre": str,
-#   "lang": str|None,   # chosen language filter
-#   "qual": str|None,   # chosen quality filter
-#   "all_files": list,  # full filtered file list
-#   "offset": int,      # how many already sent
-# }
+# ── In-memory session store (fast cache) ──────────────────────────────────────
+# MongoDB se load hone ke baad yahan cache hota hai
 _GF_SESSION = {}
 
 FILES_PER_PAGE = 10
 
 # ── Language aliases — same language different names in filenames ──────────────
-# Ye aliases detect karo "hindi" ke saath
 _LANG_ALIASES = {
-    "hindi": ["hindi", "hin", "hind", "multi audio", "multi-audio", "dual audio", "dual-audio", "dubbed"],
-    "english": ["english", "eng"],
-    "tamil": ["tamil", "tam"],
-    "telugu": ["telugu", "tel"],
+    "hindi":     ["hindi", "hin", "hind", "multi audio", "multi-audio",
+                  "dual audio", "dual-audio", "dubbed"],
+    "english":   ["english", "eng"],
+    "tamil":     ["tamil", "tam"],
+    "telugu":    ["telugu", "tel"],
     "malayalam": ["malayalam", "mal"],
-    "kannada": ["kannada", "kan"],
-    "gujarati": ["gujarati", "guj"],
-    "marathi": ["marathi", "mar"],
-    "punjabi": ["punjabi", "pun"],
-    "bengali": ["bengali", "ben"],
-    "odia": ["odia", "odi"],
-    "urdu": ["urdu", "urd"],
-    "bhojpuri": ["bhojpuri", "bho"],
-    "japanese": ["japanese", "jpn"],
-    "korean": ["korean", "kor"],
-    "chinese": ["chinese", "chi"],
-    "french": ["french", "fre"],
-    "spanish": ["spanish", "spa"],
+    "kannada":   ["kannada", "kan"],
+    "gujarati":  ["gujarati", "guj"],
+    "marathi":   ["marathi", "mar"],
+    "punjabi":   ["punjabi", "pun"],
+    "bengali":   ["bengali", "ben"],
+    "odia":      ["odia", "odi"],
+    "urdu":      ["urdu", "urd"],
+    "bhojpuri":  ["bhojpuri", "bho"],
+    "japanese":  ["japanese", "jpn"],
+    "korean":    ["korean", "kor"],
+    "chinese":   ["chinese", "chi"],
+    "french":    ["french", "fre"],
+    "spanish":   ["spanish", "spa"],
 }
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -70,7 +65,6 @@ def _extract_langs(files):
                 aliases = _LANG_ALIASES.get(lang, [lang])
                 if any(alias in nl for alias in aliases):
                     seen.append(lang)
-    # Hindi priority
     if "hindi" in seen and seen[0] != "hindi":
         seen.remove("hindi")
         seen.insert(0, "hindi")
@@ -97,47 +91,87 @@ def _filter_files(files, lang=None, qual=None):
 def _session_key(user_id):
     return f"gf_{user_id}"
 
-# ── Session rebuild helper ─────────────────────────────────────────────────────
+# ── Session save/load helpers ──────────────────────────────────────────────────
 
-async def _rebuild_session(uid: int, search: str, chat_id: int) -> bool:
-    """
-    Bot restart pe session gone hota hai.
-    Agar search aur chat_id available ho toh rebuild karo.
-    Returns True on success.
-    """
-    from utils import get_settings
+async def _save_session(uid: int):
+    """In-memory session ko MongoDB mein persist karo."""
+    sk = _session_key(uid)
+    sess = _GF_SESSION.get(sk)
+    if not sess:
+        return
+    # all_files store nahi karte (too large) — sirf metadata save karo
+    meta = {
+        "search":  sess.get("search", ""),
+        "chat_id": sess.get("chat_id", 0),
+        "pre":     sess.get("pre", "file"),
+        "lang":    sess.get("lang"),
+        "qual":    sess.get("qual"),
+        "offset":  sess.get("offset", 0),
+    }
     try:
-        settings = await get_settings(chat_id)
-        pre = "filep" if settings.get("file_secure") else "file"
+        await db.save_grp_session(uid, meta)
+    except Exception as e:
+        logger.warning(f"Session save failed: {e}")
+
+async def _load_session(uid: int) -> bool:
+    """
+    MongoDB se session load karo aur files rebuild karo.
+    Returns True agar session successfully load + rebuild hua.
+    """
+    sk = _session_key(uid)
+    if sk in _GF_SESSION:
+        return True  # already in memory
+
+    try:
+        doc = await db.get_grp_session(uid)
+    except Exception as e:
+        logger.warning(f"Session load failed: {e}")
+        return False
+
+    if not doc:
+        return False
+
+    search  = doc.get("search", "")
+    chat_id = doc.get("chat_id", 0)
+    pre     = doc.get("pre", "file")
+    lang    = doc.get("lang")
+    qual    = doc.get("qual")
+    offset  = doc.get("offset", 0)
+
+    if not search or not chat_id:
+        return False
+
+    # Files dobara DB se fetch karo
+    try:
         files, _, total = await get_search_results(chat_id, search, offset=0, filter=True)
         files = _sort_files_by_episode(files)
-        if not files:
-            return False
-        sk = _session_key(uid)
-        _GF_SESSION[sk] = {
-            "search": search, "chat_id": chat_id, "pre": pre,
-            "lang": None, "qual": None,
-            "all_files": files, "offset": 0,
-        }
-        return True
     except Exception as e:
-        logger.warning(f"Session rebuild failed: {e}")
+        logger.warning(f"Session rebuild files fetch failed: {e}")
         return False
+
+    if not files:
+        return False
+
+    _GF_SESSION[sk] = {
+        "search":    search,
+        "chat_id":   chat_id,
+        "pre":       pre,
+        "lang":      lang,
+        "qual":      qual,
+        "all_files": files,
+        "offset":    offset,
+    }
+    logger.info(f"Session rebuilt from MongoDB for uid={uid}, search='{search}'")
+    return True
 
 # ── Entry point (called from commands.py grpkey_ handler) ─────────────────────
 
 async def start_grpflow(client, message: Message, search: str, chat_id: int):
-    """
-    grpkey_ payload decode ke baad yahan aao.
-    """
-    from database.users_chats_db import db as _db
-    settings = await _db.get_settings(chat_id) if hasattr(_db, 'get_settings') else {}
-    # get_settings is in utils
+    """grpkey_ payload decode ke baad yahan aao."""
     from utils import get_settings
     settings = await get_settings(chat_id)
     pre = "filep" if settings.get("file_secure") else "file"
 
-    # Full search
     files, _, total = await get_search_results(chat_id, search, offset=0, filter=True)
     files = _sort_files_by_episode(files)
 
@@ -152,15 +186,17 @@ async def start_grpflow(client, message: Message, search: str, chat_id: int):
         "all_files": files, "offset": 0,
     }
 
+    # MongoDB mein save karo immediately
+    await _save_session(uid)
+
     langs = _extract_langs(files)
 
     if len(langs) > 1:
-        # Step 1: Language select
         await _show_lang_step(client, message, uid, langs, send=True)
     else:
-        # Only 1 (or 0) language — skip to quality
         if langs:
             _GF_SESSION[sk]["lang"] = langs[0]
+            await _save_session(uid)
         await _show_qual_step(client, message, uid, send=True)
 
 
@@ -173,7 +209,7 @@ async def _show_lang_step(client, target, uid, langs, send=False):
 
     btn = []
     row = []
-    for i, lang in enumerate(langs):
+    for lang in langs:
         label = _LANG_SHORT.get(lang, lang[:3]).upper()
         row.append(InlineKeyboardButton(label, callback_data=f"gf_lang#{uid}#{lang}"))
         if len(row) == 3:
@@ -203,18 +239,13 @@ async def _show_qual_step(client, target, uid, send=False):
     lang   = sess.get("lang")
     files  = sess.get("all_files", [])
 
-    # Filter by chosen language first
     filtered = _filter_files(files, lang=lang)
     avail_quals = _extract_quals(filtered)
-    all_quals   = QUALITIES_LIST
 
     btn = []
     row = []
-    for q in all_quals:
-        if q in avail_quals:
-            label = f"✅ {q.upper()}"
-        else:
-            label = f"❌ {q.upper()}"
+    for q in QUALITIES_LIST:
+        label = f"✅ {q.upper()}" if q in avail_quals else f"❌ {q.upper()}"
         row.append(InlineKeyboardButton(label, callback_data=f"gf_qual#{uid}#{q}"))
         if len(row) == 3:
             btn.append(row)
@@ -253,7 +284,6 @@ async def _send_files(client, target, uid, is_more=False):
     filtered = _filter_files(files, lang=lang, qual=qual)
 
     if not filtered:
-        # Ye quality available nahi
         await target.answer(
             f"❌ '{qual.upper()}' quality available nahi hai!\nDusri quality try karo.",
             show_alert=True
@@ -263,7 +293,6 @@ async def _send_files(client, target, uid, is_more=False):
     page = filtered[offset: offset + FILES_PER_PAGE]
     total_filtered = len(filtered)
 
-    # Build text
     lang_line = f" | 🌐 {lang.upper()}" if lang else ""
     qual_line = f" | 📹 {qual.upper()}" if qual else ""
     cap = f"<b>🎬 {search.title()}{lang_line}{qual_line}</b>\n"
@@ -280,10 +309,10 @@ async def _send_files(client, target, uid, is_more=False):
     if len(cap) > 4096:
         cap = cap[:4090] + "…</b>"
 
-    # Buttons row
     new_offset = offset + FILES_PER_PAGE
     sess["offset"] = new_offset
     _GF_SESSION[sk] = sess
+    await _save_session(uid)  # offset update MongoDB mein bhi
 
     btn = []
     if new_offset < total_filtered:
@@ -304,11 +333,8 @@ async def _send_files(client, target, uid, is_more=False):
     )])
 
     markup = InlineKeyboardMarkup(btn) if btn else None
-
-    chat_id_dm = uid
     sent_msgs = []
 
-    # Send files as cached media (one by one)
     for f in page:
         clean_name = ' '.join(
             x for x in f.file_name.split()
@@ -316,7 +342,7 @@ async def _send_files(client, target, uid, is_more=False):
         )
         try:
             m = await client.send_cached_media(
-                chat_id=chat_id_dm,
+                chat_id=uid,
                 file_id=f.file_id,
                 caption=f"<b>📁 {clean_name}</b>",
                 protect_content=False,
@@ -326,16 +352,14 @@ async def _send_files(client, target, uid, is_more=False):
             logger.warning(f"send_cached_media failed: {e}")
         await asyncio.sleep(0.3)
 
-    # Summary message with buttons
     summary = await client.send_message(
-        chat_id=chat_id_dm,
+        chat_id=uid,
         text=cap,
         reply_markup=markup,
         disable_web_page_preview=True
     )
     sent_msgs.append(summary)
 
-    # Auto delete after DELETE_TIME
     async def _auto_del():
         await asyncio.sleep(DELETE_TIME)
         for m in sent_msgs:
@@ -345,7 +369,6 @@ async def _send_files(client, target, uid, is_more=False):
                 pass
     asyncio.create_task(_auto_del())
 
-    # Agar "more" callback tha toh answer karo
     if hasattr(target, 'answer'):
         try:
             await target.answer()
@@ -358,32 +381,27 @@ async def _send_files(client, target, uid, is_more=False):
 @Client.on_callback_query(filters.regex(r"^gf_lang#"))
 async def gf_lang_cb(client: Client, query: CallbackQuery):
     parts = query.data.split("#")
-    uid_str = parts[1]
+    uid = int(parts[1])
     lang = parts[2]
-    uid = int(uid_str)
 
     if query.from_user.id != uid:
         return await query.answer("❌ Ye tumhara result nahi hai!", show_alert=True)
 
     sk = _session_key(uid)
-    sess = _GF_SESSION.get(sk)
-    if not sess:
-        # Session expire — try to extract search+chat_id from message text for rebuild
-        search, chat_id = _parse_session_from_message(query.message)
-        if search and chat_id:
-            rebuilt = await _rebuild_session(uid, search, chat_id)
-            if rebuilt:
-                sess = _GF_SESSION.get(sk)
+    if sk not in _GF_SESSION:
+        # MongoDB se load karne ki koshish karo
+        loaded = await _load_session(uid)
+        if not loaded:
+            return await query.answer(
+                "⏰ Session expire ho gaya.\nGroup mein dobara Send All button dabao.",
+                show_alert=True
+            )
 
-    if not sess:
-        return await query.answer(
-            "⏰ Session expire ho gaya.\nGroup mein dobara Send All button dabao.",
-            show_alert=True
-        )
-
+    sess = _GF_SESSION[sk]
     sess["lang"] = lang
     sess["offset"] = 0
     _GF_SESSION[sk] = sess
+    await _save_session(uid)
 
     await query.answer(f"✅ {lang.upper()} selected!")
     await _show_qual_step(client, query, uid, send=False)
@@ -392,29 +410,22 @@ async def gf_lang_cb(client: Client, query: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^gf_qual#"))
 async def gf_qual_cb(client: Client, query: CallbackQuery):
     parts = query.data.split("#")
-    uid_str = parts[1]
+    uid = int(parts[1])
     qual = parts[2]
-    uid = int(uid_str)
 
     if query.from_user.id != uid:
         return await query.answer("❌ Ye tumhara result nahi hai!", show_alert=True)
 
     sk = _session_key(uid)
-    sess = _GF_SESSION.get(sk)
-    if not sess:
-        search, chat_id = _parse_session_from_message(query.message)
-        if search and chat_id:
-            rebuilt = await _rebuild_session(uid, search, chat_id)
-            if rebuilt:
-                sess = _GF_SESSION.get(sk)
+    if sk not in _GF_SESSION:
+        loaded = await _load_session(uid)
+        if not loaded:
+            return await query.answer(
+                "⏰ Session expire ho gaya.\nGroup mein dobara Send All button dabao.",
+                show_alert=True
+            )
 
-    if not sess:
-        return await query.answer(
-            "⏰ Session expire ho gaya.\nGroup mein dobara Send All button dabao.",
-            show_alert=True
-        )
-
-    # Check availability
+    sess = _GF_SESSION[sk]
     files    = sess["all_files"]
     lang     = sess["lang"]
     filtered = _filter_files(files, lang=lang)
@@ -429,9 +440,9 @@ async def gf_qual_cb(client: Client, query: CallbackQuery):
     sess["qual"] = qual
     sess["offset"] = 0
     _GF_SESSION[sk] = sess
+    await _save_session(uid)
 
     await query.answer(f"✅ {qual.upper()} selected!")
-    # Delete quality selection message
     try:
         await query.message.delete()
     except Exception:
@@ -450,10 +461,12 @@ async def gf_more_cb(client: Client, query: CallbackQuery):
 
     sk = _session_key(uid)
     if sk not in _GF_SESSION:
-        return await query.answer(
-            "⏰ Session expire ho gaya.\nGroup mein dobara Send All button dabao.",
-            show_alert=True
-        )
+        loaded = await _load_session(uid)
+        if not loaded:
+            return await query.answer(
+                "⏰ Session expire ho gaya.\nGroup mein dobara Send All button dabao.",
+                show_alert=True
+            )
 
     await _send_files(client, query, uid, is_more=True)
 
@@ -461,21 +474,3 @@ async def gf_more_cb(client: Client, query: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^gf_noop$"))
 async def gf_noop_cb(client: Client, query: CallbackQuery):
     await query.answer()
-
-
-# ── Session parse from message text (rebuild helper) ──────────────────────────
-
-def _parse_session_from_message(message):
-    """
-    Message text se movie name extract karne ki koshish karo.
-    Format: "🎬 Pushpa\n\n🌐 Language select karo:" ya "🎬 Pushpa\n🌐 Language: HINDI\n\n📹 Quality..."
-    Returns (search_str, None) — chat_id nahi milega text se, so None.
-    """
-    try:
-        text = message.text or ""
-        if "🎬" in text:
-            line = text.split("🎬")[1].strip().split("\n")[0].strip()
-            return line.lower(), None
-    except Exception:
-        pass
-    return None, None
