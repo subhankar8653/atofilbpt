@@ -227,6 +227,15 @@ async def start(client, message):
             search  = store.get("search")
             chat_id = store.get("chat_id")
 
+        # DB fallback — bot restart ke baad bhi kaam kare
+        if not search or not chat_id:
+            from database.grpcard_db import get_grp_card
+            db_store = get_grp_card(payload)
+            if db_store:
+                search  = db_store["search"]
+                chat_id = db_store["chat_id"]
+                _GRP_CARD_STORE[payload] = db_store  # memory mein cache kar lo
+
         # Old format fallback: base64 encoded JSON (backward compat)
         if not search or not chat_id:
             try:

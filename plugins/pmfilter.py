@@ -473,6 +473,7 @@ def _extract_langs_from_files(files):
 # In-memory store for group card → key mapping (for DM detail callback)
 # key: callback_data key → (search, files, offset, total_results, chat_id, user_id)
 _GRP_CARD_STORE = {}
+from database.grpcard_db import save_grp_card
 
 
 def _build_home_buttons(files, key, pre, settings):
@@ -3051,6 +3052,7 @@ async def auto_filter(client, msg, spoll=False):
         "chat_id": message.chat.id,
         "user_id": req_user_id,
     }
+    save_grp_card(key, search, message.chat.id, req_user_id)
 
     # Group card buttons — alag alag rows, no More Results button
     # Audio label: Hindi available hai toh pehle HINDI dikhao
@@ -3146,6 +3148,7 @@ async def auto_filter(client, msg, spoll=False):
             _title2 = (_imdb2.get('title') if _imdb2 and _imdb2.get('title') else search).title()
             _key2 = f"{key}-{_yr}"
             _GRP_CARD_STORE[_key2] = {"search": search + " " + _yr, "key": key, "chat_id": message.chat.id, "user_id": req_user_id}
+            save_grp_card(_key2, search + " " + _yr, message.chat.id, req_user_id)
             temp.GETALL[_key2] = files
             _btn2 = [
                 [InlineKeyboardButton(_title2, callback_data=f"grp_detail#{_key2}#{req_user_id}")],
