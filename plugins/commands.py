@@ -166,7 +166,7 @@ async def start(client, message):
             return 	    
         referdb.add_user(message.from_user.id)
         fromuse = referdb.get_refer_points(user_id) + 10
-        if fromuse >= 100:
+        if fromuse == 100:
             referdb.add_refer_points(user_id, 0) 
             await message.reply_text(f"🎉 𝗖𝗼𝗻𝗴𝗿𝗮𝘁𝘂𝗹𝗮𝘁𝗶𝗼𝗻𝘀! 𝗬𝗼𝘂 𝘄𝗼𝗻 𝟭𝟬 𝗥𝗲𝗳𝗲𝗿𝗿𝗮𝗹 𝗽𝗼𝗶𝗻𝘁 𝗯𝗲𝗰𝗮𝘂𝘀𝗲 𝗬𝗼𝘂 𝗵𝗮𝘃𝗲 𝗯𝗲𝗲𝗻 𝗦𝘂𝗰𝗰𝗲𝘀𝘀𝗳𝘂𝗹𝗹𝘆 𝗜𝗻𝘃𝗶𝘁𝗲𝗱 ☞ {uss.mention}!")		    
             await client.send_message(user_id, f"You have been successfully invited by {message.from_user.mention}!")
@@ -177,7 +177,7 @@ async def start(client, message):
                 await db.update_user(user_data)  # Use the update_user method to update or insert user data		    
                 await client.send_message(
                 chat_id=user_id,
-                text=f"<b>Hᴇʏ {uss.mention}\n\nYᴏᴜ ɢᴏᴛ 1 ᴍᴏɴᴛʜ ᴘʀᴇᴍɪᴜᴍ sᴜʙsᴄʀɪᴘᴛɪᴏɴ ʙʏ ɪɴᴠɪᴛɪɴɢ 10 ᴜsᴇʀs ❗</b>", disable_web_page_preview=True              
+                text=f"<b>Hᴇʏ {uss.mention}\n\nYᴏᴜ ɢᴏᴛ 1 ᴍᴏɴᴛʜ ᴘʀᴇᴍɪᴜᴍ sᴜʙsᴄʀɪᴘᴛɪᴏɴ ʙʏ ɪɴᴠɪᴛɪɴɢ 10 ᴜsᴇʀs ❗", disable_web_page_preview=True              
                 )
             for admin in ADMINS:
                 await client.send_message(chat_id=admin, text=f"Sᴜᴄᴄᴇss ғᴜʟʟʏ ᴛᴀsᴋ ᴄᴏᴍᴘʟᴇᴛᴇᴅ ʙʏ ᴛʜɪs ᴜsᴇʀ:\n\nuser Nᴀᴍᴇ: {uss.mention}\n\nUsᴇʀ ɪᴅ: {uss.id}!")	
@@ -2015,5 +2015,38 @@ async def confirmation_handler(client, callback_query):
         await callback_query.message.delete()
     await callback_query.answer()
 
+
+# ══════════════════════════════════════════════════════════════════════
+# BOT MODE COMMANDS (Admin only)
+# ══════════════════════════════════════════════════════════════════════
+
+@Client.on_message(filters.command("setfakelink") & filters.user(ADMINS) & filters.private)
+async def set_fake_link_cmd(client, message):
+    """
+    /setfakelink <url> <button_text>
+    Example: /setfakelink https://example.com Click Here
+    """
+    args = message.text.split(None, 2)
+    if len(args) < 3:
+        return await message.reply_text(
+            "<b>Usage:</b> <code>/setfakelink https://url.com Button Text</code>\n\n"
+            "Fake link set ho jayega jo FSub buttons ke upar dikhega."
+        )
+    url = args[1]
+    btn_text = args[2]
+    ok = await db.set_fake_link(url, btn_text)
+    if ok:
+        await message.reply_text(f"✅ Fake link set!\n\nURL: <code>{url}</code>\nButton: <b>{btn_text}</b>")
+    else:
+        await message.reply_text("❌ Error setting fake link.")
+
+
+@Client.on_message(filters.command("removefakelink") & filters.user(ADMINS) & filters.private)
+async def remove_fake_link_cmd(client, message):
+    ok = await db.remove_fake_link()
+    if ok:
+        await message.reply_text("✅ Fake link removed!")
+    else:
+        await message.reply_text("❌ Error removing fake link.")
 
 
