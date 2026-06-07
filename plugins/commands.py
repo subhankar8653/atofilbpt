@@ -229,16 +229,6 @@ async def start(client, message):
 
     try:
         pre, file_id = data.split('_', 1)
-        # base64url encoded file_id decode karo (agar encoded hai)
-        # Encoded: sirf [A-Za-z0-9_-] chars, decoded mein +/= aate hain
-        try:
-            import base64 as _b64
-            _decoded = _b64.urlsafe_b64decode(file_id + '=' * (-len(file_id) % 4)).decode()
-            # Sirf tab replace karo jab decoded string valid lage (file IDs usually 'BQ' se start hote hain)
-            if _decoded.startswith(('BQ', 'CA', 'BA', 'CQ', 'DQ')):
-                file_id = _decoded
-        except Exception:
-            pass  # decode fail = original file_id use karo (purane links ke liye backward compatible)
     except:
         file_id = data
         pre = ""
