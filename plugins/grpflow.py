@@ -36,6 +36,29 @@ _GF_SESSION = {}
 
 FILES_PER_PAGE = 10
 
+# ── Language aliases — same language different names in filenames ──────────────
+# Ye aliases detect karo "hindi" ke saath
+_LANG_ALIASES = {
+    "hindi": ["hindi", "hin", "hind", "multi audio", "multi-audio", "dual audio", "dual-audio", "dubbed"],
+    "english": ["english", "eng"],
+    "tamil": ["tamil", "tam"],
+    "telugu": ["telugu", "tel"],
+    "malayalam": ["malayalam", "mal"],
+    "kannada": ["kannada", "kan"],
+    "gujarati": ["gujarati", "guj"],
+    "marathi": ["marathi", "mar"],
+    "punjabi": ["punjabi", "pun"],
+    "bengali": ["bengali", "ben"],
+    "odia": ["odia", "odi"],
+    "urdu": ["urdu", "urd"],
+    "bhojpuri": ["bhojpuri", "bho"],
+    "japanese": ["japanese", "jpn"],
+    "korean": ["korean", "kor"],
+    "chinese": ["chinese", "chi"],
+    "french": ["french", "fre"],
+    "spanish": ["spanish", "spa"],
+}
+
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _extract_langs(files):
@@ -43,8 +66,10 @@ def _extract_langs(files):
     for f in files:
         nl = f.file_name.lower()
         for lang in LANGUAGES_LIST:
-            if lang not in seen and lang in nl:
-                seen.append(lang)
+            if lang not in seen:
+                aliases = _LANG_ALIASES.get(lang, [lang])
+                if any(alias in nl for alias in aliases):
+                    seen.append(lang)
     # Hindi priority
     if "hindi" in seen and seen[0] != "hindi":
         seen.remove("hindi")
@@ -63,13 +88,41 @@ def _extract_quals(files):
 def _filter_files(files, lang=None, qual=None):
     result = files
     if lang:
-        result = [f for f in result if lang in f.file_name.lower()]
+        aliases = _LANG_ALIASES.get(lang, [lang])
+        result = [f for f in result if any(alias in f.file_name.lower() for alias in aliases)]
     if qual:
         result = [f for f in result if qual in f.file_name.lower()]
     return result
 
 def _session_key(user_id):
     return f"gf_{user_id}"
+
+# ── Session rebuild helper ─────────────────────────────────────────────────────
+
+async def _rebuild_session(uid: int, search: str, chat_id: int) -> bool:
+    """
+    Bot restart pe session gone hota hai.
+    Agar search aur chat_id available ho toh rebuild karo.
+    Returns True on success.
+    """
+    from utils import get_settings
+    try:
+        settings = await get_settings(chat_id)
+        pre = "filep" if settings.get("file_secure") else "file"
+        files, _, total = await get_search_results(chat_id, search, offset=0, filter=True)
+        files = _sort_files_by_episode(files)
+        if not files:
+            return False
+        sk = _session_key(uid)
+        _GF_SESSION[sk] = {
+            "search": search, "chat_id": chat_id, "pre": pre,
+            "lang": None, "qual": None,
+            "all_files": files, "offset": 0,
+        }
+        return True
+    except Exception as e:
+        logger.warning(f"Session rebuild failed: {e}")
+        return False
 
 # ── Entry point (called from commands.py grpkey_ handler) ─────────────────────
 
@@ -304,7 +357,9 @@ async def _send_files(client, target, uid, is_more=False):
 
 @Client.on_callback_query(filters.regex(r"^gf_lang#"))
 async def gf_lang_cb(client: Client, query: CallbackQuery):
-    _, uid_str, lang = query.data.split("#", 2)
+    parts = query.data.split("#")
+    uid_str = parts[1]
+    lang = parts[2]
     uid = int(uid_str)
 
     if query.from_user.id != uid:
@@ -313,7 +368,18 @@ async def gf_lang_cb(client: Client, query: CallbackQuery):
     sk = _session_key(uid)
     sess = _GF_SESSION.get(sk)
     if not sess:
-        return await query.answer("⏰ Session expire. Group mein dobara search karo.", show_alert=True)
+        # Session expire — try to extract search+chat_id from message text for rebuild
+        search, chat_id = _parse_session_from_message(query.message)
+        if search and chat_id:
+            rebuilt = await _rebuild_session(uid, search, chat_id)
+            if rebuilt:
+                sess = _GF_SESSION.get(sk)
+
+    if not sess:
+        return await query.answer(
+            "⏰ Session expire ho gaya.\nGroup mein dobara Send All button dabao.",
+            show_alert=True
+        )
 
     sess["lang"] = lang
     sess["offset"] = 0
@@ -325,7 +391,9 @@ async def gf_lang_cb(client: Client, query: CallbackQuery):
 
 @Client.on_callback_query(filters.regex(r"^gf_qual#"))
 async def gf_qual_cb(client: Client, query: CallbackQuery):
-    _, uid_str, qual = query.data.split("#", 2)
+    parts = query.data.split("#")
+    uid_str = parts[1]
+    qual = parts[2]
     uid = int(uid_str)
 
     if query.from_user.id != uid:
@@ -334,7 +402,17 @@ async def gf_qual_cb(client: Client, query: CallbackQuery):
     sk = _session_key(uid)
     sess = _GF_SESSION.get(sk)
     if not sess:
-        return await query.answer("⏰ Session expire. Group mein dobara search karo.", show_alert=True)
+        search, chat_id = _parse_session_from_message(query.message)
+        if search and chat_id:
+            rebuilt = await _rebuild_session(uid, search, chat_id)
+            if rebuilt:
+                sess = _GF_SESSION.get(sk)
+
+    if not sess:
+        return await query.answer(
+            "⏰ Session expire ho gaya.\nGroup mein dobara Send All button dabao.",
+            show_alert=True
+        )
 
     # Check availability
     files    = sess["all_files"]
@@ -372,7 +450,10 @@ async def gf_more_cb(client: Client, query: CallbackQuery):
 
     sk = _session_key(uid)
     if sk not in _GF_SESSION:
-        return await query.answer("⏰ Session expire. Group mein dobara search karo.", show_alert=True)
+        return await query.answer(
+            "⏰ Session expire ho gaya.\nGroup mein dobara Send All button dabao.",
+            show_alert=True
+        )
 
     await _send_files(client, query, uid, is_more=True)
 
@@ -380,3 +461,21 @@ async def gf_more_cb(client: Client, query: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^gf_noop$"))
 async def gf_noop_cb(client: Client, query: CallbackQuery):
     await query.answer()
+
+
+# ── Session parse from message text (rebuild helper) ──────────────────────────
+
+def _parse_session_from_message(message):
+    """
+    Message text se movie name extract karne ki koshish karo.
+    Format: "🎬 Pushpa\n\n🌐 Language select karo:" ya "🎬 Pushpa\n🌐 Language: HINDI\n\n📹 Quality..."
+    Returns (search_str, None) — chat_id nahi milega text se, so None.
+    """
+    try:
+        text = message.text or ""
+        if "🎬" in text:
+            line = text.split("🎬")[1].strip().split("\n")[0].strip()
+            return line.lower(), None
+    except Exception:
+        pass
+    return None, None
