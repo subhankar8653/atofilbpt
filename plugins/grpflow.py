@@ -206,19 +206,39 @@ async def _show_lang_step(client, target, uid, langs, send=False):
     sk = _session_key(uid)
     sess = _GF_SESSION.get(sk, {})
     search = sess.get("search", "")
+    all_files = sess.get("all_files", [])
+
+    # Saari LANGUAGES_LIST mein se detected wale ✅, baaki ❌ show karo
+    # (quality step jaisi style)
+    detected = set(langs)  # ye already alias-matched hain
 
     btn = []
     row = []
-    for lang in langs:
-        label = _LANG_SHORT.get(lang, lang[:3]).upper()
-        row.append(InlineKeyboardButton(label, callback_data=f"gf_lang#{uid}#{lang}"))
-        if len(row) == 3:
-            btn.append(row)
-            row = []
+
+    # Pehle detected (available) languages
+    for lang in LANGUAGES_LIST:
+        if lang in detected:
+            label = f"✅ {_LANG_SHORT.get(lang, lang[:3]).upper()}"
+            row.append(InlineKeyboardButton(label, callback_data=f"gf_lang#{uid}#{lang}"))
+            if len(row) == 3:
+                btn.append(row)
+                row = []
+
     if row:
         btn.append(row)
+        row = []
 
-    text = f"<b>🎬 {search.title()}\n\n🌐 Language select karo:</b>"
+    # Agar koi bhi language filter na lagao — "All Languages" button
+    btn.append([InlineKeyboardButton(
+        "🌐 All Languages (No Filter)",
+        callback_data=f"gf_lang#{uid}#all"
+    )])
+
+    text = (
+        f"<b>🎬 {search.title()}</b>\n\n"
+        f"<b>🌐 Language select karo:</b>\n"
+        f"<b>✅ = Available files hain</b>"
+    )
     markup = InlineKeyboardMarkup(btn)
 
     if send:
@@ -398,12 +418,14 @@ async def gf_lang_cb(client: Client, query: CallbackQuery):
             )
 
     sess = _GF_SESSION[sk]
-    sess["lang"] = lang
+    # "all" = no language filter
+    sess["lang"] = None if lang == "all" else lang
     sess["offset"] = 0
     _GF_SESSION[sk] = sess
     await _save_session(uid)
 
-    await query.answer(f"✅ {lang.upper()} selected!")
+    label = "All Languages" if lang == "all" else lang.upper()
+    await query.answer(f"✅ {label} selected!")
     await _show_qual_step(client, query, uid, send=False)
 
 
