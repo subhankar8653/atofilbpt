@@ -544,7 +544,7 @@ def _build_home_buttons(files, key, pre, settings):
                              if not x.startswith("[") and not x.startswith("@") and not x.startswith("www."))
             btn.append([InlineKeyboardButton(
                 f"[{get_size(f.file_size)}] {clean}",
-                url=f"https://t.me/{temp.U_NAME}?start={pre}_{f.file_id}"
+                url=f"https://t.me/{temp.U_NAME}?start={pre}_{__import__('base64').urlsafe_b64encode(f.file_id.encode()).decode().rstrip('=')}"
             )])
     return btn
 
@@ -969,7 +969,7 @@ async def filter_seasons_cb_handler(client: Client, query: CallbackQuery):
             [
                 InlineKeyboardButton(
                     text=f"[{get_size(file.file_size)}] {' '.join(filter(lambda x: not x.startswith('[') and not x.startswith('@') and not x.startswith('www.'), file.file_name.split()))}",
-                    url=f"https://t.me/{temp.U_NAME}?start={pre}_{file.file_id}"
+                    url=f"https://t.me/{temp.U_NAME}?start={pre}_{__import__('base64').urlsafe_b64encode(file.file_id.encode()).decode().rstrip('=')}"
                 ),
             ]
             for file in files
