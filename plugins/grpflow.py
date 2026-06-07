@@ -261,7 +261,7 @@ async def _show_lang_step(client, target, uid, langs, send=False):
         else:
             # Kahi bhi nahi ❌
             label = f"❌ {full}"
-        row.append(InlineKeyboardButton(label, callback_data=f"gf_lang#{uid}#{lang}"))
+        row.append(InlineKeyboardButton(label, callback_data=f"gf_lang#{uid}#{lang}#{chat_id}"))
         if len(row) == 3:
             btn.append(row)
             row = []
@@ -282,13 +282,13 @@ async def _show_lang_step(client, target, uid, langs, send=False):
     if unknown_files:
         btn.append([InlineKeyboardButton(
             f"❓ Unknown Language ({len(unknown_files)} files)",
-            callback_data=f"gf_lang#{uid}#unknown"
+            callback_data=f"gf_lang#{uid}#unknown#{chat_id}"
         )])
 
     # "All Languages" button — no filter
     btn.append([InlineKeyboardButton(
         "🌐 All Languages (No Filter)",
-        callback_data=f"gf_lang#{uid}#all"
+        callback_data=f"gf_lang#{uid}#all#{chat_id}"
     )])
 
     text = (
@@ -462,15 +462,32 @@ async def gf_lang_cb(client: Client, query: CallbackQuery):
     parts = query.data.split("#")
     uid = int(parts[1])
     lang = parts[2]
+    # chat_id from callback_data — session verify karne ke liye
+    btn_chat_id = int(parts[3]) if len(parts) > 3 else None
 
     if query.from_user.id != uid:
         return await query.answer("❌ Ye tumhara result nahi hai!", show_alert=True)
 
     sk = _session_key(uid)
+
+    # Session verify karo — agar memory mein galat session hai toh reload karo
+    if sk in _GF_SESSION:
+        sess_in_mem = _GF_SESSION[sk]
+        if btn_chat_id and sess_in_mem.get("chat_id") != btn_chat_id:
+            # Galat session memory mein hai — MongoDB se sahi wala load karo
+            logger.info(f"Session mismatch for uid={uid}: memory chat_id={sess_in_mem.get('chat_id')}, button chat_id={btn_chat_id}. Reloading...")
+            del _GF_SESSION[sk]
+
     if sk not in _GF_SESSION:
         # MongoDB se load karne ki koshish karo
         loaded = await _load_session(uid)
         if not loaded:
+            return await query.answer(
+                "⏰ Session expire ho gaya.\nGroup mein dobara Send All button dabao.",
+                show_alert=True
+            )
+        # Loaded session bhi verify karo
+        if btn_chat_id and _GF_SESSION.get(sk, {}).get("chat_id") != btn_chat_id:
             return await query.answer(
                 "⏰ Session expire ho gaya.\nGroup mein dobara Send All button dabao.",
                 show_alert=True
