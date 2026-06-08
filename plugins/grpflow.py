@@ -359,6 +359,10 @@ async def _show_qual_step(client, target, uid, send=False, msg_id=None):
 
     lang_line = f"\n🌐 Language: <b>{lang.upper()}</b>" if lang else ""
     text = f"<b>🎬 {search.title()}{lang_line}\n\n📹 Quality select karo:\n✅ = Available  ❌ = Nahi hai</b>"
+    btn.append([InlineKeyboardButton(
+        "🔙 Back (Language select karo)",
+        callback_data=f"gf_back_lang#{uid}#{msg_id}"
+    )])
     markup = InlineKeyboardMarkup(btn)
 
     if send:
@@ -403,8 +407,11 @@ async def _send_files(client, target, uid, is_more=False, msg_id=None):
 
     lang_line = f" | 🌐 {lang.upper()}" if lang else ""
     qual_line = f" | 📹 {qual.upper()}" if qual else ""
+    del_min = DELETE_TIME // 60
     cap = f"<b>🎬 {search.title()}{lang_line}{qual_line}</b>\n"
     cap += f"<b>📂 Files: {offset+1}–{min(offset+FILES_PER_PAGE, total_filtered)} of {total_filtered}</b>\n\n"
+    cap += f"<b>⚠️ YEH FILES {del_min} MIN MEIN DELETE HO JAAYENGI!\n"
+    cap += "Inhe apne Saved Messages mein forward karo aur wahan se download karo!\n\n</b>"
     cap += "<b>📚 <u>Your Requested Files</u> 👇\n\n</b>"
 
     for f in page:
@@ -437,8 +444,8 @@ async def _send_files(client, target, uid, is_more=False, msg_id=None):
 
     del_min = DELETE_TIME // 60
     btn.append([InlineKeyboardButton(
-        f"⏳ Files {del_min} min mein delete honge",
-        callback_data="gf_noop"
+        "🔙 Back (Language select karo)",
+        callback_data=f"gf_back_lang#{uid}#{msg_id_for_btn}"
     )])
 
     markup = InlineKeyboardMarkup(btn) if btn else None
@@ -651,6 +658,35 @@ async def gf_noop_cb(client: Client, query: CallbackQuery):
     await query.answer()
 
 
+@Client.on_callback_query(filters.regex(r"^gf_back_lang#"))
+async def gf_back_lang_cb(client: Client, query: CallbackQuery):
+    """Back to language selection"""
+    parts = query.data.split("#")
+    uid = int(parts[1])
+    btn_msg_id = int(parts[2]) if len(parts) > 2 else None
+
+    if query.from_user.id != uid:
+        return await query.answer("❌ Ye tumhara result nahi hai!", show_alert=True)
+
+    sk = _session_key(uid, btn_msg_id) if btn_msg_id else _session_key(uid)
+    if sk not in _GF_SESSION:
+        loaded = await _load_session(uid, btn_msg_id)
+        if not loaded:
+            return await query.answer(
+                "⏰ Session expire ho gaya. Group mein dobara search karo.",
+                show_alert=True
+            )
+
+    # Lang reset karo taaki fresh select ho
+    sess = _GF_SESSION.get(sk, {})
+    sess["lang"] = None
+    sess["qual"] = None
+    sess["offset"] = 0
+    _GF_SESSION[sk] = sess
+
+    await _show_lang_step(client, query, uid, msg_id=btn_msg_id)
+
+
 @Client.on_callback_query(filters.regex(r"^gf_minfo#"))
 async def gf_mediainfo_cb(client: Client, query: CallbackQuery):
     """Media Info — LOG_CHANNEL mein bhejo, stream URL banao, mediainfo/ffprobe run karo"""
@@ -722,6 +758,22 @@ async def gf_mediainfo_cb(client: Client, query: CallbackQuery):
         await query.message.reply_text(f"❌ <b>Error:</b> <code>{e}</code>", quote=True)
 
 
+# ISO 639 language code → full name
+_LANG_NAMES = {
+    "hi": "Hindi", "en": "English", "ta": "Tamil", "te": "Telugu",
+    "ml": "Malayalam", "kn": "Kannada", "mr": "Marathi", "gu": "Gujarati",
+    "pa": "Punjabi", "bn": "Bengali", "or": "Odia", "ur": "Urdu",
+    "bho": "Bhojpuri", "ja": "Japanese", "ko": "Korean", "zh": "Chinese",
+    "fr": "French", "es": "Spanish", "de": "German", "ru": "Russian",
+    "ar": "Arabic", "pt": "Portuguese", "it": "Italian", "tr": "Turkish",
+    "mul": "Multiple", "und": "Unknown",
+}
+
+def _lang_name(code):
+    if not code:
+        return "Unknown"
+    return _LANG_NAMES.get(code.lower(), code.capitalize())
+
 def _align(key, value, width=20):
     if not value or str(value) in ("N/A", "None", ""):
         return ""
@@ -778,14 +830,16 @@ def _format_mediainfo(tracks):
             text += "\n"
         elif t == "Audio":
             audio_count += 1
-            lang = track.get("Language_String") or track.get("Language") or "Unknown"
+            lang_raw = track.get("Language_String") or track.get("Language") or ""
+            lang = _lang_name(lang_raw)
             text += f"🔊 Audio #{audio_count}\n"
             text += _align("Format",   track.get("Format"))
             text += _align("Language", lang)
             text += "\n"
         elif t == "Text":
             sub_count += 1
-            lang = track.get("Language_String") or track.get("Language") or "Unknown"
+            lang_raw = track.get("Language_String") or track.get("Language") or ""
+            lang = _lang_name(lang_raw)
             text += f"🔠 Subtitle #{sub_count}\n"
             text += _align("Format",   track.get("Format"))
             text += _align("Language", lang)
@@ -819,16 +873,14 @@ def _format_ffprobe(data):
             text += "\n"
         elif stype == "audio":
             audio_n += 1
-            lang = tags.get("language") or "Unknown"
             text += f"🔊 Audio #{audio_n}\n"
             text += _align("Format",   stream.get("codec_name", "").upper())
-            text += _align("Language", lang)
+            text += _align("Language", _lang_name(tags.get("language", "")))
             text += "\n"
         elif stype == "subtitle":
             sub_n += 1
-            lang = tags.get("language") or "Unknown"
             text += f"🔠 Subtitle #{sub_n}\n"
             text += _align("Format",   stream.get("codec_name", "").upper())
-            text += _align("Language", lang)
+            text += _align("Language", _lang_name(tags.get("language", "")))
             text += "\n"
     return text.strip()
