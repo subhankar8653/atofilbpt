@@ -1844,20 +1844,6 @@ async def cb_handler(client: Client, query: CallbackQuery):
             await asyncio.sleep(1)
             await xo.delete()
 
-            await log_msg.reply_text(
-                text=(
-                    f"•• ʟɪɴᴋ ɢᴇɴᴇʀᴀᴛᴇᴅ ꜰᴏʀ ɪᴅ #{user_id}\n"
-                    f"•• ᴜꜱᴇʀɴᴀᴍᴇ : {username}\n\n"
-                    f"•• ᖴᎥᒪᗴ Nᗩᗰᗴ : {fileName}"
-                    f"{expiry_line}"
-                ),
-                quote=True,
-                disable_web_page_preview=True,
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🚀 Fast Download 🚀", url=lazy_download),
-                    InlineKeyboardButton('🖥️ Watch online 🖥️', url=lazy_stream)
-                ]])
-            )
             suhani_msg = await query.message.reply_text(
                 text=(
                     f"•• ʟɪɴᴋ ɢᴇɴᴇʀᴀᴛᴇᴅ ☠︎⚔\n"

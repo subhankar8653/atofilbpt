@@ -669,7 +669,11 @@ async def gf_mediainfo_cb(client: Client, query: CallbackQuery):
         if not media:
             return await status.edit_text("❌ File nahi mili.")
 
-        file_name = get_name(log_msg)
+        # Caption se file name lo (jo user ko dikhta hai), fallback get_name
+        raw_caption = query.message.caption or query.message.text or ""
+        # "📁 Dangal..." format — emoji/prefix hata do
+        caption_clean = raw_caption.strip().lstrip("📁").strip()
+        file_name = caption_clean if caption_clean else get_name(log_msg)
         f_hash = get_hash(log_msg)
         stream_url = f"{URL}dl/{log_msg.id}?hash={f_hash}"
 
@@ -700,95 +704,131 @@ async def gf_mediainfo_cb(client: Client, query: CallbackQuery):
             return await status.edit_text("❌ mediainfo/ffprobe server pe install nahi hai.")
 
         if not text.strip():
-            return await status.edit_text("❌ Media info extract nahi ho saka.")
+            await status.delete()
+            return await query.message.reply_text("❌ Media info extract nahi ho saka.", quote=True)
 
         full = f"📊 <b>Media Info:</b> <code>{file_name}</code>\n\n<pre>{text}</pre>"
 
+        await status.delete()
         if len(full) > 4096:
             bio = io.BytesIO(text.encode())
             bio.name = f"{file_name}.txt"
-            await status.delete()
-            await query.message.reply_document(bio, caption=f"📊 <b>Media Info:</b> <code>{file_name}</code>")
+            await query.message.reply_document(bio, caption=f"📊 <b>Media Info:</b> <code>{file_name}</code>", quote=True)
         else:
-            await status.edit_text(full)
+            await query.message.reply_text(full, quote=True)
 
     except Exception as e:
-        await status.edit_text(f"❌ <b>Error:</b> <code>{e}</code>")
+        await status.delete()
+        await query.message.reply_text(f"❌ <b>Error:</b> <code>{e}</code>", quote=True)
 
 
-def _align(key, value, width=35):
-    if not value or value == "N/A":
+def _align(key, value, width=20):
+    if not value or str(value) in ("N/A", "None", ""):
         return ""
     return f"{key:<{width}}: {value}\n"
 
+def _fmt_size(raw):
+    """Bytes ko human readable mein convert karo"""
+    try:
+        b = int(raw)
+        if b >= 1024**3: return f"{b/1024**3:.2f} GB"
+        if b >= 1024**2: return f"{b/1024**2:.2f} MB"
+        if b >= 1024:    return f"{b/1024:.2f} KB"
+        return f"{b} B"
+    except Exception:
+        return str(raw)
+
+def _fmt_dur(raw):
+    """Seconds ko HH:MM:SS mein convert karo"""
+    try:
+        t = float(raw)
+        h, rem = divmod(int(t), 3600)
+        m, s = divmod(rem, 60)
+        return f"{h:02d}:{m:02d}:{s:02d}"
+    except Exception:
+        return str(raw)
+
 def _format_mediainfo(tracks):
     text = ""
+    audio_count = 0
+    sub_count = 0
     for track in tracks:
         t = track.get("@type")
         if t == "General":
+            # File size — FileSize_String prefer karo, warna raw bytes convert karo
+            raw_size = track.get("FileSize_String") or _fmt_size(track.get("FileSize", "0"))
+            # Duration — Duration_String1 prefer karo (human readable), warna convert karo
+            raw_dur  = track.get("Duration_String1") or track.get("Duration_String3") or _fmt_dur(track.get("Duration", "0"))
             text += "🗒 General\n"
-            text += _align("Format", track.get("Format"))
-            text += _align("File size", track.get("FileSize_String", track.get("FileSize")))
-            text += _align("Duration", track.get("Duration_String3", track.get("Duration")))
-            text += _align("Overall bit rate", track.get("OverallBitRate_String"))
+            text += _align("Format",    track.get("Format"))
+            text += _align("File size", raw_size)
+            text += _align("Duration",  raw_dur)
+            text += _align("Bitrate",   track.get("OverallBitRate_String"))
             text += "\n"
         elif t == "Video":
             text += "🎞 Video\n"
-            text += _align("Format", track.get("Format"))
-            text += _align("Format profile", track.get("Format_Profile"))
-            text += _align("Resolution", f"{track.get('Width')}x{track.get('Height')}")
-            text += _align("Frame rate", f"{track.get('FrameRate')} FPS")
-            text += _align("Bit depth", f"{track.get('BitDepth')} bits")
+            text += _align("Format",   track.get("Format"))
+            text += _align("Profile",  track.get("Format_Profile"))
+            w, h = track.get("Width"), track.get("Height")
+            if w and h: text += _align("Resolution", f"{w}x{h}")
+            fps = track.get("FrameRate")
+            if fps: text += _align("Frame rate", f"{fps} FPS")
+            bd = track.get("BitDepth")
+            if bd: text += _align("Bit depth", f"{bd} bits")
             text += "\n"
         elif t == "Audio":
-            idx = track.get("StreamOrder", "0")
-            text += f"🔊 Audio #{int(idx)+1}\n"
-            text += _align("Format", track.get("Format"))
-            text += _align("Channels", f"{track.get('Channels')} ch")
-            text += _align("Sampling rate", track.get("SamplingRate_String"))
-            text += _align("Language", track.get("Language_String"))
-            text += _align("Title", track.get("Title"))
+            audio_count += 1
+            lang = track.get("Language_String") or track.get("Language") or "Unknown"
+            text += f"🔊 Audio #{audio_count}\n"
+            text += _align("Format",   track.get("Format"))
+            text += _align("Language", lang)
             text += "\n"
         elif t == "Text":
-            idx = track.get("StreamOrder", "0")
-            text += f"🔠 Subtitle #{int(idx)+1}\n"
-            text += _align("Format", track.get("Format"))
-            text += _align("Language", track.get("Language_String"))
-            text += _align("Title", track.get("Title"))
+            sub_count += 1
+            lang = track.get("Language_String") or track.get("Language") or "Unknown"
+            text += f"🔠 Subtitle #{sub_count}\n"
+            text += _align("Format",   track.get("Format"))
+            text += _align("Language", lang)
             text += "\n"
     return text.strip()
 
 def _format_ffprobe(data):
     text = ""
-    fmt = data.get("format", {})
-    text += "🗒 General\n"
-    text += _align("Format", fmt.get("format_long_name"))
+    fmt  = data.get("format", {})
     size = int(fmt.get("size", 0))
-    text += _align("File size", f"{size / (1024*1024):.2f} MB")
-    dur = float(fmt.get("duration", 0))
-    h, m, s = int(dur//3600), int((dur%3600)//60), int(dur%60)
-    text += _align("Duration", f"{h:02d}:{m:02d}:{s:02d}")
-    text += _align("Bit rate", f"{int(fmt.get('bit_rate', 0))//1000} kbps")
+    dur  = float(fmt.get("duration", 0))
+    h, rem = divmod(int(dur), 3600)
+    m, s   = divmod(rem, 60)
+    text += "🗒 General\n"
+    text += _align("Format",    fmt.get("format_long_name"))
+    text += _align("File size", f"{size/1024**3:.2f} GB" if size >= 1024**3 else f"{size/1024**2:.2f} MB")
+    text += _align("Duration",  f"{h:02d}:{m:02d}:{s:02d}")
+    br = int(fmt.get("bit_rate", 0))
+    if br: text += _align("Bitrate", f"{br//1000} kbps")
     text += "\n"
-    for i, s in enumerate(data.get("streams", [])):
-        stype = s.get("codec_type")
-        tags = s.get("tags", {})
+    audio_n = sub_n = 0
+    for stream in data.get("streams", []):
+        stype = stream.get("codec_type")
+        tags  = stream.get("tags", {})
         if stype == "video":
             text += "🎞 Video\n"
-            text += _align("Codec", s.get("codec_name"))
-            text += _align("Resolution", f"{s.get('width')}x{s.get('height')}")
-            text += _align("Frame rate", s.get("avg_frame_rate"))
+            text += _align("Format",     stream.get("codec_name", "").upper())
+            w, h2 = stream.get("width"), stream.get("height")
+            if w and h2: text += _align("Resolution", f"{w}x{h2}")
+            text += _align("Frame rate", stream.get("avg_frame_rate"))
             text += "\n"
         elif stype == "audio":
-            text += f"🔊 Audio #{i+1}\n"
-            text += _align("Codec", s.get("codec_name"))
-            text += _align("Channels", str(s.get("channels")))
-            text += _align("Language", tags.get("language"))
-            text += _align("Title", tags.get("title"))
+            audio_n += 1
+            lang = tags.get("language") or "Unknown"
+            text += f"🔊 Audio #{audio_n}\n"
+            text += _align("Format",   stream.get("codec_name", "").upper())
+            text += _align("Language", lang)
             text += "\n"
         elif stype == "subtitle":
-            text += f"🔠 Subtitle #{i+1}\n"
-            text += _align("Codec", s.get("codec_name"))
-            text += _align("Language", tags.get("language"))
+            sub_n += 1
+            lang = tags.get("language") or "Unknown"
+            text += f"🔠 Subtitle #{sub_n}\n"
+            text += _align("Format",   stream.get("codec_name", "").upper())
+            text += _align("Language", lang)
             text += "\n"
     return text.strip()
