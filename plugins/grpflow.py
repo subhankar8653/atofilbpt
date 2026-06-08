@@ -22,7 +22,6 @@ from plugins.pmfilter import (
     _sort_files_by_episode,
 )
 from info import LOG_CHANNEL, URL
-from LucyBot.util.file_properties import get_name, get_hash
 from urllib.parse import quote_plus
 from utils import get_size, get_time, temp
 
@@ -451,23 +450,11 @@ async def _send_files(client, target, uid, is_more=False, msg_id=None):
             if not x.startswith('[') and not x.startswith('@') and not x.startswith('www.')
         )
         try:
-            # Stream link generate karo
-            try:
-                log_msg = await client.send_cached_media(
-                    chat_id=LOG_CHANNEL,
-                    file_id=f.file_id,
-                )
-                f_name     = quote_plus(get_name(log_msg))
-                f_hash     = get_hash(log_msg)
-                stream_url   = f"{URL}watch/{log_msg.id}/{f_name}?hash={f_hash}"
-                download_url = f"{URL}dl/{log_msg.id}?hash={f_hash}"
-                file_btn = InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🚀 FAST DOWNLOAD / WATCH ONLINE 🖥️", url=download_url)
-                ],[
-                    InlineKeyboardButton("📊 Media Info", callback_data=f"gf_minfo#{log_msg.id}#{f_hash}")
-                ]])
-            except Exception:
-                file_btn = None
+            file_btn = InlineKeyboardMarkup([[
+                InlineKeyboardButton("🚀 FAST DOWNLOAD / WATCH ONLINE 🖥️", callback_data=f"generate_stream_link:{f.file_id}")
+            ],[
+                InlineKeyboardButton("📊 Media Info", callback_data=f"gf_minfo#{f.file_id}")
+            ]])
 
             m = await client.send_cached_media(
                 chat_id=uid,
@@ -668,24 +655,26 @@ async def gf_noop_cb(client: Client, query: CallbackQuery):
 async def gf_mediainfo_cb(client: Client, query: CallbackQuery):
     """Media Info button handler — grpflow files ke liye"""
     parts = query.data.split("#")
-    log_msg_id = int(parts[1])
-    file_hash  = parts[2]
+    file_id = parts[1]
 
     await query.answer("📊 Media info extract ho rahi hai...", show_alert=False)
     status = await query.message.reply_text("🔍 <b>Media Info extract ho rahi hai...</b>")
 
     try:
-        import shutil, asyncio as _aio, json as _json
-        from urllib.parse import quote_plus as _qp
+        import shutil, asyncio as _aio, json as _json, io
 
-        # File ka stream URL banao LOG_CHANNEL message se
-        log_message = await client.get_messages(LOG_CHANNEL, log_msg_id)
-        media = log_message.video or log_message.audio or log_message.document
+        # File pehle LOG_CHANNEL mein bhejo taaki stream URL mile
+        log_msg = await client.send_cached_media(
+            chat_id=LOG_CHANNEL,
+            file_id=file_id,
+        )
+        media = log_msg.video or log_msg.audio or log_msg.document
         if not media:
             return await status.edit_text("❌ File nahi mili.")
 
         file_name = getattr(media, "file_name", None) or "file"
-        stream_url = f"{URL}watch/{log_msg_id}/{quote_plus(file_name)}?hash={file_hash}"
+        from LucyBot.util.file_properties import get_name, get_hash
+        stream_url = f"{URL}watch/{log_msg.id}/{quote_plus(get_name(log_msg))}?hash={get_hash(log_msg)}"
 
         # mediainfo ya ffprobe se info nikalo
         async def _run(cmd):
@@ -701,6 +690,8 @@ async def gf_mediainfo_cb(client: Client, query: CallbackQuery):
 
         if shutil.which("mediainfo"):
             raw = await _run(["mediainfo", "--Output=JSON", stream_url])
+            tracks = raw.get("media", {}).get("track", [])
+            text = _format_mediainfo(tracks)
         elif shutil.which("ffprobe"):
             raw = await _run([
                 "ffprobe", "-v", "quiet",
@@ -708,17 +699,14 @@ async def gf_mediainfo_cb(client: Client, query: CallbackQuery):
                 "-show_format", "-show_streams",
                 stream_url
             ])
+            text = _format_ffprobe(raw)
         else:
             return await status.edit_text("❌ mediainfo/ffprobe server pe install nahi hai.")
 
-        # Format karo
-        from core.formatter import format_output
-        text = format_output(raw)
-        full = f"📊 <b>Media Info:</b> <code>{file_name}</code>\n\n{text}"
+        full = f"📊 <b>Media Info:</b> <code>{file_name}</code>\n\n<pre>{text}</pre>"
 
         if len(full) > 4096:
-            import io
-            bio = io.BytesIO(text.replace("```", "").strip().encode())
+            bio = io.BytesIO(text.encode())
             bio.name = f"{file_name}.txt"
             await status.delete()
             await query.message.reply_document(bio, caption=f"📊 <b>Media Info:</b> <code>{file_name}</code>")
@@ -727,3 +715,81 @@ async def gf_mediainfo_cb(client: Client, query: CallbackQuery):
 
     except Exception as e:
         await status.edit_text(f"❌ <b>Error:</b> <code>{e}</code>")
+
+
+def _align(key, value, width=35):
+    if not value or value == "N/A":
+        return ""
+    return f"{key:<{width}}: {value}\n"
+
+def _format_mediainfo(tracks):
+    text = ""
+    for track in tracks:
+        t = track.get("@type")
+        if t == "General":
+            text += "🗒 General\n"
+            text += _align("Format", track.get("Format"))
+            text += _align("File size", track.get("FileSize_String", track.get("FileSize")))
+            text += _align("Duration", track.get("Duration_String3", track.get("Duration")))
+            text += _align("Overall bit rate", track.get("OverallBitRate_String"))
+            text += "\n"
+        elif t == "Video":
+            text += "🎞 Video\n"
+            text += _align("Format", track.get("Format"))
+            text += _align("Format profile", track.get("Format_Profile"))
+            text += _align("Resolution", f"{track.get('Width')}x{track.get('Height')}")
+            text += _align("Frame rate", f"{track.get('FrameRate')} FPS")
+            text += _align("Bit depth", f"{track.get('BitDepth')} bits")
+            text += "\n"
+        elif t == "Audio":
+            idx = track.get("StreamOrder", "0")
+            text += f"🔊 Audio #{int(idx)+1}\n"
+            text += _align("Format", track.get("Format"))
+            text += _align("Channels", f"{track.get('Channels')} ch")
+            text += _align("Sampling rate", track.get("SamplingRate_String"))
+            text += _align("Language", track.get("Language_String"))
+            text += _align("Title", track.get("Title"))
+            text += "\n"
+        elif t == "Text":
+            idx = track.get("StreamOrder", "0")
+            text += f"🔠 Subtitle #{int(idx)+1}\n"
+            text += _align("Format", track.get("Format"))
+            text += _align("Language", track.get("Language_String"))
+            text += _align("Title", track.get("Title"))
+            text += "\n"
+    return text.strip()
+
+def _format_ffprobe(data):
+    text = ""
+    fmt = data.get("format", {})
+    text += "🗒 General\n"
+    text += _align("Format", fmt.get("format_long_name"))
+    size = int(fmt.get("size", 0))
+    text += _align("File size", f"{size / (1024*1024):.2f} MB")
+    dur = float(fmt.get("duration", 0))
+    h, m, s = int(dur//3600), int((dur%3600)//60), int(dur%60)
+    text += _align("Duration", f"{h:02d}:{m:02d}:{s:02d}")
+    text += _align("Bit rate", f"{int(fmt.get('bit_rate', 0))//1000} kbps")
+    text += "\n"
+    for i, s in enumerate(data.get("streams", [])):
+        stype = s.get("codec_type")
+        tags = s.get("tags", {})
+        if stype == "video":
+            text += "🎞 Video\n"
+            text += _align("Codec", s.get("codec_name"))
+            text += _align("Resolution", f"{s.get('width')}x{s.get('height')}")
+            text += _align("Frame rate", s.get("avg_frame_rate"))
+            text += "\n"
+        elif stype == "audio":
+            text += f"🔊 Audio #{i+1}\n"
+            text += _align("Codec", s.get("codec_name"))
+            text += _align("Channels", str(s.get("channels")))
+            text += _align("Language", tags.get("language"))
+            text += _align("Title", tags.get("title"))
+            text += "\n"
+        elif stype == "subtitle":
+            text += f"🔠 Subtitle #{i+1}\n"
+            text += _align("Codec", s.get("codec_name"))
+            text += _align("Language", tags.get("language"))
+            text += "\n"
+    return text.strip()
