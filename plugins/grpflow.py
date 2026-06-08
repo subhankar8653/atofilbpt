@@ -653,7 +653,7 @@ async def gf_noop_cb(client: Client, query: CallbackQuery):
 
 @Client.on_callback_query(filters.regex(r"^gf_minfo#"))
 async def gf_mediainfo_cb(client: Client, query: CallbackQuery):
-    """Media Info button handler — grpflow files ke liye"""
+    """Media Info — LOG_CHANNEL mein bhejo, stream URL banao, mediainfo/ffprobe run karo"""
     parts = query.data.split("#")
     file_id = parts[1]
 
@@ -662,21 +662,17 @@ async def gf_mediainfo_cb(client: Client, query: CallbackQuery):
 
     try:
         import shutil, asyncio as _aio, json as _json, io
+        from LucyBot.util.file_properties import get_name, get_hash
 
-        # File pehle LOG_CHANNEL mein bhejo taaki stream URL mile
-        log_msg = await client.send_cached_media(
-            chat_id=LOG_CHANNEL,
-            file_id=file_id,
-        )
+        log_msg = await client.send_cached_media(chat_id=LOG_CHANNEL, file_id=file_id)
         media = log_msg.video or log_msg.audio or log_msg.document
         if not media:
             return await status.edit_text("❌ File nahi mili.")
 
-        file_name = getattr(media, "file_name", None) or "file"
-        from LucyBot.util.file_properties import get_name, get_hash
-        stream_url = f"{URL}watch/{log_msg.id}/{quote_plus(get_name(log_msg))}?hash={get_hash(log_msg)}"
+        file_name = get_name(log_msg)
+        f_hash = get_hash(log_msg)
+        stream_url = f"{URL}dl/{log_msg.id}?hash={f_hash}"
 
-        # mediainfo ya ffprobe se info nikalo
         async def _run(cmd):
             proc = await _aio.create_subprocess_exec(
                 *cmd,
@@ -690,7 +686,7 @@ async def gf_mediainfo_cb(client: Client, query: CallbackQuery):
 
         if shutil.which("mediainfo"):
             raw = await _run(["mediainfo", "--Output=JSON", stream_url])
-            tracks = raw.get("media", {}).get("track", [])
+            tracks = (raw or {}).get("media", {}).get("track", [])
             text = _format_mediainfo(tracks)
         elif shutil.which("ffprobe"):
             raw = await _run([
@@ -699,9 +695,12 @@ async def gf_mediainfo_cb(client: Client, query: CallbackQuery):
                 "-show_format", "-show_streams",
                 stream_url
             ])
-            text = _format_ffprobe(raw)
+            text = _format_ffprobe(raw or {})
         else:
             return await status.edit_text("❌ mediainfo/ffprobe server pe install nahi hai.")
+
+        if not text.strip():
+            return await status.edit_text("❌ Media info extract nahi ho saka.")
 
         full = f"📊 <b>Media Info:</b> <code>{file_name}</code>\n\n<pre>{text}</pre>"
 
