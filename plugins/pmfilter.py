@@ -3262,7 +3262,10 @@ async def auto_filter(client, msg, spoll=False):
             sent_messages.append(s2)
             await asyncio.sleep(0.3)  # flood wait se bachao
 
-    await m.delete()
+    try:
+        await m.delete()
+    except:
+        pass
 
     # Auto delete all sent cards
     try:
