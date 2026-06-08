@@ -444,8 +444,8 @@ async def _send_files(client, target, uid, is_more=False, msg_id=None):
 
     del_min = DELETE_TIME // 60
     btn.append([InlineKeyboardButton(
-        "🔙 Back (Language select karo)",
-        callback_data=f"gf_back_lang#{uid}#{msg_id_for_btn}"
+        "🔙 Back (Quality select karo)",
+        callback_data=f"gf_back_qual#{uid}#{msg_id_for_btn}"
     )])
 
     markup = InlineKeyboardMarkup(btn) if btn else None
@@ -685,6 +685,34 @@ async def gf_back_lang_cb(client: Client, query: CallbackQuery):
     _GF_SESSION[sk] = sess
 
     await _show_lang_step(client, query, uid, msg_id=btn_msg_id)
+
+
+@Client.on_callback_query(filters.regex(r"^gf_back_qual#"))
+async def gf_back_qual_cb(client: Client, query: CallbackQuery):
+    """Files screen se Back → Quality selection"""
+    parts = query.data.split("#")
+    uid = int(parts[1])
+    btn_msg_id = int(parts[2]) if len(parts) > 2 else None
+
+    if query.from_user.id != uid:
+        return await query.answer("❌ Ye tumhara result nahi hai!", show_alert=True)
+
+    sk = _session_key(uid, btn_msg_id) if btn_msg_id else _session_key(uid)
+    if sk not in _GF_SESSION:
+        loaded = await _load_session(uid, btn_msg_id)
+        if not loaded:
+            return await query.answer(
+                "⏰ Session expire ho gaya. Group mein dobara search karo.",
+                show_alert=True
+            )
+
+    # Sirf qual aur offset reset karo, lang raho
+    sess = _GF_SESSION.get(sk, {})
+    sess["qual"] = None
+    sess["offset"] = 0
+    _GF_SESSION[sk] = sess
+
+    await _show_qual_step(client, query, uid, msg_id=btn_msg_id)
 
 
 @Client.on_callback_query(filters.regex(r"^gf_minfo#"))
