@@ -21,6 +21,9 @@ from plugins.pmfilter import (
     LANGUAGES_LIST, QUALITIES_LIST, _LANG_SHORT,
     _sort_files_by_episode,
 )
+from info import LOG_CHANNEL, URL
+from LucyBot.util.file_properties import get_name, get_hash
+from urllib.parse import quote_plus
 from utils import get_size, get_time, temp
 
 logger = logging.getLogger(__name__)
@@ -448,11 +451,30 @@ async def _send_files(client, target, uid, is_more=False, msg_id=None):
             if not x.startswith('[') and not x.startswith('@') and not x.startswith('www.')
         )
         try:
+            # Stream link generate karo
+            try:
+                log_msg = await client.send_cached_media(
+                    chat_id=LOG_CHANNEL,
+                    file_id=f.file_id,
+                )
+                f_name     = quote_plus(get_name(log_msg))
+                f_hash     = get_hash(log_msg)
+                stream_url   = f"{URL}watch/{log_msg.id}/{f_name}?hash={f_hash}"
+                download_url = f"{URL}dl/{log_msg.id}?hash={f_hash}"
+                file_btn = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🚀 FAST DOWNLOAD / WATCH ONLINE 🖥️", url=download_url)
+                ],[
+                    InlineKeyboardButton("📊 Media Info", callback_data=f"gf_minfo#{log_msg.id}#{f_hash}")
+                ]])
+            except Exception:
+                file_btn = None
+
             m = await client.send_cached_media(
                 chat_id=uid,
                 file_id=f.file_id,
                 caption=f"<b>📁 {clean_name}</b>",
                 protect_content=False,
+                reply_markup=file_btn,
             )
             sent_msgs.append(m)
         except Exception as e:
@@ -640,3 +662,68 @@ async def gf_more_cb(client: Client, query: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^gf_noop$"))
 async def gf_noop_cb(client: Client, query: CallbackQuery):
     await query.answer()
+
+
+@Client.on_callback_query(filters.regex(r"^gf_minfo#"))
+async def gf_mediainfo_cb(client: Client, query: CallbackQuery):
+    """Media Info button handler — grpflow files ke liye"""
+    parts = query.data.split("#")
+    log_msg_id = int(parts[1])
+    file_hash  = parts[2]
+
+    await query.answer("📊 Media info extract ho rahi hai...", show_alert=False)
+    status = await query.message.reply_text("🔍 <b>Media Info extract ho rahi hai...</b>")
+
+    try:
+        import shutil, asyncio as _aio, json as _json
+        from urllib.parse import quote_plus as _qp
+
+        # File ka stream URL banao LOG_CHANNEL message se
+        log_message = await client.get_messages(LOG_CHANNEL, log_msg_id)
+        media = log_message.video or log_message.audio or log_message.document
+        if not media:
+            return await status.edit_text("❌ File nahi mili.")
+
+        file_name = getattr(media, "file_name", None) or "file"
+        stream_url = f"{URL}watch/{log_msg_id}/{quote_plus(file_name)}?hash={file_hash}"
+
+        # mediainfo ya ffprobe se info nikalo
+        async def _run(cmd):
+            proc = await _aio.create_subprocess_exec(
+                *cmd,
+                stdout=_aio.subprocess.PIPE,
+                stderr=_aio.subprocess.PIPE
+            )
+            out, err = await proc.communicate()
+            if proc.returncode != 0:
+                raise Exception(err.decode().strip() or "Unknown error")
+            return _json.loads(out.decode())
+
+        if shutil.which("mediainfo"):
+            raw = await _run(["mediainfo", "--Output=JSON", stream_url])
+        elif shutil.which("ffprobe"):
+            raw = await _run([
+                "ffprobe", "-v", "quiet",
+                "-print_format", "json",
+                "-show_format", "-show_streams",
+                stream_url
+            ])
+        else:
+            return await status.edit_text("❌ mediainfo/ffprobe server pe install nahi hai.")
+
+        # Format karo
+        from core.formatter import format_output
+        text = format_output(raw)
+        full = f"📊 <b>Media Info:</b> <code>{file_name}</code>\n\n{text}"
+
+        if len(full) > 4096:
+            import io
+            bio = io.BytesIO(text.replace("```", "").strip().encode())
+            bio.name = f"{file_name}.txt"
+            await status.delete()
+            await query.message.reply_document(bio, caption=f"📊 <b>Media Info:</b> <code>{file_name}</code>")
+        else:
+            await status.edit_text(full)
+
+    except Exception as e:
+        await status.edit_text(f"❌ <b>Error:</b> <code>{e}</code>")
