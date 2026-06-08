@@ -3047,12 +3047,21 @@ async def auto_filter(client, msg, spoll=False):
                             await message.delete()
                         except:
                             pass
+                        return
                     else:
                         # No similar name in DB at all — stay completely silent
-                        await m.delete()
+                        try:
+                            await m.delete()
+                        except:
+                            pass
+                        return
                 else:
                     # spell_check disabled — stay completely silent
-                    await m.delete()
+                    try:
+                        await m.delete()
+                    except:
+                        pass
+                    return
         else:
             return
     else:
