@@ -3166,37 +3166,49 @@ async def auto_filter(client, msg, spoll=False):
     # Pehla result already process hua hai (sticker_buf + imdb)
     # Baaki results ke liye unique file groups dhundo
 
-    # Group files by "title year" to find distinct movies
+    # Deduplicate by IMDB title — same title = same movie = ek hi card
+    # Alag card sirf tab jab genuinely alag movie ho (e.g. Twilight 2008 vs Phantom in the Twilight)
     import re as _re2
     def _title_year(fname):
         y = _re2.findall(r'[1-2]\d{3}', fname)
         return y[0] if y else "0000"
 
-    # Deduplicate by year — max 3 distinct results
-    seen_years = set()
+    # Pehle IMDB title fetch karo first card ke liye (already done: `imdb`)
+    _first_imdb_title = (imdb.get('title') if imdb and imdb.get('title') else search).lower().strip()
+
+    seen_imdb_titles = {_first_imdb_title}
+    seen_years = {_title_year(files[0].file_name) if files else "0000"}
     card_files_list = []  # list of (representative_file, year)
-    for _f in files:
+
+    for _f in files[1:]:  # pehli file skip — already first card mein hai
         _yr = _title_year(_f.file_name)
-        if _yr not in seen_years:
-            seen_years.add(_yr)
-            card_files_list.append((_f, _yr))
-        if len(card_files_list) >= 3:
+        # Year duplicate skip
+        if _yr in seen_years:
+            continue
+        # IMDB title check — same title? skip
+        _imdb_check = await get_poster(search + " " + _yr, file=_f.file_name) if settings["imdb"] else None
+        _check_title = (_imdb_check.get('title') if _imdb_check and _imdb_check.get('title') else search).lower().strip()
+        if _check_title in seen_imdb_titles:
+            continue
+        seen_years.add(_yr)
+        seen_imdb_titles.add(_check_title)
+        card_files_list.append((_f, _yr, _imdb_check))
+        if len(card_files_list) >= 2:  # max 2 extra cards (total 3)
             break
 
     sent_messages = []
 
-    if len(card_files_list) <= 1:
-        # Single result — normal send
+    if not card_files_list:
+        # Single result (ya sab same movie) — ek hi card
         s = await _send_one_card(sticker_buf, grp_markup, clean_title)
         sent_messages.append(s)
     else:
-        # Multiple distinct results — send first card (already fetched)
+        # Multiple genuinely distinct results — send first card (already fetched)
         s = await _send_one_card(sticker_buf, grp_markup, clean_title)
         sent_messages.append(s)
 
-        # Remaining cards
-        for _cf, _yr in card_files_list[1:]:
-            _imdb2 = await get_poster(search + " " + _yr, file=_cf.file_name) if settings["imdb"] else None
+        # Remaining cards — _imdb2 already fetched during deduplication
+        for _cf, _yr, _imdb2 in card_files_list:
             _lang2 = _extract_langs_from_files([_cf])
             _title2 = (_imdb2.get('title') if _imdb2 and _imdb2.get('title') else search).title()
             _key2 = f"{key}-{_yr}"
