@@ -3239,51 +3239,51 @@ async def auto_filter(client, msg, spoll=False):
             # Single result (ya sab same movie) — ek hi card
             s = await _send_one_card(sticker_buf, grp_markup, clean_title)
             sent_messages.append(s)
-    else:
-        # Multiple genuinely distinct results — send first card (already fetched)
-        s = await _send_one_card(sticker_buf, grp_markup, clean_title)
-        sent_messages.append(s)
+        else:
+            # Multiple genuinely distinct results — send first card (already fetched)
+            s = await _send_one_card(sticker_buf, grp_markup, clean_title)
+            sent_messages.append(s)
 
-        # Remaining cards — _imdb2 already fetched during deduplication
-        for _cf, _yr, _imdb2 in card_files_list:
-            _lang2 = _extract_langs_from_files([_cf])
-            _title2 = (_imdb2.get('title') if _imdb2 and _imdb2.get('title') else search).title()
-            _key2 = f"{key}-{_yr}"
-            _GRP_CARD_STORE[_key2] = {"search": search + " " + _yr, "key": key, "chat_id": message.chat.id, "user_id": req_user_id}
-            save_grp_card(_key2, search + " " + _yr, message.chat.id, req_user_id)
-            temp.GETALL[_key2] = files
-            _btn2 = [
-                [InlineKeyboardButton(_title2, callback_data=f"grp_detail#{_key2}#{req_user_id}")],
-                *_build_audio_rows(_lang2, _key2, req_user_id),
-            ]
-            _markup2 = InlineKeyboardMarkup(_btn2)
+            # Remaining cards — _imdb2 already fetched during deduplication
+            for _cf, _yr, _imdb2 in card_files_list:
+                _lang2 = _extract_langs_from_files([_cf])
+                _title2 = (_imdb2.get('title') if _imdb2 and _imdb2.get('title') else search).title()
+                _key2 = f"{key}-{_yr}"
+                _GRP_CARD_STORE[_key2] = {"search": search + " " + _yr, "key": key, "chat_id": message.chat.id, "user_id": req_user_id}
+                save_grp_card(_key2, search + " " + _yr, message.chat.id, req_user_id)
+                temp.GETALL[_key2] = files
+                _btn2 = [
+                    [InlineKeyboardButton(_title2, callback_data=f"grp_detail#{_key2}#{req_user_id}")],
+                    *_build_audio_rows(_lang2, _key2, req_user_id),
+                ]
+                _markup2 = InlineKeyboardMarkup(_btn2)
 
-            # Sticker for this card
-            _sbuf2 = None
-            if _imdb2 and _imdb2.get('poster'):
-                try:
-                    from PIL import Image as _PI2, ImageOps as _IO2
-                    import io as _io2
-                    _raw2 = _imdb2.get('poster')
-                    if isinstance(_raw2, _io2.BytesIO):
-                        _raw2.seek(0)
-                        _im2 = _PI2.open(_raw2).convert("RGBA")
-                    else:
-                        import aiohttp as _ah2
-                        async with _ah2.ClientSession() as _s2:
-                            async with _s2.get(_raw2) as _r2:
-                                _im2 = _PI2.open(_io2.BytesIO(await _r2.read())).convert("RGBA")
-                    _im2 = _im2.resize((960, 540), _PI2.LANCZOS)
-                    _sbuf2 = _io2.BytesIO()
-                    _im2.save(_sbuf2, format="WEBP", quality=95)
-                    _sbuf2.seek(0)
-                    _sbuf2.name = "sticker.webp"
-                except Exception as _e2:
-                    logger.warning(f"Card2 sticker error: {_e2}")
+                # Sticker for this card
+                _sbuf2 = None
+                if _imdb2 and _imdb2.get('poster'):
+                    try:
+                        from PIL import Image as _PI2, ImageOps as _IO2
+                        import io as _io2
+                        _raw2 = _imdb2.get('poster')
+                        if isinstance(_raw2, _io2.BytesIO):
+                            _raw2.seek(0)
+                            _im2 = _PI2.open(_raw2).convert("RGBA")
+                        else:
+                            import aiohttp as _ah2
+                            async with _ah2.ClientSession() as _s2:
+                                async with _s2.get(_raw2) as _r2:
+                                    _im2 = _PI2.open(_io2.BytesIO(await _r2.read())).convert("RGBA")
+                        _im2 = _im2.resize((960, 540), _PI2.LANCZOS)
+                        _sbuf2 = _io2.BytesIO()
+                        _im2.save(_sbuf2, format="WEBP", quality=95)
+                        _sbuf2.seek(0)
+                        _sbuf2.name = "sticker.webp"
+                    except Exception as _e2:
+                        logger.warning(f"Card2 sticker error: {_e2}")
 
-            s2 = await _send_one_card(_sbuf2, _markup2, _title2)
-            sent_messages.append(s2)
-            await asyncio.sleep(0.3)  # flood wait se bachao
+                s2 = await _send_one_card(_sbuf2, _markup2, _title2)
+                sent_messages.append(s2)
+                await asyncio.sleep(0.3)  # flood wait se bachao
 
     try:
         await m.delete()
