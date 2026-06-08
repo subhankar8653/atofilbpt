@@ -3286,26 +3286,26 @@ async def auto_filter(client, msg, spoll=False):
                 sent_messages.append(s2)
                 await asyncio.sleep(0.3)  # flood wait se bachao
 
-    try:
-        await m.delete()
-    except:
-        pass
+        # ── New format: searching msg delete + auto-delete cards ─────────────
+        try:
+            await m.delete()
+        except:
+            pass
 
-    # Auto delete all sent cards
-    try:
-        if settings['auto_delete']:
+        try:
+            if settings['auto_delete']:
+                await asyncio.sleep(DELETE_TIME)
+                for _sm in sent_messages:
+                    try: await _sm.delete()
+                    except: pass
+                await message.delete()
+        except KeyError:
+            await save_group_settings(message.chat.id, 'auto_delete', True)
             await asyncio.sleep(DELETE_TIME)
             for _sm in sent_messages:
                 try: await _sm.delete()
                 except: pass
             await message.delete()
-    except KeyError:
-        await save_group_settings(message.chat.id, 'auto_delete', True)
-        await asyncio.sleep(DELETE_TIME)
-        for _sm in sent_messages:
-            try: await _sm.delete()
-            except: pass
-        await message.delete()
 
     if not use_new_format:
         # ── OLD FORMAT (Photo + Caption + File List) ──────────────────────────────
