@@ -3185,11 +3185,25 @@ async def auto_filter(client, msg, spoll=False):
         # Year duplicate skip
         if _yr in seen_years:
             continue
+
+        # Pehle check karo — is year ke saath actually files milti hain?
+        # Agar DB mein koi file nahi hai toh card mat banao
+        _verify_search = f"{search} {_yr}".strip() if _yr != "0000" else search
+        try:
+            _verify_files, _, _verify_total = await get_search_results(
+                message.chat.id, _verify_search, offset=0, filter=True
+            )
+        except Exception:
+            _verify_files = []
+        if not _verify_files:
+            continue
+
         # IMDB title check — same title? skip
-        _imdb_check = await get_poster(search + " " + _yr, file=_f.file_name) if settings["imdb"] else None
+        _imdb_check = await get_poster(_verify_search, file=_f.file_name) if settings["imdb"] else None
         _check_title = (_imdb_check.get('title') if _imdb_check and _imdb_check.get('title') else search).lower().strip()
         if _check_title in seen_imdb_titles:
             continue
+
         seen_years.add(_yr)
         seen_imdb_titles.add(_check_title)
         card_files_list.append((_f, _yr, _imdb_check))
