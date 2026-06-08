@@ -410,8 +410,6 @@ async def _send_files(client, target, uid, is_more=False, msg_id=None):
     del_min = DELETE_TIME // 60
     cap = f"<b>🎬 {search.title()}{lang_line}{qual_line}</b>\n"
     cap += f"<b>📂 Files: {offset+1}–{min(offset+FILES_PER_PAGE, total_filtered)} of {total_filtered}</b>\n\n"
-    cap += f"<b>⚠️ YEH FILES {del_min} MIN MEIN DELETE HO JAAYENGI!\n"
-    cap += "Inhe apne Saved Messages mein forward karo aur wahan se download karo!\n\n</b>"
     cap += "<b>📚 <u>Your Requested Files</u> 👇\n\n</b>"
 
     for f in page:
@@ -482,6 +480,18 @@ async def _send_files(client, target, uid, is_more=False, msg_id=None):
         disable_web_page_preview=True
     )
     sent_msgs.append(summary)
+
+    # Warning message alag se — English mein
+    warning_msg = await client.send_message(
+        chat_id=uid,
+        text=(
+            f"<b>❗️❗️❗️ IMPORTANT ❗️❗️❗️</b>\n\n"
+            f"<b>These files will be <u>DELETED in {del_min} minutes</u> due to copyright issues.</b>\n\n"
+            f"<i>Please forward the files to your Saved Messages and start downloading from there before they get deleted!</i>"
+        ),
+        disable_web_page_preview=True
+    )
+    sent_msgs.append(warning_msg)
 
     async def _auto_del():
         await asyncio.sleep(DELETE_TIME)
@@ -677,14 +687,23 @@ async def gf_back_lang_cb(client: Client, query: CallbackQuery):
                 show_alert=True
             )
 
-    # Lang reset karo taaki fresh select ho
+    # Lang aur qual reset karo
     sess = _GF_SESSION.get(sk, {})
     sess["lang"] = None
     sess["qual"] = None
     sess["offset"] = 0
     _GF_SESSION[sk] = sess
 
-    await _show_lang_step(client, query, uid, msg_id=btn_msg_id)
+    # Langs compute karo
+    all_files = sess.get("all_files", [])
+    langs = _extract_langs(all_files)
+
+    # Quality panel delete karo, naya lang panel bhejo
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+    await _show_lang_step(client, query, uid, langs, send=True, msg_id=btn_msg_id)
 
 
 @Client.on_callback_query(filters.regex(r"^gf_back_qual#"))
@@ -712,7 +731,12 @@ async def gf_back_qual_cb(client: Client, query: CallbackQuery):
     sess["offset"] = 0
     _GF_SESSION[sk] = sess
 
-    await _show_qual_step(client, query, uid, msg_id=btn_msg_id)
+    # Files summary message delete karo, naya qual panel bhejo
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+    await _show_qual_step(client, query, uid, send=True, msg_id=btn_msg_id)
 
 
 @Client.on_callback_query(filters.regex(r"^gf_minfo#"))
