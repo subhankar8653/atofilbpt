@@ -3009,6 +3009,11 @@ async def auto_filter(client, msg, spoll=False):
             search = message.text         
             search = search.lower()
             m=await message.reply_text(f'**🔎 sᴇᴀʀᴄʜɪɴɢ** `{search}`')
+            async def _auto_del_search(msg, delay=10):
+                await asyncio.sleep(delay)
+                try: await msg.delete()
+                except: pass
+            asyncio.create_task(_auto_del_search(m))
             find = search.split(" ")
             search = ""
             removes = ["in","upload", "series", "full", "horror", "thriller", "mystery", "print", "file"]
@@ -3068,6 +3073,11 @@ async def auto_filter(client, msg, spoll=False):
         message = msg.message.reply_to_message  # msg will be callback query
         search, files, offset, total_results = spoll
         m=await message.reply_text(f'**sᴇᴀʀᴄʜɪɴɢ...** `{search}`')
+        async def _auto_del_search2(msg, delay=10):
+            await asyncio.sleep(delay)
+            try: await msg.delete()
+            except: pass
+        asyncio.create_task(_auto_del_search2(m))
         settings = await get_settings(message.chat.id)
         await msg.message.delete()
     pre = 'filep' if settings['file_secure'] else 'file'
