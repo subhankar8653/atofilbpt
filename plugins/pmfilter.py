@@ -3087,8 +3087,12 @@ async def auto_filter(client, msg, spoll=False):
     # IMDB/OMDB poster fetch
     imdb = await get_poster(search, file=(files[0]).file_name) if settings["imdb"] else None
 
-    # Language extraction from file names
-    lang_str = _extract_langs_from_files(files)
+    # Language extraction — ALL groups scan karo (global) taaki saari languages dikh sakein
+    try:
+        _global_files, _, _ = await get_search_results(None, search, max_results=200, filter=True)
+        lang_str = _extract_langs_from_files(_global_files) if _global_files else _extract_langs_from_files(files)
+    except Exception:
+        lang_str = _extract_langs_from_files(files)
     lang_label = f"🌐 {lang_str}" if lang_str else "🌐 Language"
 
     # Clean title for button

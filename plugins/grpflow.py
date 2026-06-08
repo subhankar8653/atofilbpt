@@ -256,14 +256,24 @@ async def _show_lang_step(client, target, uid, langs, send=False, msg_id=None):
     search = sess.get("search", "")
     chat_id = sess.get("chat_id")
 
-    # Sirf is group ke files mein detected languages
+    # Is group ke files mein detected languages
     group_detected = set(langs)
+
+    # Global detected — ALL groups mein search karo
+    global_detected = set()
+    try:
+        global_files, _, _ = await get_search_results(None, search, max_results=200, filter=True)
+        global_detected = set(_extract_langs(global_files))
+    except Exception:
+        global_detected = group_detected.copy()
 
     btn = []
     row = []
     for lang in _full_lang_list():
         full = lang.capitalize()
         if lang in group_detected:
+            label = f"✅ {full}"
+        elif lang in global_detected:
             label = f"✅ {full}"
         else:
             label = f"❌ {full}"
@@ -552,6 +562,23 @@ async def gf_lang_cb(client: Client, query: CallbackQuery):
     avail_langs = _extract_langs(all_files)
 
     if lang not in avail_langs:
+        # Global check — kisi aur group mein hai?
+        try:
+            search = sess.get("search", "")
+            global_files, _, _ = await get_search_results(None, search, max_results=200, filter=True)
+            global_langs = _extract_langs(global_files)
+            if lang in global_langs:
+                lang_filtered = _filter_files(global_files, lang=lang)
+                if lang_filtered:
+                    sess["all_files"] = lang_filtered
+                    sess["lang"] = lang
+                    sess["offset"] = 0
+                    _GF_SESSION[sk] = sess
+                    await _save_session(uid)
+                    await query.answer(f"⚠️ {lang.capitalize()} files dusre group se mil rahi hain!")
+                    return await _show_qual_step(client, query, uid, send=False, msg_id=btn_msg_id)
+        except Exception:
+            pass
         return await query.answer(
             f"❌ {lang.capitalize()} mein koi file nahi hai!\nDusri language choose karo.",
             show_alert=True
