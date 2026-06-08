@@ -466,6 +466,38 @@ def _extract_langs_from_files(files):
         seen.insert(0, "hindi")
     return "-".join(_LANG_SHORT.get(l, l[:3]) for l in seen)
 
+
+def _build_audio_rows(lang_str, key, req_user_id):
+    """
+    lang_str (e.g. 'hin-tam-tel-mal-kan-multi-dual') se smart audio rows banao.
+    - 1-3 langs  -> 1 row: AUDIO:- HIN-TAM-TEL
+    - 4+ langs   -> 2 rows: row1 = pehle 3, row2 = baaki
+    Hindi available toh row1 label mein 'HINDI ORG' prefix.
+    """
+    cb = f"grp_detail#{key}#{req_user_id}"
+    if not lang_str:
+        return [[InlineKeyboardButton("🔰AUDIO:- MULTI🔰", callback_data=cb)]]
+
+    parts = lang_str.upper().split("-")
+    has_hindi = parts[0] == "HIN"
+
+    if len(parts) <= 3:
+        label = "🔰AUDIO:- HINDI ORG🔰" if has_hindi else f"🔰AUDIO:- {'-'.join(parts)}🔰"
+        return [[InlineKeyboardButton(label, callback_data=cb)]]
+
+    # 4+ langs -> 2 rows
+    row1_parts = parts[:3]
+    row2_parts = parts[3:]
+    if has_hindi:
+        row1_label = f"🔰AUDIO:- HINDI ORG | {'-'.join(row1_parts[1:])}🔰"
+    else:
+        row1_label = f"🔰AUDIO:- {'-'.join(row1_parts)}🔰"
+    row2_label = f"🔰{'-'.join(row2_parts)}🔰"
+    return [
+        [InlineKeyboardButton(row1_label, callback_data=cb)],
+        [InlineKeyboardButton(row2_label, callback_data=cb)],
+    ]
+
 # In-memory store for group card → key mapping (for DM detail callback)
 # key: callback_data key → (search, files, offset, total_results, chat_id, user_id)
 _GRP_CARD_STORE = {}
@@ -3036,16 +3068,10 @@ async def auto_filter(client, msg, spoll=False):
     }
     save_grp_card(key, search, message.chat.id, req_user_id)
 
-    # Group card buttons — alag alag rows, no More Results button
-    # Audio label: Hindi available hai toh pehle HINDI dikhao
-    _raw_langs = lang_str.upper() if lang_str else 'MULTI'
-    if lang_str and lang_str.startswith("hin"):
-        audio_label = f"🔰AUDIO:- HINDI ORG🔰"
-    else:
-        audio_label = f"🔰AUDIO:- {_raw_langs}🔰"
+    # Group card buttons — title row + smart audio rows (1 row agar <=3 langs, 2 rows agar 4+)
     grp_btn = [
         [InlineKeyboardButton(clean_title, callback_data=f"grp_detail#{key}#{req_user_id}")],
-        [InlineKeyboardButton(audio_label, callback_data=f"grp_detail#{key}#{req_user_id}")],
+        *_build_audio_rows(lang_str, key, req_user_id),
     ]
 
     grp_markup = InlineKeyboardMarkup(grp_btn)
@@ -3126,7 +3152,6 @@ async def auto_filter(client, msg, spoll=False):
         for _cf, _yr in card_files_list[1:]:
             _imdb2 = await get_poster(search + " " + _yr, file=_cf.file_name) if settings["imdb"] else None
             _lang2 = _extract_langs_from_files([_cf])
-            _audio2 = f"🔰AUDIO:- {_lang2.upper() if _lang2 else 'MULTI'}🔰"
             _title2 = (_imdb2.get('title') if _imdb2 and _imdb2.get('title') else search).title()
             _key2 = f"{key}-{_yr}"
             _GRP_CARD_STORE[_key2] = {"search": search + " " + _yr, "key": key, "chat_id": message.chat.id, "user_id": req_user_id}
@@ -3134,7 +3159,7 @@ async def auto_filter(client, msg, spoll=False):
             temp.GETALL[_key2] = files
             _btn2 = [
                 [InlineKeyboardButton(_title2, callback_data=f"grp_detail#{_key2}#{req_user_id}")],
-                [InlineKeyboardButton(_audio2, callback_data=f"grp_detail#{_key2}#{req_user_id}")],
+                *_build_audio_rows(_lang2, _key2, req_user_id),
             ]
             _markup2 = InlineKeyboardMarkup(_btn2)
 
