@@ -1,7 +1,7 @@
 FROM python:3.11.7
 
 RUN apt update && \
-    apt install -y --no-install-recommends git ffmpeg && \
+    apt install -y --no-install-recommends git ffmpeg mediainfo && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /SuhaniBots
