@@ -748,12 +748,13 @@ async def gf_mediainfo_cb(client: Client, query: CallbackQuery):
     file_id = parts[1]
 
     await query.answer("📊 Media info extract ho rahi hai...", show_alert=False)
-    status = await query.message.reply_text("🔍 <b>Media Info extract ho rahi hai...</b>")
+    status = await query.message.reply_text("⏳ <b>[░░░░░░░░░░] 0% — Shuru ho raha hai...</b>")
 
     try:
         import shutil, asyncio as _aio, json as _json, io
         from LucyBot.util.file_properties import get_name, get_hash
 
+        await status.edit_text("⏳ <b>[██░░░░░░░░] 20% — File LOG_CHANNEL mein bhej raha hai...</b>")
         log_msg = await client.send_cached_media(chat_id=LOG_CHANNEL, file_id=file_id)
         media = log_msg.video or log_msg.audio or log_msg.document
         if not media:
@@ -767,6 +768,8 @@ async def gf_mediainfo_cb(client: Client, query: CallbackQuery):
         f_hash = get_hash(log_msg)
         stream_url = f"{URL}dl/{log_msg.id}?hash={f_hash}"
 
+        await status.edit_text("⏳ <b>[████░░░░░░] 40% — Stream URL ready, tool run ho raha hai...</b>")
+
         async def _run(cmd):
             proc = await _aio.create_subprocess_exec(
                 *cmd,
@@ -779,16 +782,20 @@ async def gf_mediainfo_cb(client: Client, query: CallbackQuery):
             return _json.loads(out.decode())
 
         if shutil.which("mediainfo"):
+            await status.edit_text("⏳ <b>[██████░░░░] 60% — mediainfo se data extract ho raha hai...</b>")
             raw = await _run(["mediainfo", "--Output=JSON", stream_url])
+            await status.edit_text("⏳ <b>[████████░░] 80% — Data format ho raha hai...</b>")
             tracks = (raw or {}).get("media", {}).get("track", [])
             text = _format_mediainfo(tracks)
         elif shutil.which("ffprobe"):
+            await status.edit_text("⏳ <b>[██████░░░░] 60% — ffprobe se data extract ho raha hai...</b>")
             raw = await _run([
                 "ffprobe", "-v", "quiet",
                 "-print_format", "json",
                 "-show_format", "-show_streams",
                 stream_url
             ])
+            await status.edit_text("⏳ <b>[████████░░] 80% — Data format ho raha hai...</b>")
             text = _format_ffprobe(raw or {})
         else:
             return await status.edit_text("❌ mediainfo/ffprobe server pe install nahi hai.")
@@ -796,6 +803,9 @@ async def gf_mediainfo_cb(client: Client, query: CallbackQuery):
         if not text.strip():
             await status.delete()
             return await query.message.reply_text("❌ Media info extract nahi ho saka.", quote=True)
+
+        await status.edit_text("⏳ <b>[██████████] 100% — Done! Bhej raha hai...</b>")
+        await _aio.sleep(0.5)
 
         full = f"📊 <b>Media Info:</b> <code>{file_name}</code>\n\n<pre>{text}</pre>"
 
