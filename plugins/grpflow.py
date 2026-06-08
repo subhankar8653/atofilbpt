@@ -275,7 +275,7 @@ async def _show_lang_step(client, target, uid, langs, send=False, msg_id=None):
             label = f"✅ {full}"
         elif lang in global_detected:
             # Kisi aur group mein hai — ⚠️ (dusre group se milegi)
-            label = f"⚠️ {full}"
+            label = f"✅ {full}"
         else:
             # Kahi bhi nahi ❌
             label = f"❌ {full}"
@@ -311,10 +311,9 @@ async def _show_lang_step(client, target, uid, langs, send=False, msg_id=None):
 
     text = (
         f"<b>🎬 {search.title()}</b>\n\n"
-        f"<b>🌐 Language select karo:</b>\n"
-        f"<b>✅ = Is group mein available</b>\n"
-        f"<b>⚠️ = Dusre group mein hai</b>\n"
-        f"<b>❌ = Kahi nahi</b>"
+        f"<b>🌐 Select your language:</b>\n"
+        f"<b>✅ = Available</b>\n"
+        f"<b>❌ = Not available</b>"
     )
     markup = InlineKeyboardMarkup(btn)
 
