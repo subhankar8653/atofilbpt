@@ -323,7 +323,8 @@ async def _show_lang_step(client, target, uid, langs, send=False, msg_id=None):
         if isinstance(target, Message):
             await target.reply_text(text, reply_markup=markup)
         else:
-            await target.message.edit_text(text, reply_markup=markup)
+            # CallbackQuery — delete ke baad naya message bhejo (edit nahi)
+            await target.message.reply_text(text, reply_markup=markup)
     else:
         await target.message.edit_text(text, reply_markup=markup)
 
@@ -369,7 +370,8 @@ async def _show_qual_step(client, target, uid, send=False, msg_id=None):
         if isinstance(target, Message):
             await target.reply_text(text, reply_markup=markup)
         else:
-            await target.message.edit_text(text, reply_markup=markup)
+            # CallbackQuery — delete ke baad naya message bhejo (edit nahi)
+            await target.message.reply_text(text, reply_markup=markup)
     else:
         await target.message.edit_text(text, reply_markup=markup)
 
