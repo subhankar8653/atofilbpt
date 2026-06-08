@@ -3108,133 +3108,137 @@ async def auto_filter(client, msg, spoll=False):
         btn.append(
             [InlineKeyboardButton(text="↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭",callback_data="pages")]
         )
-    # ── GROUP CLEAN CARD (Sticker style) ────────────────────────────────────────
-    # IMDB/OMDB poster fetch
-    imdb = await get_poster(search, file=(files[0]).file_name) if settings["imdb"] else None
+    # ── NEWBOT FLAG CHECK ─────────────────────────────────────────────────────────
+    use_new_format = settings.get("newbot", True)  # default: True (new format on)
 
-    # Language extraction — ALL groups scan karo (global) taaki saari languages dikh sakein
-    try:
-        _global_files, _, _ = await get_search_results(None, search, max_results=200, filter=True)
-        lang_str = _extract_langs_from_files(_global_files) if _global_files else _extract_langs_from_files(files)
-    except Exception:
-        lang_str = _extract_langs_from_files(files)
-    lang_label = f"🌐 {lang_str}" if lang_str else "🌐 Language"
+    if use_new_format:
+        # ── GROUP CLEAN CARD (Sticker style) ─────────────────────────────────────
+        # IMDB/OMDB poster fetch
+        imdb = await get_poster(search, file=(files[0]).file_name) if settings["imdb"] else None
 
-    # Clean title for button
-    clean_title = search.title()
-
-    # Store data for DM detail callback
-    req_user_id = message.from_user.id if message.from_user else 0
-    _GRP_CARD_STORE[key] = {
-        "search": search,
-        "key": key,
-        "chat_id": message.chat.id,
-        "user_id": req_user_id,
-    }
-    save_grp_card(key, search, message.chat.id, req_user_id)
-
-    # Group card buttons — title row + smart audio rows (1 row agar <=3 langs, 2 rows agar 4+)
-    grp_btn = [
-        [InlineKeyboardButton(clean_title, callback_data=f"grp_detail#{key}#{req_user_id}")],
-        *_build_audio_rows(lang_str, key, req_user_id),
-    ]
-
-    grp_markup = InlineKeyboardMarkup(grp_btn)
-
-    # ── Poster → 16:9 WebP sticker convert (960x540, stretch fill, no black bars) ──
-    sticker_buf = None
-    if imdb and imdb.get('poster'):
+        # Language extraction — ALL groups scan karo (global) taaki saari languages dikh sakein
         try:
-            from PIL import Image as _PilImage, ImageOps as _ImageOps
-            import io as _io
-            raw = imdb.get('poster')
-            if isinstance(raw, _io.BytesIO):
-                raw.seek(0)
-                _img = _PilImage.open(raw).convert("RGBA")
-            else:
-                import aiohttp as _aiohttp
-                async with _aiohttp.ClientSession() as _sess:
-                    async with _sess.get(raw) as _r:
-                        _img = _PilImage.open(_io.BytesIO(await _r.read())).convert("RGBA")
-            # 16:9 ratio — direct stretch, pura image fill hoga, koi crop nahi
-            _img = _img.resize((960, 540), _PilImage.LANCZOS)
-            sticker_buf = _io.BytesIO()
-            _img.save(sticker_buf, format="WEBP", quality=95)
-            sticker_buf.seek(0)
-            sticker_buf.name = "sticker.webp"
-        except Exception as _e:
-            logger.warning(f"Sticker convert error: {_e}")
-            sticker_buf = None
-
-    # ── Helper: ek card send karna ──────────────────────────────────────────
-    async def _send_one_card(sbuf, markup, fallback_title):
-        if sbuf:
-            try:
-                return await message.reply_sticker(sticker=sbuf, reply_markup=markup)
-            except Exception as _se:
-                logger.warning(f"reply_sticker failed: {_se}")
-        # fallback text card
-        return await message.reply_text(
-            text=f"<b>{fallback_title}</b>",
-            reply_markup=markup,
-            disable_web_page_preview=True
-        )
-
-    # ── Multiple cards — same search ke 2-3 results ──────────────────────────
-    # Har result ka alag sticker + buttons bhejo (max 3)
-    # Pehla result already process hua hai (sticker_buf + imdb)
-    # Baaki results ke liye unique file groups dhundo
-
-    # Deduplicate by IMDB title — same title = same movie = ek hi card
-    # Alag card sirf tab jab genuinely alag movie ho (e.g. Twilight 2008 vs Phantom in the Twilight)
-    import re as _re2
-    def _title_year(fname):
-        y = _re2.findall(r'[1-2]\d{3}', fname)
-        return y[0] if y else "0000"
-
-    # Pehle IMDB title fetch karo first card ke liye (already done: `imdb`)
-    _first_imdb_title = (imdb.get('title') if imdb and imdb.get('title') else search).lower().strip()
-
-    seen_imdb_titles = {_first_imdb_title}
-    seen_years = {_title_year(files[0].file_name) if files else "0000"}
-    card_files_list = []  # list of (representative_file, year)
-
-    for _f in files[1:]:  # pehli file skip — already first card mein hai
-        _yr = _title_year(_f.file_name)
-        # Year duplicate skip
-        if _yr in seen_years:
-            continue
-
-        # Pehle check karo — is year ke saath actually files milti hain?
-        # Agar DB mein koi file nahi hai toh card mat banao
-        _verify_search = f"{search} {_yr}".strip() if _yr != "0000" else search
-        try:
-            _verify_files, _, _verify_total = await get_search_results(
-                message.chat.id, _verify_search, offset=0, filter=True
-            )
+            _global_files, _, _ = await get_search_results(None, search, max_results=200, filter=True)
+            lang_str = _extract_langs_from_files(_global_files) if _global_files else _extract_langs_from_files(files)
         except Exception:
-            _verify_files = []
-        if not _verify_files:
-            continue
-
-        # IMDB title check — same title? skip
-        _imdb_check = await get_poster(_verify_search, file=_f.file_name) if settings["imdb"] else None
-        _check_title = (_imdb_check.get('title') if _imdb_check and _imdb_check.get('title') else search).lower().strip()
-        if _check_title in seen_imdb_titles:
-            continue
-
-        seen_years.add(_yr)
-        seen_imdb_titles.add(_check_title)
-        card_files_list.append((_f, _yr, _imdb_check))
-        if len(card_files_list) >= 2:  # max 2 extra cards (total 3)
-            break
-
-    sent_messages = []
-
-    if not card_files_list:
-        # Single result (ya sab same movie) — ek hi card
-        s = await _send_one_card(sticker_buf, grp_markup, clean_title)
-        sent_messages.append(s)
+            lang_str = _extract_langs_from_files(files)
+        lang_label = f"🌐 {lang_str}" if lang_str else "🌐 Language"
+    
+        # Clean title for button
+        clean_title = search.title()
+    
+        # Store data for DM detail callback
+        req_user_id = message.from_user.id if message.from_user else 0
+        _GRP_CARD_STORE[key] = {
+            "search": search,
+            "key": key,
+            "chat_id": message.chat.id,
+            "user_id": req_user_id,
+        }
+        save_grp_card(key, search, message.chat.id, req_user_id)
+    
+        # Group card buttons — title row + smart audio rows (1 row agar <=3 langs, 2 rows agar 4+)
+        grp_btn = [
+            [InlineKeyboardButton(clean_title, callback_data=f"grp_detail#{key}#{req_user_id}")],
+            *_build_audio_rows(lang_str, key, req_user_id),
+        ]
+    
+        grp_markup = InlineKeyboardMarkup(grp_btn)
+    
+        # ── Poster → 16:9 WebP sticker convert (960x540, stretch fill, no black bars) ──
+        sticker_buf = None
+        if imdb and imdb.get('poster'):
+            try:
+                from PIL import Image as _PilImage, ImageOps as _ImageOps
+                import io as _io
+                raw = imdb.get('poster')
+                if isinstance(raw, _io.BytesIO):
+                    raw.seek(0)
+                    _img = _PilImage.open(raw).convert("RGBA")
+                else:
+                    import aiohttp as _aiohttp
+                    async with _aiohttp.ClientSession() as _sess:
+                        async with _sess.get(raw) as _r:
+                            _img = _PilImage.open(_io.BytesIO(await _r.read())).convert("RGBA")
+                # 16:9 ratio — direct stretch, pura image fill hoga, koi crop nahi
+                _img = _img.resize((960, 540), _PilImage.LANCZOS)
+                sticker_buf = _io.BytesIO()
+                _img.save(sticker_buf, format="WEBP", quality=95)
+                sticker_buf.seek(0)
+                sticker_buf.name = "sticker.webp"
+            except Exception as _e:
+                logger.warning(f"Sticker convert error: {_e}")
+                sticker_buf = None
+    
+        # ── Helper: ek card send karna ──────────────────────────────────────────
+        async def _send_one_card(sbuf, markup, fallback_title):
+            if sbuf:
+                try:
+                    return await message.reply_sticker(sticker=sbuf, reply_markup=markup)
+                except Exception as _se:
+                    logger.warning(f"reply_sticker failed: {_se}")
+            # fallback text card
+            return await message.reply_text(
+                text=f"<b>{fallback_title}</b>",
+                reply_markup=markup,
+                disable_web_page_preview=True
+            )
+    
+        # ── Multiple cards — same search ke 2-3 results ──────────────────────────
+        # Har result ka alag sticker + buttons bhejo (max 3)
+        # Pehla result already process hua hai (sticker_buf + imdb)
+        # Baaki results ke liye unique file groups dhundo
+    
+        # Deduplicate by IMDB title — same title = same movie = ek hi card
+        # Alag card sirf tab jab genuinely alag movie ho (e.g. Twilight 2008 vs Phantom in the Twilight)
+        import re as _re2
+        def _title_year(fname):
+            y = _re2.findall(r'[1-2]\d{3}', fname)
+            return y[0] if y else "0000"
+    
+        # Pehle IMDB title fetch karo first card ke liye (already done: `imdb`)
+        _first_imdb_title = (imdb.get('title') if imdb and imdb.get('title') else search).lower().strip()
+    
+        seen_imdb_titles = {_first_imdb_title}
+        seen_years = {_title_year(files[0].file_name) if files else "0000"}
+        card_files_list = []  # list of (representative_file, year)
+    
+        for _f in files[1:]:  # pehli file skip — already first card mein hai
+            _yr = _title_year(_f.file_name)
+            # Year duplicate skip
+            if _yr in seen_years:
+                continue
+    
+            # Pehle check karo — is year ke saath actually files milti hain?
+            # Agar DB mein koi file nahi hai toh card mat banao
+            _verify_search = f"{search} {_yr}".strip() if _yr != "0000" else search
+            try:
+                _verify_files, _, _verify_total = await get_search_results(
+                    message.chat.id, _verify_search, offset=0, filter=True
+                )
+            except Exception:
+                _verify_files = []
+            if not _verify_files:
+                continue
+    
+            # IMDB title check — same title? skip
+            _imdb_check = await get_poster(_verify_search, file=_f.file_name) if settings["imdb"] else None
+            _check_title = (_imdb_check.get('title') if _imdb_check and _imdb_check.get('title') else search).lower().strip()
+            if _check_title in seen_imdb_titles:
+                continue
+    
+            seen_years.add(_yr)
+            seen_imdb_titles.add(_check_title)
+            card_files_list.append((_f, _yr, _imdb_check))
+            if len(card_files_list) >= 2:  # max 2 extra cards (total 3)
+                break
+    
+        sent_messages = []
+    
+        if not card_files_list:
+            # Single result (ya sab same movie) — ek hi card
+            s = await _send_one_card(sticker_buf, grp_markup, clean_title)
+            sent_messages.append(s)
     else:
         # Multiple genuinely distinct results — send first card (already fetched)
         s = await _send_one_card(sticker_buf, grp_markup, clean_title)
@@ -3301,6 +3305,117 @@ async def auto_filter(client, msg, spoll=False):
             try: await _sm.delete()
             except: pass
         await message.delete()
+
+    else:
+        # ── OLD FORMAT (Photo + Caption + File List) ──────────────────────────────
+        imdb = await get_poster(search, file=(files[0]).file_name) if settings["imdb"] else None
+        cur_time = datetime.now(pytz.timezone('Asia/Kolkata')).time()
+        time_difference = timedelta(hours=cur_time.hour, minutes=cur_time.minute, seconds=(cur_time.second+(cur_time.microsecond/1000000))) - timedelta(hours=curr_time.hour, minutes=curr_time.minute, seconds=(curr_time.second+(curr_time.microsecond/1000000)))
+        remaining_seconds = "{:.2f}".format(time_difference.total_seconds())
+        TEMPLATE = script.IMDB_TEMPLATE_TXT
+        if imdb:
+            cap = TEMPLATE.format(
+                qurey=search,
+                title=imdb['title'],
+                votes=imdb['votes'],
+                aka=imdb["aka"],
+                seasons=imdb["seasons"],
+                box_office=imdb['box_office'],
+                localized_title=imdb['localized_title'],
+                kind=imdb['kind'],
+                imdb_id=imdb["imdb_id"],
+                cast=imdb["cast"],
+                runtime=imdb["runtime"],
+                countries=imdb["countries"],
+                certificates=imdb["certificates"],
+                languages=imdb["languages"],
+                director=imdb["director"],
+                writer=imdb["writer"],
+                producer=imdb["producer"],
+                composer=imdb["composer"],
+                cinematographer=imdb["cinematographer"],
+                music_team=imdb["music_team"],
+                distributors=imdb["distributors"],
+                release_date=imdb['release_date'],
+                year=imdb['year'],
+                genres=imdb['genres'],
+                poster=imdb['poster'],
+                plot=imdb['plot'],
+                rating=imdb['rating'],
+                url=imdb['url'],
+                **locals()
+            )
+            temp.IMDB_CAP[message.from_user.id] = cap
+            if not settings["button"]:
+                cap+="\n\n<b>📚 <u>Your Requested Files</u> 👇\n\n</b>"
+                for file in files:
+                    cap += f"<b>\n<a href='https://telegram.me/{temp.U_NAME}?start=files_{file.file_id}'> 📁 {get_size(file.file_size)} ▷ {' '.join(filter(lambda x: not x.startswith('[') and not x.startswith('@') and not x.startswith('www.'), file.file_name.split()))}\n</a></b>"
+        else:
+            if settings["button"]:
+                cap = f"<b>›› ᴛɪᴛʟᴇ : <code>{search}</code>\n›› ᴛᴏᴛᴀʟ ꜰɪʟᴇꜱ : <code>{total_results}</code>\n›› ʀᴇǫᴜᴇsᴛᴇᴅ ʙʏ : {message.from_user.mention}\n›› ʀᴇsᴜʟᴛ ɪɴ : <code>{remaining_seconds} Sᴇᴄᴏɴᴅs</code>\n\n›› 𝑹𝒆𝒒𝒖𝒆𝒔𝒕𝒆𝒅 𝑭𝒊𝒍𝒆𝒔 👇 \n\n</b>"
+            else:
+                cap = f"<b>›› ᴛɪᴛʟᴇ : <code>{search}</code>\n›› ᴛᴏᴛᴀʟ ꜰɪʟᴇꜱ : <code>{total_results}</code>\n›› ʀᴇǫᴜᴇsᴛᴇᴅ ʙʏ : {message.from_user.mention}\n›› ʀᴇsᴜʟᴛ ɪɴ : <code>{remaining_seconds} Sᴇᴄᴏɴᴅs</code>\n\n›› 𝑹𝒆𝒒𝒖𝒆𝒔𝒕𝒆𝒅 𝑭𝒊𝒍𝒆𝒔 👇 \n\n</b>"
+                for file in files:
+                    cap += f"<b><a href='https://telegram.me/{temp.U_NAME}?start=files_{file.file_id}'> 📁 {get_size(file.file_size)} ▷ {' '.join(filter(lambda x: not x.startswith('[') and not x.startswith('@') and not x.startswith('www.'), file.file_name.split()))}\n\n</a></b>"
+
+        if imdb and imdb.get('poster'):
+            try:
+                hehe = await message.reply_photo(photo=imdb.get('poster'), caption=cap, reply_markup=InlineKeyboardMarkup(btn))
+                await m.delete()
+                try:
+                    if settings['auto_delete']:
+                        await asyncio.sleep(DELETE_TIME)
+                        await hehe.delete()
+                        await message.delete()
+                except KeyError:
+                    await save_group_settings(message.chat.id, 'auto_delete', True)
+                    await asyncio.sleep(DELETE_TIME)
+                    await hehe.delete()
+                    await message.delete()
+            except (MediaEmpty, PhotoInvalidDimensions, WebpageMediaEmpty):
+                pic = imdb.get('poster')
+                poster = pic.replace('.jpg', "._V1_UX360.jpg")
+                hmm = await message.reply_photo(photo=poster, caption=cap, reply_markup=InlineKeyboardMarkup(btn))
+                await m.delete()
+                try:
+                    if settings['auto_delete']:
+                        await asyncio.sleep(DELETE_TIME)
+                        m=await message.reply_text("🔎")
+                        await hmm.delete()
+                        await message.delete()
+                except KeyError:
+                    await save_group_settings(message.chat.id, 'auto_delete', True)
+                    await asyncio.sleep(DELETE_TIME)
+                    await hmm.delete()
+                    await message.delete()
+            except Exception as e:
+                logger.exception(e)
+                m=await message.reply_text("🔎")
+                fek = await message.reply_text(text=cap, reply_markup=InlineKeyboardMarkup(btn))
+                await m.delete()
+                try:
+                    if settings['auto_delete']:
+                        await asyncio.sleep(DELETE_TIME)
+                        await fek.delete()
+                        await message.delete()
+                except KeyError:
+                    await save_group_settings(message.chat.id, 'auto_delete', True)
+                    await asyncio.sleep(DELETE_TIME)
+                    await fek.delete()
+                    await message.delete()
+        else:
+            fuk = await message.reply_text(text=cap, reply_markup=InlineKeyboardMarkup(btn), disable_web_page_preview=True)
+            await m.delete()
+            try:
+                if settings['auto_delete']:
+                    await asyncio.sleep(DELETE_TIME)
+                    await fuk.delete()
+                    await message.delete()
+            except KeyError:
+                await save_group_settings(message.chat.id, 'auto_delete', True)
+                await asyncio.sleep(DELETE_TIME)
+                await fuk.delete()
+                await message.delete()
 
 
 # ── DM Detail Handler — group card button click karne par DM mein full result ─

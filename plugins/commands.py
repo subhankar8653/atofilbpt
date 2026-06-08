@@ -2095,3 +2095,51 @@ async def remove_fake_link_cmd(client, message):
         await message.reply_text("❌ Error removing fake link.")
 
 
+# ══════════════════════════════════════════════════════════════════════
+# NEWBOT FORMAT TOGGLE (Admin or Group Admin)
+# ══════════════════════════════════════════════════════════════════════
+
+@Client.on_message(filters.command("newbot") & filters.group)
+async def toggle_newbot(client, message):
+    """
+    /newbot on  → New format (Sticker/WebP card style)
+    /newbot off → Old format (Photo + Caption + File list)
+    """
+    user = message.from_user
+    chat = message.chat
+
+    # Only admins or group admins allowed
+    try:
+        member = await client.get_chat_member(chat.id, user.id)
+        if member.status not in ("administrator", "creator") and user.id not in ADMINS:
+            return await message.reply_text("❌ Sirf group admin ya bot admin yeh command use kar sakte hain.")
+    except Exception:
+        if user.id not in ADMINS:
+            return await message.reply_text("❌ Permission check fail hua.")
+
+    args = message.text.split()
+    if len(args) < 2 or args[1].lower() not in ("on", "off"):
+        settings = await get_settings(chat.id)
+        current = settings.get("newbot", True)
+        status = "🟢 ON (New Format)" if current else "🔴 OFF (Old Format)"
+        return await message.reply_text(
+            f"<b>🤖 NewBot Format Status: {status}</b>\n\n"
+            f"Use:\n"
+            f"• <code>/newbot on</code> → New sticker/card format\n"
+            f"• <code>/newbot off</code> → Old photo+caption format"
+        )
+
+    new_val = args[1].lower() == "on"
+    await save_group_settings(chat.id, "newbot", new_val)
+
+    if new_val:
+        await message.reply_text(
+            "✅ <b>NewBot Format: ON</b>\n\n"
+            "Ab results <b>naye sticker/card style</b> mein aayenge. 🎴"
+        )
+    else:
+        await message.reply_text(
+            "✅ <b>NewBot Format: OFF</b>\n\n"
+            "Ab results <b>purane photo+caption style</b> mein aayenge. 📸"
+        )
+
