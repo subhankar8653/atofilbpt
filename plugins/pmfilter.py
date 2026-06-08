@@ -3110,6 +3110,7 @@ async def auto_filter(client, msg, spoll=False):
         )
     # ── NEWBOT FLAG CHECK ─────────────────────────────────────────────────────────
     use_new_format = settings.get("newbot", True)  # default: True (new format on)
+    sent_messages = []  # always initialize (used in new format auto-delete)
 
     if use_new_format:
         # ── GROUP CLEAN CARD (Sticker style) ─────────────────────────────────────
@@ -3306,7 +3307,7 @@ async def auto_filter(client, msg, spoll=False):
             except: pass
         await message.delete()
 
-    else:
+    if not use_new_format:
         # ── OLD FORMAT (Photo + Caption + File List) ──────────────────────────────
         imdb = await get_poster(search, file=(files[0]).file_name) if settings["imdb"] else None
         cur_time = datetime.now(pytz.timezone('Asia/Kolkata')).time()
