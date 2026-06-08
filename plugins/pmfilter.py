@@ -446,25 +446,61 @@ _LANG_SHORT = {
     "french": "fre", "spanish": "spa",
 }
 
+# Alias map for robust language detection (file names mein short forms bhi hote hain)
+_PMFILTER_LANG_ALIASES = {
+    "hindi":     ["hindi", " hin ", "hinline", "hindub", "hind ", "-hin-", ".hin.", "[hin]"],
+    "english":   ["english", " eng ", "-eng-", ".eng.", "[eng]"],
+    "tamil":     ["tamil", " tam ", "-tam-", ".tam.", "[tam]"],
+    "telugu":    ["telugu", " tel ", "-tel-", ".tel.", "[tel]"],
+    "malayalam": ["malayalam", " mal ", "-mal-", ".mal.", "[mal]"],
+    "kannada":   ["kannada", " kan ", "-kan-", ".kan.", "[kan]"],
+    "gujarati":  ["gujarati", " guj ", "-guj-"],
+    "marathi":   ["marathi", " mar ", "-mar-"],
+    "punjabi":   ["punjabi", " pun ", "-pun-"],
+    "bengali":   ["bengali", " ben ", "-ben-"],
+    "odia":      ["odia", " odi ", "-odi-"],
+    "urdu":      ["urdu", " urd ", "-urd-"],
+    "bhojpuri":  ["bhojpuri", " bho ", "-bho-"],
+    "japanese":  ["japanese", " jpn ", "-jpn-"],
+    "korean":    ["korean", " kor ", "-kor-"],
+    "chinese":   ["chinese", " chi ", "-chi-"],
+    "french":    ["french", " fre ", "-fre-"],
+    "spanish":   ["spanish", " spa ", "-spa-"],
+    "multi":     ["multi audio", "multi-audio", "multilingual", "multi lang", "multi language", " multi "],
+    "dual":      ["dual audio", "dual-audio", "dubbed", " dual "],
+}
+_PMFILTER_LANG_SHORT = {**_LANG_SHORT, "multi": "multi", "dual": "dual"}
+_PMFILTER_LANG_ORDER = list(LANGUAGES_LIST) + ["multi", "dual"]
+
+
 def _extract_langs_from_files(files):
     """
     file_name list se available languages extract karo.
-    Hindi ko hamesha pehle rakho (priority), baaki LANGUAGES_LIST order mein.
-    Return: short-code string like 'hin-eng-tam', ya None agar koi nahi mila.
+    Alias-based detection — short codes (tel, mal, hin) bhi catch hote hain.
+    Hindi ko hamesha pehle rakho. multi/dual bhi detect karo.
+    Return: short-code string like 'hin-tam-tel-mal-kan-multi', ya None.
     """
     seen = []
     for f in files:
-        name_lower = f.file_name.lower()
-        for lang in LANGUAGES_LIST:
-            if lang not in seen and lang in name_lower:
+        nl = " " + f.file_name.lower() + " "  # boundary padding
+        for lang in _PMFILTER_LANG_ORDER:
+            if lang in seen:
+                continue
+            # Full word check pehle (plain match)
+            if lang in nl:
+                seen.append(lang)
+                continue
+            # Alias check
+            aliases = _PMFILTER_LANG_ALIASES.get(lang, [])
+            if any(alias in nl for alias in aliases):
                 seen.append(lang)
     if not seen:
         return None
-    # Hindi ko pehle rakho agar available hai
+    # Hindi ko pehle rakho
     if "hindi" in seen and seen[0] != "hindi":
         seen.remove("hindi")
         seen.insert(0, "hindi")
-    return "-".join(_LANG_SHORT.get(l, l[:3]) for l in seen)
+    return "-".join(_PMFILTER_LANG_SHORT.get(l, l[:3]) for l in seen)
 
 
 def _build_audio_rows(lang_str, key, req_user_id):
