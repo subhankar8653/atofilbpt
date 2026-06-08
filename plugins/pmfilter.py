@@ -506,28 +506,34 @@ def _extract_langs_from_files(files):
 def _build_audio_rows(lang_str, key, req_user_id):
     """
     lang_str (e.g. 'hin-tam-tel-mal-kan-multi-dual') se smart audio rows banao.
-    - 1-3 langs  -> 1 row: AUDIO:- HIN-TAM-TEL
-    - 4+ langs   -> 2 rows: row1 = pehle 3, row2 = baaki
-    Hindi available toh row1 label mein 'HINDI ORG' prefix.
+
+    Rules:
+    - Sirf 1 language  -> "🔰AUDIO:- HINDI ORG🔰" / "🔰AUDIO:- TAMIL ORG🔰" (ORG suffix)
+    - 2-3 languages    -> 1 row: "🔰AUDIO:- HINDI-TAM-TEL🔰"  (no ORG)
+    - 4+ languages     -> 2 rows:
+        Row1: "🔰AUDIO:- HINDI-TAM-TEL🔰"  (pehle 3)
+        Row2: "🔰MAL-KAN-MULTI-DUAL🔰"      (baaki)
     """
     cb = f"grp_detail#{key}#{req_user_id}"
     if not lang_str:
         return [[InlineKeyboardButton("🔰AUDIO:- MULTI🔰", callback_data=cb)]]
 
     parts = lang_str.upper().split("-")
-    has_hindi = parts[0] == "HIN"
 
-    if len(parts) <= 3:
-        label = "🔰AUDIO:- HINDI ORG🔰" if has_hindi else f"🔰AUDIO:- {'-'.join(parts)}🔰"
+    # Single language — ORG suffix
+    if len(parts) == 1:
+        label = f"🔰AUDIO:- {parts[0]} ORG🔰"
         return [[InlineKeyboardButton(label, callback_data=cb)]]
 
-    # 4+ langs -> 2 rows
+    # 2-3 languages — 1 row, no ORG
+    if len(parts) <= 3:
+        label = f"🔰AUDIO:- {'-'.join(parts)}🔰"
+        return [[InlineKeyboardButton(label, callback_data=cb)]]
+
+    # 4+ languages — 2 rows
     row1_parts = parts[:3]
     row2_parts = parts[3:]
-    if has_hindi:
-        row1_label = f"🔰AUDIO:- HINDI ORG | {'-'.join(row1_parts[1:])}🔰"
-    else:
-        row1_label = f"🔰AUDIO:- {'-'.join(row1_parts)}🔰"
+    row1_label = f"🔰AUDIO:- {'-'.join(row1_parts)}🔰"
     row2_label = f"🔰{'-'.join(row2_parts)}🔰"
     return [
         [InlineKeyboardButton(row1_label, callback_data=cb)],
