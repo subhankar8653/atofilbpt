@@ -792,7 +792,7 @@ async def start(client, message):
 
         # ── FREE MODE ─────────────────────────────────────────────────
         elif _cur_mode == "free":
-            # Step 1: FSub check
+            # Step 1: FSub check — PEHLE hoga, shortlink se pehle
             fsub_ok, fsub_btns = await check_fsub_inline(user_id)
             if not fsub_ok:
                 fake_btn = await get_fake_link_btn()
@@ -821,6 +821,38 @@ async def start(client, message):
                     await asyncio.sleep(180)
                     await l.delete()
                     return
+            # Step 3: Group shortlink check — FSub pass hone ke BAAD
+            # chat_id = group jahan se user aaya (temp.SHORT mein store hota hai pmfilter se)
+            # Agar /start files_ se directly aaya (direct link) toh chat_id = None → skip
+            _grp_chat_id = chat_id  # temp.SHORT se upar fetch hua tha
+            if _grp_chat_id:
+                _grp_settings = await get_settings(_grp_chat_id)
+                if _grp_settings.get("is_shortlink") and not await db.has_premium_access(user_id):
+                    # Shortlink generate karo aur dikhao
+                    import pytz as _pytz
+                    _curr_time = datetime.now(_pytz.timezone("Asia/Kolkata")).hour
+                    if _curr_time < 12:   _gtxt = "ɢᴏᴏᴅ ᴍᴏʀɴɪɴɢ 👋"
+                    elif _curr_time < 17: _gtxt = "ɢᴏᴏᴅ ᴀғᴛᴇʀɴᴏᴏɴ 👋"
+                    elif _curr_time < 21: _gtxt = "ɢᴏᴏᴅ ᴇᴠᴇɴɪɴɢ 👋"
+                    else:                 _gtxt = "ɢᴏᴏᴅ ɴɪɢʜᴛ 👋"
+                    files_info = await get_file_details(file_id)
+                    if files_info:
+                        _finfo = files_info[0]
+                        _short_url = await get_shortlink(_grp_chat_id, f"https://telegram.me/{temp.U_NAME}?start=files_{file_id}")
+                        _k = await message.reply_text(
+                            f"<b>🫂 ʜᴇʏ {message.from_user.mention}, {_gtxt}\n\n"
+                            f"✅ ʏᴏᴜʀ ʟɪɴᴋ ɪꜱ ʀᴇᴀᴅʏ!\n\n"
+                            f"⚠️ ꜰɪʟᴇ: <code>{_finfo.file_name}</code>\n"
+                            f"📥 sɪᴢᴇ: <code>{get_size(_finfo.file_size)}</code>\n\n"
+                            "<u>⚠️ ɴᴏᴛᴇ: ᴛʜɪꜱ ᴍᴇꜱꜱᴀɢᴇ ᴅᴇʟᴇᴛᴇs ɪɴ 10 ᴍɪɴᴜᴛᴇꜱ</u></b>",
+                            reply_markup=InlineKeyboardMarkup([
+                                [InlineKeyboardButton("📁 ᴅᴏᴡɴʟᴏᴀᴅ 📁", url=_short_url)],
+                                [InlineKeyboardButton("⚡ ʜᴏᴡ ᴛᴏ ᴏᴩᴇɴ", url=await get_tutorial(_grp_chat_id))],
+                            ])
+                        )
+                        await asyncio.sleep(600)
+                        await _k.edit("<b>ʏᴏᴜʀ ᴍᴇꜱꜱᴀɢᴇ ɪꜱ ᴅᴇʟᴇᴛᴇᴅ!\nᴋɪɴᴅʟʏ ꜱᴇᴀʀᴄʜ ᴀɢᴀɪɴ.</b>")
+                        return
 
         # ── NORMAL MODE ───────────────────────────────────────────────
         elif _cur_mode == "normal":
@@ -856,7 +888,37 @@ async def start(client, message):
                         await asyncio.sleep(180)
                         await l.delete()
                         return
-                # 1st link pass → increment counter
+                # 1st link: group shortlink check — FSub pass hone ke BAAD
+                _grp_chat_id = chat_id
+                if _grp_chat_id:
+                    _grp_settings = await get_settings(_grp_chat_id)
+                    if _grp_settings.get("is_shortlink") and not await db.has_premium_access(user_id):
+                        import pytz as _pytz
+                        _curr_time = datetime.now(_pytz.timezone("Asia/Kolkata")).hour
+                        if _curr_time < 12:   _gtxt = "ɢᴏᴏᴅ ᴍᴏʀɴɪɴɢ 👋"
+                        elif _curr_time < 17: _gtxt = "ɢᴏᴏᴅ ᴀғᴛᴇʀɴᴏᴏɴ 👋"
+                        elif _curr_time < 21: _gtxt = "ɢᴏᴏᴅ ᴇᴠᴇɴɪɴɢ 👋"
+                        else:                 _gtxt = "ɢᴏᴏᴅ ɴɪɢʜᴛ 👋"
+                        files_info = await get_file_details(file_id)
+                        if files_info:
+                            _finfo = files_info[0]
+                            _short_url = await get_shortlink(_grp_chat_id, f"https://telegram.me/{temp.U_NAME}?start=files_{file_id}")
+                            _k = await message.reply_text(
+                                f"<b>🫂 ʜᴇʏ {message.from_user.mention}, {_gtxt}\n\n"
+                                f"✅ ʏᴏᴜʀ ʟɪɴᴋ ɪꜱ ʀᴇᴀᴅʏ!\n\n"
+                                f"⚠️ ꜰɪʟᴇ: <code>{_finfo.file_name}</code>\n"
+                                f"📥 sɪᴢᴇ: <code>{get_size(_finfo.file_size)}</code>\n\n"
+                                "<u>⚠️ ɴᴏᴛᴇ: ᴛʜɪꜱ ᴍᴇꜱꜱᴀɢᴇ ᴅᴇʟᴇᴛᴇs ɪɴ 10 ᴍɪɴᴜᴛᴇꜱ</u></b>",
+                                reply_markup=InlineKeyboardMarkup([
+                                    [InlineKeyboardButton("📁 ᴅᴏᴡɴʟᴏᴀᴅ 📁", url=_short_url)],
+                                    [InlineKeyboardButton("⚡ ʜᴏᴡ ᴛᴏ ᴏᴩᴇɴ", url=await get_tutorial(_grp_chat_id))],
+                                ])
+                            )
+                            await db.increment_link_count(user_id)
+                            await asyncio.sleep(600)
+                            await _k.edit("<b>ʏᴏᴜʀ ᴍᴇꜱꜱᴀɢᴇ ɪꜱ ᴅᴇʟᴇᴛᴇᴅ!\nᴋɪɴᴅʟʏ ꜱᴇᴀʀᴄʜ ᴀɢᴀɪɴ.</b>")
+                            return
+                # Shortlink nahi ya no group ctx → seedha file, counter badha do
                 await db.increment_link_count(user_id)
 
             elif link_count_today == 1:
