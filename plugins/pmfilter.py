@@ -3033,94 +3033,94 @@ async def auto_filter(client, msg, spoll=False):
     # reqstr = await client.get_users(reqstr1)
 
     # ── FSub Check (Group mein search karne par bhi FSub lagna chahiye) ──────
-    # Yeh check newbot ON aur OFF dono mein kaam karta hai
     if not spoll and msg.from_user:
+        from pyrogram.types import InlineKeyboardMarkup as _IKM, InlineKeyboardButton as _IKB
+        from pyrogram.errors.exceptions.bad_request_400 import UserNotParticipant as _UNP
+        from pyrogram.enums import ChatMemberStatus as _CMS
+        from info import MULTI_FSUB as _MFSUB
+        from database.users_chats_db import db as _fsub_db
+        from info import temp as _temp
+
+        _uid = msg.from_user.id
+        _fsub_blocked = False
+        _fsub_buttons = []
+
         try:
-            from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-            from pyrogram.errors.exceptions.bad_request_400 import UserNotParticipant
-            from pyrogram.enums import ChatMemberStatus as CMS
-            from info import MULTI_FSUB
-            from database.users_chats_db import db as _fsub_db
-            from info import temp
+            _is_premium = await _fsub_db.has_premium_access(_uid)
+        except Exception:
+            _is_premium = False
 
-            _uid = msg.from_user.id
-
-            # Premium users ko bypass karo
-            if not await _fsub_db.has_premium_access(_uid):
+        if not _is_premium:
+            try:
                 _db_channels = await _fsub_db.get_fsub_channels()
-                _channels = _db_channels if _db_channels else MULTI_FSUB
+            except Exception:
+                _db_channels = []
+            _channels = _db_channels if _db_channels else _MFSUB
 
-                if _channels:
-                    _fsub_buttons = []
-                    for _ch_id in _channels:
-                        _mode = await _fsub_db.get_channel_mode(_ch_id)
-                        _joined = False
+            for _ch_id in (_channels or []):
+                try:
+                    _mode = await _fsub_db.get_channel_mode(_ch_id)
+                except Exception:
+                    _mode = "off"
 
-                        # Request mode: DB check karo
-                        if _mode == "on" and await _fsub_db.req_user_exist(_ch_id, _uid):
+                _joined = False
+                try:
+                    if _mode == "on" and await _fsub_db.req_user_exist(_ch_id, _uid):
+                        _joined = True
+                except Exception:
+                    pass
+
+                if not _joined:
+                    try:
+                        _mem = await client.get_chat_member(_ch_id, _uid)
+                        if _mem.status in {_CMS.OWNER, _CMS.ADMINISTRATOR, _CMS.MEMBER}:
                             _joined = True
+                            if _mode == "on":
+                                try:
+                                    await _fsub_db.req_user_del(_ch_id, _uid)
+                                except Exception:
+                                    pass
+                        elif _mem.status == _CMS.BANNED:
+                            _joined = False
+                    except _UNP:
+                        _joined = False
+                    except Exception:
+                        # Error pe assume joined — result block mat karo
+                        _joined = True
 
-                        if not _joined:
-                            try:
-                                _m = await client.get_chat_member(_ch_id, _uid)
-                                if _m.status == CMS.BANNED:
-                                    _joined = False
-                                elif _m.status in {CMS.OWNER, CMS.ADMINISTRATOR, CMS.MEMBER}:
-                                    if _mode == "on":
-                                        try:
-                                            await _fsub_db.req_user_del(_ch_id, _uid)
-                                        except Exception:
-                                            pass
-                                    _joined = True
-                            except UserNotParticipant:
-                                _joined = False
-                            except Exception as _e:
-                                logger.warning(f"[FSUB-AUTOFILTER] get_chat_member error uid={_uid} ch={_ch_id}: {_e}")
-                                _joined = False
+                if _joined:
+                    continue
 
-                        if _joined:
-                            continue
+                # User joined nahi — button banao
+                _fsub_blocked = True
+                try:
+                    _co = await client.get_chat(_ch_id)
+                    if _mode == "on" and not _co.username:
+                        _lnk = (await client.create_chat_invite_link(chat_id=_ch_id, creates_join_request=True)).invite_link
+                    elif _co.username:
+                        _lnk = f"https://t.me/{_co.username}"
+                    else:
+                        _lnk = (await client.create_chat_invite_link(chat_id=_ch_id)).invite_link
+                    _cname = await _fsub_db.get_fsub_channel_name(_ch_id)
+                    _fsub_buttons.append([_IKB(_cname if _cname else _co.title, url=_lnk)])
+                except Exception:
+                    _fsub_blocked = False  # channel fetch nahi hua, block mat karo
 
-                        # Button banana hai
-                        try:
-                            _chat_obj = await client.get_chat(_ch_id)
-                            if _mode == "on" and not _chat_obj.username:
-                                _inv = await client.create_chat_invite_link(chat_id=_ch_id, creates_join_request=True)
-                                _link = _inv.invite_link
-                            elif _chat_obj.username:
-                                _link = f"https://t.me/{_chat_obj.username}"
-                            else:
-                                _inv = await client.create_chat_invite_link(chat_id=_ch_id)
-                                _link = _inv.invite_link
-                            _custom_name = await _fsub_db.get_fsub_channel_name(_ch_id)
-                            _btn_title = _custom_name if _custom_name else _chat_obj.title
-                            _fsub_buttons.append([InlineKeyboardButton(f"{_btn_title}", url=_link)])
-                        except Exception as _e:
-                            logger.warning(f"[FSUB-AUTOFILTER] button create error ch={_ch_id}: {_e}")
-                            _fsub_buttons.append([InlineKeyboardButton("Join Channel", url="https://t.me/")])
-
-                    if _fsub_buttons:
-                        # Fake link bhi add karo agar set hai
-                        try:
-                            from plugins.bot_mode import runtime_get_fake_link
-                            _fake = await runtime_get_fake_link()
-                            if _fake and _fake.get("url"):
-                                _fake_btn = [[InlineKeyboardButton(_fake.get("button_text", "🔗 Click Here"), url=_fake["url"])]]
-                                _fsub_buttons = _fake_btn + _fsub_buttons
-                        except Exception:
-                            pass
-                        _fsub_buttons.append([InlineKeyboardButton(
-                            "✅ I Joined — Try Again",
-                            url=f"https://t.me/{temp.U_NAME}"
-                        )])
-                        return await msg.reply_text(
-                            "<b>⚠️ ᴩʟᴇᴀsᴇ ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs ᴛᴏ ꜱᴇᴀʀᴄʜ ꜰɪʟᴇs!</b>\n\n"
-                            "<i>After joining, send your search again.</i>",
-                            reply_markup=InlineKeyboardMarkup(_fsub_buttons),
-                            protect_content=False
-                        )
-        except Exception as _fsub_err:
-            logger.warning(f"[FSUB-AUTOFILTER] FSub check failed: {_fsub_err}")
+        if _fsub_blocked and _fsub_buttons:
+            try:
+                from plugins.bot_mode import runtime_get_fake_link as _rfl
+                _fake = await _rfl()
+                if _fake and _fake.get("url"):
+                    _fsub_buttons = [[_IKB(_fake.get("button_text", "🔗 Click Here"), url=_fake["url"])]] + _fsub_buttons
+            except Exception:
+                pass
+            _fsub_buttons.append([_IKB("✅ I Joined — Search Again", url=f"https://t.me/{_temp.U_NAME}")])
+            return await msg.reply_text(
+                "<b>⚠️ ᴩʟᴇᴀsᴇ ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs ᴛᴏ ꜱᴇᴀʀᴄʜ ꜰɪʟᴇs!</b>\n\n"
+                "<i>After joining, send your search again.</i>",
+                reply_markup=_IKM(_fsub_buttons),
+                protect_content=False
+            )
     # ── FSub Check End ────────────────────────────────────────────────────────
 
     if not spoll:
