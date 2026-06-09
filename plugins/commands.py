@@ -841,8 +841,7 @@ async def start(client, message):
                     if files_info:
                         _finfo = files_info[0]
                         _short_url = await get_shortlink(_grp_chat_id, f"https://telegram.me/{temp.U_NAME}?start=files_{file_id}")
-                        # temp.SHORT clear karo PEHLE — taaki user shortlink complete karke wapas aye
-                        # toh chat_id = None ho aur shortlink dobara na dikhe (infinite loop fix)
+                        # temp.SHORT clear karo PEHLE — infinite loop fix
                         temp.SHORT.pop(user_id, None)
                         _k = await message.reply_text(
                             f"<b>🫂 ʜᴇʏ {message.from_user.mention}, {_gtxt}\n\n"
@@ -908,8 +907,7 @@ async def start(client, message):
                         if files_info:
                             _finfo = files_info[0]
                             _short_url = await get_shortlink(_grp_chat_id, f"https://telegram.me/{temp.U_NAME}?start=files_{file_id}")
-                            # temp.SHORT clear karo PEHLE — taaki user shortlink complete karke wapas aye
-                            # toh chat_id = None ho aur shortlink dobara na dikhe (infinite loop fix)
+                            # temp.SHORT clear karo PEHLE — infinite loop fix
                             temp.SHORT.pop(user_id, None)
                             _k = await message.reply_text(
                                 f"<b>🫂 ʜᴇʏ {message.from_user.mention}, {_gtxt}\n\n"
@@ -1800,101 +1798,183 @@ async def shortlink(bot, message):
     if not userid:
         return await message.reply(f"ʏᴏᴜ'ʀᴇ ᴀɴᴏɴʏᴍᴏᴜꜱ ᴀᴅᴍɪɴ, ᴛᴜʀɴ ᴏꜰꜰ ᴀɴᴏɴʏᴍᴏᴜꜱ ᴀᴅᴍɪɴ ᴀɴᴅ ᴛʀʏ ᴛʜɪꜱ ᴀɢᴀɪɴ ᴄᴏᴍᴍᴀɴᴅ.")
     chat_type = message.chat.type
+
     if chat_type == enums.ChatType.PRIVATE:
-        return await message.reply_text(f"<b>ʜᴇʏ {message.from_user.mention}, ᴛʜɪꜱ ᴄᴏᴍᴍᴀɴᴅ ᴏɴʟʏ ᴡᴏʀᴋꜱ ɪɴ ɢʀᴏᴜᴘꜱ !")
+        # DM mode: active_connection se group lo
+        grpid = await active_connection(str(userid))
+        if grpid is None:
+            return await message.reply_text(
+                f"<b>ʜᴇʏ {message.from_user.mention},\n\n"
+                "ᴋɪꜱɪ ɢʀᴏᴜᴩ ꜱᴇ ᴄᴏɴɴᴇᴄᴛ ɴᴀʜɪ ʜᴏ.\n\n"
+                "ᴘᴇʜʟᴇ ɢʀᴏᴜᴩ ᴍᴇɪɴ /connect ᴋᴀʀᴏ, ᴘʜɪʀ ᴅᴏʙᴀʀᴀ ᴛʀʏ ᴋᴀʀᴏ.</b>"
+            )
+        try:
+            chat = await bot.get_chat(grpid)
+            title = chat.title
+        except:
+            return await message.reply_text("<b>ᴍᴀᴋᴇ ꜱᴜʀᴇ ɪ'ᴍ ᴘʀᴇꜱᴇɴᴛ ɪɴ ʏᴏᴜʀ ɢʀᴏᴜᴩ !!</b>")
+        # Admin check for connected group
+        try:
+            user_status = await bot.get_chat_member(grpid, userid)
+            if user_status.status not in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER] and str(userid) not in ADMINS:
+                return await message.reply_text("<b>ʏᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴀᴄᴄᴇꜱꜱ ᴛᴏ ᴛʜɪꜱ ᴄᴏᴍᴍᴀɴᴅ !\nᴛʜɪꜱ ᴄᴏᴍᴍᴀɴᴅ ᴏɴʟʏ ᴡᴏʀᴋꜱ ꜰᴏʀ ɢʀᴏᴜᴩ ᴀᴅᴍɪɴꜱ.</b>")
+        except:
+            if str(userid) not in ADMINS:
+                return await message.reply_text("<b>ɢʀᴏᴜᴩ ᴍᴇɪɴ ᴀᴅᴍɪɴ ᴄʜᴇᴄᴋ ꜰᴀɪʟᴇᴅ. ᴘʟᴇᴀꜱᴇ ᴛʀʏ ɪɴ ɢʀᴏᴜᴩ.</b>")
+
     elif chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         grpid = message.chat.id
         title = message.chat.title
+        user = await bot.get_chat_member(grpid, userid)
+        if user.status != enums.ChatMemberStatus.ADMINISTRATOR and user.status != enums.ChatMemberStatus.OWNER and str(userid) not in ADMINS:
+            return await message.reply_text("<b>ʏᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴀᴄᴄᴇꜱꜱ ᴛᴏ ᴛʜɪꜱ ᴄᴏᴍᴍᴀɴᴅ !\nᴛʜɪꜱ ᴄᴏᴍᴍᴀɴᴅ ᴏɴʟʏ ᴡᴏʀᴋꜱ ꜰᴏʀ ɢʀᴏᴜᴩ ᴀᴅᴍɪɴꜱ.</b>")
     else:
         return
+
     data = message.text
-    userid = message.from_user.id
-    user = await bot.get_chat_member(grpid, userid)
-    if user.status != enums.ChatMemberStatus.ADMINISTRATOR and user.status != enums.ChatMemberStatus.OWNER and str(userid) not in ADMINS:
-        return await message.reply_text("<b>ʏᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴀᴄᴄᴇꜱꜱ ᴛᴏ ᴛʜɪꜱ ᴄᴏᴍᴍᴀɴᴅ !\nᴛʜɪꜱ ᴄᴏᴍᴍᴀɴᴅ ᴏɴʟʏ ᴡᴏʀᴋꜱ ꜰᴏʀ ɢʀᴏᴜᴘ ᴀᴅᴍɪɴꜱ.</b>")
-    else:
-        pass
     try:
         command, shortlink_url, api = data.split(" ")
     except:
-        return await message.reply_text("<b>ᴄᴏᴍᴍᴀɴᴅ ɪɴᴄᴏᴍᴘʟᴇᴛᴇ !\nɢɪᴠᴇ ᴍᴇ ᴄᴏᴍᴍᴀɴᴅ ᴀʟᴏɴɢ ᴡɪᴛʜ ꜱʜᴏʀᴛɴᴇʀ ᴡᴇʙꜱɪᴛᴇ ᴀɴᴅ ᴀᴘɪ.\n\nꜰᴏʀᴍᴀᴛ : <code>/shortlink shortxlinks.com c8dacdff6e91a8e4b4f093fdb4d8ae31bc273c1a</code>")
-    reply = await message.reply_text("<b>ᴘʟᴇᴀꜱᴇ ᴡᴀɪᴛ...</b>")
+        return await message.reply_text(
+            "<b>ᴄᴏᴍᴍᴀɴᴅ ɪɴᴄᴏᴍᴩʟᴇᴛᴇ !\nɢɪᴠᴇ ᴍᴇ ᴄᴏᴍᴍᴀɴᴅ ᴀʟᴏɴɢ ᴡɪᴛʜ ꜱʜᴏʀᴛɴᴇʀ ᴡᴇʙꜱɪᴛᴇ ᴀɴᴅ ᴀᴩɪ.\n\n"
+            "ꜰᴏʀᴍᴀᴛ : <code>/shortlink shortxlinks.com c8dacdff6e91a8e4b4f093fdb4d8ae31bc273c1a</code>"
+        )
+    reply = await message.reply_text("<b>ᴩʟᴇᴀꜱᴇ ᴡᴀɪᴛ...</b>")
     shortlink_url = re.sub(r"https?://?", "", shortlink_url)
     shortlink_url = re.sub(r"[:/]", "", shortlink_url)
     await save_group_settings(grpid, 'shortlink', shortlink_url)
     await save_group_settings(grpid, 'shortlink_api', api)
     await save_group_settings(grpid, 'is_shortlink', True)
-    await reply.edit_text(f"<b>✅ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ ᴀᴅᴅᴇᴅ ꜱʜᴏʀᴛʟɪɴᴋ ꜰᴏʀ <code>{title}</code>.\n\nꜱʜᴏʀᴛʟɪɴᴋ ᴡᴇʙꜱɪᴛᴇ : <code>{shortlink_url}</code>\nꜱʜᴏʀᴛʟɪɴᴋ ᴀᴘɪ : <code>{api}</code></b>")
+    await reply.edit_text(
+        f"<b>✅ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ ᴀᴅᴅᴇᴅ ꜱʜᴏʀᴛʟɪɴᴋ ꜰᴏʀ <code>{title}</code>.\n\n"
+        f"ꜱʜᴏʀᴛʟɪɴᴋ ᴡᴇʙꜱɪᴛᴇ : <code>{shortlink_url}</code>\n"
+        f"ꜱʜᴏʀᴛʟɪɴᴋ ᴀᴩɪ : <code>{api}</code></b>"
+    )
 
 @Client.on_message(filters.command("setshortlinkoff") & filters.user(ADMINS))
 async def offshortlink(bot, message):
+    userid = message.from_user.id if message.from_user else None
+    if not userid:
+        return await message.reply("ᴀɴᴏɴʏᴍᴏᴜꜱ ᴀᴅᴍɪɴ ᴅᴇᴛᴇᴄᴛᴇᴅ.")
     chat_type = message.chat.type
     if chat_type == enums.ChatType.PRIVATE:
-        return await message.reply_text("ᴛʜɪꜱ ᴄᴏᴍᴍᴀɴᴅ ᴡᴏʀᴋꜱ ᴏɴʟʏ ɪɴ ɢʀᴏᴜᴘꜱ !")
+        grpid = await active_connection(str(userid))
+        if grpid is None:
+            return await message.reply_text("<b>ᴋɪꜱɪ ɢʀᴏᴜᴩ ꜱᴇ ᴄᴏɴɴᴇᴄᴛ ɴᴀʜɪ ʜᴏ. ᴩᴇʜʟᴇ /connect ᴋᴀʀᴏ.</b>")
+        try:
+            chat = await bot.get_chat(grpid)
+            title = chat.title
+        except:
+            return await message.reply_text("<b>ɢʀᴏᴜᴩ ꜰᴇᴛᴄʜ ꜰᴀɪʟᴇᴅ.</b>")
     elif chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         grpid = message.chat.id
         title = message.chat.title
     else:
         return
     await save_group_settings(grpid, 'is_shortlink', False)
-    ENABLE_SHORTLINK = False
-    return await message.reply_text("ꜱʜᴏʀᴛʟɪɴᴋ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ ᴅɪꜱᴀʙʟᴇᴅ.")
-    
+    return await message.reply_text(f"<b>✅ ꜱʜᴏʀᴛʟɪɴᴋ ᴅɪꜱᴀʙʟᴇᴅ ꜰᴏʀ <code>{title}</code>.</b>")
+
 @Client.on_message(filters.command("setshortlinkon") & filters.user(ADMINS))
 async def onshortlink(bot, message):
+    userid = message.from_user.id if message.from_user else None
+    if not userid:
+        return await message.reply("ᴀɴᴏɴʏᴍᴏᴜꜱ ᴀᴅᴍɪɴ ᴅᴇᴛᴇᴄᴛᴇᴅ.")
     chat_type = message.chat.type
     if chat_type == enums.ChatType.PRIVATE:
-        return await message.reply_text("ᴛʜɪꜱ ᴄᴏᴍᴍᴀɴᴅ ᴡᴏʀᴋꜱ ᴏɴʟʏ ɪɴ ɢʀᴏᴜᴘꜱ !")
+        grpid = await active_connection(str(userid))
+        if grpid is None:
+            return await message.reply_text("<b>ᴋɪꜱɪ ɢʀᴏᴜᴩ ꜱᴇ ᴄᴏɴɴᴇᴄᴛ ɴᴀʜɪ ʜᴏ. ᴩᴇʜʟᴇ /connect ᴋᴀʀᴏ.</b>")
+        try:
+            chat = await bot.get_chat(grpid)
+            title = chat.title
+        except:
+            return await message.reply_text("<b>ɢʀᴏᴜᴩ ꜰᴇᴛᴄʜ ꜰᴀɪʟᴇᴅ.</b>")
     elif chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         grpid = message.chat.id
         title = message.chat.title
     else:
         return
     await save_group_settings(grpid, 'is_shortlink', True)
-    ENABLE_SHORTLINK = True
-    return await message.reply_text("ꜱʜᴏʀᴛʟɪɴᴋ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ ᴇɴᴀʙʟᴇᴅ.")
+    return await message.reply_text(f"<b>✅ ꜱʜᴏʀᴛʟɪɴᴋ ᴇɴᴀʙʟᴇᴅ ꜰᴏʀ <code>{title}</code>.</b>")
 
 
 @Client.on_message(filters.command("shortlink_info"))
 async def ginfo(bot, message):
+    userid = message.from_user.id if message.from_user else None
+    if not userid:
+        return await message.reply("ᴀɴᴏɴʏᴍᴏᴜꜱ ᴀᴅᴍɪɴ ᴅᴇᴛᴇᴄᴛᴇᴅ.")
     chat_type = message.chat.type
+
     if chat_type == enums.ChatType.PRIVATE:
-        return await message.reply_text(f"<b>{message.from_user.mention},\n\nᴜꜱᴇ ᴛʜɪꜱ ᴄᴏᴍᴍᴀɴᴅ ɪɴ ʏᴏᴜʀ ɢʀᴏᴜᴘ.</b>")
+        # DM mode: active_connection se group lo
+        grpid = await active_connection(str(userid))
+        if grpid is None:
+            return await message.reply_text(
+                f"<b>ʜᴇʏ {message.from_user.mention},\n\n"
+                "ᴋɪꜱɪ ɢʀᴏᴜᴩ ꜱᴇ ᴄᴏɴɴᴇᴄᴛ ɴᴀʜɪ ʜᴏ.\n\n"
+                "ᴩᴇʜʟᴇ ɢʀᴏᴜᴩ ᴍᴇɪɴ /connect ᴋᴀʀᴏ, ᴩʜɪʀ ᴅᴏʙᴀʀᴀ ᴛʀʏ ᴋᴀʀᴏ.</b>"
+            )
+        try:
+            chat = await bot.get_chat(grpid)
+            title = chat.title
+        except:
+            return await message.reply_text("<b>ᴍᴀᴋᴇ ꜱᴜʀᴇ ɪ'ᴍ ᴩʀᴇꜱᴇɴᴛ ɪɴ ʏᴏᴜʀ ɢʀᴏᴜᴩ !!</b>")
+        # Admin check for connected group
+        try:
+            user_status = await bot.get_chat_member(grpid, userid)
+            if user_status.status not in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER] and str(userid) not in ADMINS:
+                return await message.reply_text("<b>ᴏɴʟʏ ɢʀᴏᴜᴩ ᴏᴡɴᴇʀ ᴏʀ ᴀᴅᴍɪɴ ᴄᴀɴ ᴜꜱᴇ ᴛʜɪꜱ ᴄᴏᴍᴍᴀɴᴅ !</b>")
+        except:
+            if str(userid) not in ADMINS:
+                return await message.reply_text("<b>ᴀᴅᴍɪɴ ᴄʜᴇᴄᴋ ꜰᴀɪʟᴇᴅ.</b>")
+        chat_id = grpid
+
     elif chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         grpid = message.chat.id
         title = message.chat.title
+        chat_id = message.chat.id
+        user = await bot.get_chat_member(grpid, userid)
+        if user.status != enums.ChatMemberStatus.ADMINISTRATOR and user.status != enums.ChatMemberStatus.OWNER and str(userid) not in ADMINS:
+            return await message.reply_text("<b>ᴏɴʟʏ ɢʀᴏᴜᴩ ᴏᴡɴᴇʀ ᴏʀ ᴀᴅᴍɪɴ ᴄᴀɴ ᴜꜱᴇ ᴛʜɪꜱ ᴄᴏᴍᴍᴀɴᴅ !</b>")
     else:
         return
-    chat_id=message.chat.id
-    userid = message.from_user.id
-    user = await bot.get_chat_member(grpid, userid)
-#     if 'shortlink' in settings.keys():
-#         su = settings['shortlink']
-#         sa = settings['shortlink_api']
-#     else:
-#         return await message.reply_text("<b>Shortener Url Not Connected\n\nYou can Connect Using /shortlink command</b>")
-#     if 'tutorial' in settings.keys():
-#         st = settings['tutorial']
-#     else:
-#         return await message.reply_text("<b>Tutorial Link Not Connected\n\nYou can Connect Using /set_tutorial command</b>")
-    if user.status != enums.ChatMemberStatus.ADMINISTRATOR and user.status != enums.ChatMemberStatus.OWNER and str(userid) not in ADMINS:
-        return await message.reply_text("<b>ᴏɴʟʏ ɢʀᴏᴜᴘ ᴏᴡɴᴇʀ ᴏʀ ᴀᴅᴍɪɴ ᴄᴀɴ ᴜꜱᴇ ᴛʜɪꜱ ᴄᴏᴍᴍᴀɴᴅ !</b>")
+
+    settings = await get_settings(chat_id)
+    is_on = settings.get('is_shortlink', False)
+    status_emoji = "✅" if is_on else "❌"
+    status_text = "ᴇɴᴀʙʟᴇᴅ" if is_on else "ᴅɪꜱᴀʙʟᴇᴅ"
+
+    if 'shortlink' in settings.keys() and 'tutorial' in settings.keys():
+        su = settings['shortlink']
+        sa = settings['shortlink_api']
+        st = settings['tutorial']
+        return await message.reply_text(
+            f"<b><u>ᴄᴜʀʀᴇɴᴛ ꜱᴛᴀᴛᴜꜱ 📊</u>\n\n"
+            f"🏠 ɢʀᴏᴜᴩ : <code>{title}</code>\n\n"
+            f"ꜱᴛᴀᴛᴜꜱ : {status_emoji} {status_text}\n\n"
+            f"ᴡᴇʙꜱɪᴛᴇ : <code>{su}</code>\n\n"
+            f"ᴀᴩɪ : <code>{sa}</code>\n\n"
+            f"ᴛᴜᴛᴏʀɪᴀʟ : {st}</b>",
+            disable_web_page_preview=True
+        )
+    elif 'shortlink' in settings.keys():
+        su = settings['shortlink']
+        sa = settings['shortlink_api']
+        return await message.reply_text(
+            f"<b><u>ᴄᴜʀʀᴇɴᴛ ꜱᴛᴀᴛᴜꜱ 📊</u>\n\n"
+            f"🏠 ɢʀᴏᴜᴩ : <code>{title}</code>\n\n"
+            f"ꜱᴛᴀᴛᴜꜱ : {status_emoji} {status_text}\n\n"
+            f"ᴡᴇʙꜱɪᴛᴇ : <code>{su}</code>\n\n"
+            f"ᴀᴩɪ : <code>{sa}</code>\n\n"
+            f"ᴜꜱᴇ /set_tutorial ᴄᴏᴍᴍᴀɴᴅ ᴛᴏ ꜱᴇᴛ ᴛᴜᴛᴏʀɪᴀʟ.</b>"
+        )
     else:
-        settings = await get_settings(chat_id) #fetching settings for group
-        if 'shortlink' in settings.keys() and 'tutorial' in settings.keys():
-            su = settings['shortlink']
-            sa = settings['shortlink_api']
-            st = settings['tutorial']
-            return await message.reply_text(f"<b><u>ᴄᴜʀʀᴇɴᴛ  ꜱᴛᴀᴛᴜꜱ<u> 📊\n\nᴡᴇʙꜱɪᴛᴇ : <code>{su}</code>\n\nᴀᴘɪ : <code>{sa}</code>\n\nᴛᴜᴛᴏʀɪᴀʟ : {st}</b>", disable_web_page_preview=True)
-        elif 'shortlink' in settings.keys() and 'tutorial' not in settings.keys():
-            su = settings['shortlink']
-            sa = settings['shortlink_api']
-            return await message.reply_text(f"<b><u>ᴄᴜʀʀᴇɴᴛ  ꜱᴛᴀᴛᴜꜱ<u> 📊\n\nᴡᴇʙꜱɪᴛᴇ : <code>{su}</code>\n\nᴀᴘɪ : <code>{sa}</code>\n\nᴜꜱᴇ /set_tutorial ᴄᴏᴍᴍᴀɴᴅ ᴛᴏ ꜱᴇᴛ ʏᴏᴜʀ ᴛᴜᴛᴏʀɪᴀʟ.")
-        elif 'shortlink' not in settings.keys() and 'tutorial' in settings.keys():
-            st = settings['tutorial']
-            return await message.reply_text(f"<b>ᴛᴜᴛᴏʀɪᴀʟ : <code>{st}</code>\n\nᴜꜱᴇ  /shortlink  ᴄᴏᴍᴍᴀɴᴅ  ᴛᴏ  ᴄᴏɴɴᴇᴄᴛ  ʏᴏᴜʀ  ꜱʜᴏʀᴛɴᴇʀ</b>")
-        else:
-            return await message.reply_text("ꜱʜᴏʀᴛɴᴇʀ ᴀɴᴅ ᴛᴜᴛᴏʀɪᴀʟ ᴀʀᴇ ɴᴏᴛ ᴄᴏɴɴᴇᴄᴛᴇᴅ.\n\nᴄʜᴇᴄᴋ /set_tutorial  ᴀɴᴅ  /shortlink  ᴄᴏᴍᴍᴀɴᴅ.")
+        return await message.reply_text(
+            f"<b>🏠 ɢʀᴏᴜᴩ : <code>{title}</code>\n\n"
+            f"ꜱᴛᴀᴛᴜꜱ : ❌ ꜱʜᴏʀᴛɴᴇʀ ɴᴏᴛ ꜱᴇᴛ\n\n"
+            "ᴜꜱᴇ ᴄᴏᴍᴍᴀɴᴅ:\n"
+            "<code>/shortlink website.com YOUR_API_KEY</code></b>"
+        )
 
 @Client.on_message(filters.command("set_tutorial"))
 async def settutorial(bot, message):
