@@ -1571,6 +1571,12 @@ async def cb_handler(client: Client, query: CallbackQuery):
                                          callback_data=f'setgs#is_shortlink#{settings["is_shortlink"]}#{str(grp_id)}')
                 ],
                 [
+                    InlineKeyboardButton('ɴᴇᴡ ꜰᴏʀᴍᴀᴛ',
+                                         callback_data=f'setgs#newbot#{settings.get("newbot", True)}#{str(grp_id)}'),
+                    InlineKeyboardButton('ᴏɴ' if settings.get("newbot", True) else 'ᴏꜰꜰ',
+                                         callback_data=f'setgs#newbot#{settings.get("newbot", True)}#{str(grp_id)}')
+                ],
+                [
                     InlineKeyboardButton('⇋ ᴄʟᴏꜱᴇ ꜱᴇᴛᴛɪɴɢꜱ ᴍᴇɴᴜ ⇋', 
                                          callback_data='close_data'
                                          )
@@ -1661,6 +1667,12 @@ async def cb_handler(client: Client, query: CallbackQuery):
                                          callback_data=f'setgs#is_shortlink#{settings["is_shortlink"]}#{str(grp_id)}'),
                     InlineKeyboardButton('ᴇɴᴀʙʟᴇ' if settings["is_shortlink"] else 'ᴅɪꜱᴀʙʟᴇ',
                                          callback_data=f'setgs#is_shortlink#{settings["is_shortlink"]}#{str(grp_id)}')
+                ],
+                [
+                    InlineKeyboardButton('ɴᴇᴡ ꜰᴏʀᴍᴀᴛ',
+                                         callback_data=f'setgs#newbot#{settings.get("newbot", True)}#{str(grp_id)}'),
+                    InlineKeyboardButton('ᴏɴ' if settings.get("newbot", True) else 'ᴏꜰꜰ',
+                                         callback_data=f'setgs#newbot#{settings.get("newbot", True)}#{str(grp_id)}')
                 ],
                 [
                     InlineKeyboardButton('⇋ ᴄʟᴏꜱᴇ ꜱᴇᴛᴛɪɴɢꜱ ᴍᴇɴᴜ ⇋', 
@@ -2911,9 +2923,23 @@ async def cb_handler(client: Client, query: CallbackQuery):
         ident, set_type, status, grp_id = query.data.split("#")
         grpid = await active_connection(str(query.from_user.id))
 
-        if str(grp_id) != str(grpid):
-            await query.message.edit("Yᴏᴜʀ Aᴄᴛɪᴠᴇ Cᴏɴɴᴇᴄᴛɪᴏɴ Hᴀs Bᴇᴇɴ Cʜᴀɴɢᴇᴅ. Gᴏ Tᴏ /connections ᴀɴᴅ ᴄʜᴀɴɢᴇ ʏᴏᴜʀ ᴀᴄᴛɪᴠᴇ ᴄᴏɴɴᴇᴄᴛɪᴏɴ.")
-            return await query.answer(MSG_ALRT)
+        # Group mein settings open hai toh grp_id seedha use karo
+        # DM mein active connection se match karo
+        if grpid is None or str(grp_id) != str(grpid):
+            # Check karo — kya user is group ka admin/owner hai?
+            try:
+                member = await client.get_chat_member(int(grp_id), query.from_user.id)
+                if member.status in ("administrator", "creator") or str(query.from_user.id) in ADMINS:
+                    grpid = int(grp_id)  # Allow karo
+                else:
+                    await query.message.edit("Yᴏᴜʀ Aᴄᴛɪᴠᴇ Cᴏɴɴᴇᴄᴛɪᴏɴ Hᴀs Bᴇᴇɴ Cʜᴀɴɢᴇᴅ.")
+                    return await query.answer(MSG_ALRT)
+            except Exception:
+                if str(query.from_user.id) in ADMINS:
+                    grpid = int(grp_id)
+                else:
+                    await query.message.edit("Yᴏᴜʀ Aᴄᴛɪᴠᴇ Cᴏɴɴᴇᴄᴛɪᴏɴ Hᴀs Bᴇᴇɴ Cʜᴀɴɢᴇᴅ.")
+                    return await query.answer(MSG_ALRT)
 
         if set_type == 'is_shortlink' and query.from_user.id not in ADMINS:
             return await query.answer(text=f"Hey {query.from_user.first_name}, You can't change shortlink settings for your group !\n\nIt's an admin only setting !", show_alert=True)
@@ -2985,6 +3011,12 @@ async def cb_handler(client: Client, query: CallbackQuery):
                                          callback_data=f'setgs#is_shortlink#{settings["is_shortlink"]}#{str(grp_id)}')
                 ],
                 [
+                    InlineKeyboardButton('ɴᴇᴡ ꜰᴏʀᴍᴀᴛ',
+                                         callback_data=f'setgs#newbot#{settings.get("newbot", True)}#{str(grp_id)}'),
+                    InlineKeyboardButton('ᴏɴ' if settings.get("newbot", True) else 'ᴏꜰꜰ',
+                                         callback_data=f'setgs#newbot#{settings.get("newbot", True)}#{str(grp_id)}')
+                ],
+                [
                     InlineKeyboardButton('⇋ ᴄʟᴏꜱᴇ ꜱᴇᴛᴛɪɴɢꜱ ᴍᴇɴᴜ ⇋', 
                                          callback_data='close_data'
                                          )
@@ -3014,45 +3046,59 @@ async def auto_filter(client, msg, spoll=False):
                 try: await msg.delete()
                 except: pass
             asyncio.create_task(_auto_del_search(m))
+            # ── Noise word removal — language/qualifier words strip karo ─────
+            _NOISE_WORDS = {
+                # Request-style
+                "in", "upload", "file", "print", "send", "get", "give", "pls", "plz",
+                "please", "bro", "bruh", "broh", "helo", "hello", "hi", "hey",
+                # Qualifier words jo title ka part nahi hain
+                "series", "full", "horror", "thriller", "mystery",
+                "movie", "film", "web", "webseries",
+                "new", "old", "latest", "best", "top",
+                "part", "season", "episode", "ep", "vol", "volume",
+                # Languages — user likhta hai "pushpa hindi" → "hindi" hata do
+                "hindi", "english", "tamil", "telugu", "malayalam", "kannada",
+                "bengali", "punjabi", "gujarati", "marathi", "urdu", "bhojpuri",
+                "multi", "dual", "dubbed", "subbed", "subtitle", "subtitles",
+                "japanese", "korean", "chinese", "french", "spanish",
+                # Common filler
+                "any", "anyone", "that", "find", "with", "and", "or", "the", "a",
+            }
             find = search.split(" ")
-            search = ""
-            removes = ["in","upload", "series", "full", "horror", "thriller", "mystery", "print", "file"]
-            for x in find:
-                if x in removes:
-                    continue
-                else:
-                    search = search + x + " "
-            #search = re.sub(r"\b(pl(i|e)*?(s|z+|ease|se|ese|(e+)s(e)?)|((send|snd|giv(e)?|gib)(\sme)?)|movie(s)?|new|latest|bro|bruh|broh|helo|that|find|dubbed|link|venum|iruka|pannunga|pannungga|anuppunga|anupunga|anuppungga|anupungga|film|undo|kitti|kitty|tharu|kittumo|kittum|movie|any(one)|with\ssubtitle(s)?)", "", search, flags=re.IGNORECASE)
-            #search = re.sub(r"\s+", " ", search).strip()
-            search = search.replace("-", " ")
-            search = search.replace(":","")
-            files, offset, total_results = await get_search_results(message.chat.id ,search, offset=0, filter=True)
+            search = " ".join(x for x in find if x not in _NOISE_WORDS).strip()
+            search = search.replace("-", " ").replace(":", "").strip()
+            if not search:
+                search = message.text.lower().strip()  # fallback — original query
+            files, offset, total_results = await get_search_results(message.chat.id, search, offset=0, filter=True)
             settings = await get_settings(message.chat.id)
             if not files:
                 if settings["spell_check"]:
                     # Silently check if a fuzzy-similar name exists in DB
-                    is_misspelled = await ai_spell_check(chat_id=message.chat.id, wrong_name=search)
-                    if is_misspelled:
-                        # Similar name found in DB — suggest Google search so user can fix spelling
-                        google_query = search.replace(" ", "+")
-                        button = [[
-                            InlineKeyboardButton(
-                                "🔍 Gᴏᴏɢʟᴇ ꜱᴇᴀʀᴄʜ",
-                                url=f"https://www.google.com/search?q={google_query}"
-                            )
-                        ]]
-                        k = await m.edit(
-                            f"<b>❌ Nᴏ ʀᴇꜱᴜʟᴛꜱ ꜰᴏᴜɴᴅ ꜰᴏʀ</b> <code>{search}</code>\n\n"
-                            f"<i>ꜱᴘᴇʟʟɪɴɢ ᴍɪɢʜᴛ ʙᴇ ᴡʀᴏɴɢ. Tʀʏ Gᴏᴏɢʟᴇ ᴛᴏ ꜰɪɴᴅ ᴛʜᴇ ᴄᴏʀʀᴇᴄᴛ ꜱᴘᴇʟʟɪɴɢ ᴀɴᴅ ꜱᴇᴀʀᴄʜ ᴀɢᴀɪɴ.</i>",
-                            reply_markup=InlineKeyboardMarkup(button)
+                    corrected_name = await ai_spell_check(chat_id=message.chat.id, wrong_name=search)
+                    if corrected_name:
+                        # DB mein sahi naam se files mil gayi — seedha result dikhao
+                        await m.edit(f"<b>🔎 sᴇᴀʀᴄʜɪɴɢ</b> `{corrected_name}` <i>(ᴀᴜᴛᴏ-ᴄᴏʀʀᴇᴄᴛᴇᴅ)</i>")
+                        corr_files, corr_offset, corr_total = await get_search_results(
+                            message.chat.id, corrected_name, offset=0, filter=True
                         )
-                        await asyncio.sleep(60)
-                        await k.delete()
-                        try:
-                            await message.delete()
-                        except:
-                            pass
-                        return
+                        if not corr_files:
+                            # Global fallback
+                            corr_files, corr_offset, corr_total = await get_search_results(
+                                None, corrected_name, offset=0, filter=True
+                            )
+                        if corr_files:
+                            # Files mil gayi — original search replace karo
+                            search = corrected_name
+                            files = corr_files
+                            offset = corr_offset
+                            total_results = corr_total
+                            # Neeche wala result display flow chalega
+                        else:
+                            try:
+                                await m.delete()
+                            except:
+                                pass
+                            return
                     else:
                         # No similar name in DB at all — stay completely silent
                         try:
@@ -3421,22 +3467,89 @@ async def auto_filter(client, msg, spoll=False):
 
 # ── DM Detail Handler — group card button click karne par DM mein full result ─
 async def ai_spell_check(chat_id, wrong_name):
-    async def search_movie(wrong_name):
-        search_results = imdb.search_movie(wrong_name)
-        movie_list = [movie['title'] for movie in search_results]
-        return movie_list
-    movie_list = await search_movie(wrong_name)
-    if not movie_list:
-        return
-    for _ in range(5):
-        closest_match = process.extractOne(wrong_name, movie_list)
-        if not closest_match or closest_match[1] <= 80:
-            return 
-        movie = closest_match[0]
-        files, offset, total_results = await get_search_results(chat_id=chat_id, query=movie)
-        if files:
-            return movie
-        movie_list.remove(movie)
+    """
+    DB ke file names se fuzzy match karo.
+    Returns corrected name (str) agar match mila, else None.
+    Threshold: 70% similarity (Puspa → Pushpa jaise cases catch karta hai).
+    wrong_name already noise-stripped hona chahiye (auto_filter mein hota hai),
+    lekin extra safety ke liye yahan bhi strip karte hain.
+    """
+    # Same noise set jo auto_filter mein use hoti hai
+    _NOISE = {
+        "in", "upload", "file", "print", "send", "get", "give", "pls", "plz",
+        "please", "bro", "bruh", "broh", "helo", "hello", "hi", "hey",
+        "series", "full", "horror", "thriller", "mystery", "movie", "film",
+        "web", "webseries", "new", "old", "latest", "best", "top",
+        "part", "season", "episode", "ep", "vol", "volume",
+        "hindi", "english", "tamil", "telugu", "malayalam", "kannada",
+        "bengali", "punjabi", "gujarati", "marathi", "urdu", "bhojpuri",
+        "multi", "dual", "dubbed", "subbed", "subtitle", "subtitles",
+        "japanese", "korean", "chinese", "french", "spanish",
+        "any", "anyone", "that", "find", "with", "and", "or", "the", "a",
+    }
+    # wrong_name se noise hata do
+    clean_query = " ".join(w for w in wrong_name.lower().split() if w not in _NOISE).strip()
+    if not clean_query:
+        clean_query = wrong_name.strip().lower()
+    wrong_name = clean_query  # cleaned version use karo
+    try:
+        # DB se kuch sample file names lo — sirf names chahiye, files nahi
+        # Broad single-word search taaki candidate pool mile
+        first_word = wrong_name.strip().split()[0] if wrong_name.strip() else wrong_name
+        # Broad search — regex sirf first word se, taaki DB se kuch results aayein
+        import re as _re
+        raw_pattern = _re.escape(first_word[:3])  # pehle 3 chars se broad match
+        candidate_files, _, _ = await get_search_results(
+            chat_id=chat_id, query=raw_pattern, max_results=50, offset=0, filter=False
+        )
+        if not candidate_files:
+            # Global search fallback
+            candidate_files, _, _ = await get_search_results(
+                chat_id=None, query=raw_pattern, max_results=50, offset=0, filter=False
+            )
+        if not candidate_files:
+            return None
+
+        # File names se unique movie/show names extract karo (pehle 3-4 words)
+        name_set = set()
+        for f in candidate_files:
+            fname = f.file_name.lower()
+            # Brackets/tags hata do
+            fname = _re.sub(r"[\[\(].*?[\]\)]", "", fname).strip()
+            # Pehle 4 words lo as title candidate
+            words = fname.split()[:4]
+            name_set.add(" ".join(words))
+
+        if not name_set:
+            return None
+
+        # Fuzzy match
+        match = process.extractOne(wrong_name.lower(), list(name_set))
+        if not match:
+            return None
+
+        corrected, score = match[0], match[1]
+        if score < 70:
+            return None
+
+        # Verify: is corrected name se actual files milti hain?
+        check_files, _, total = await get_search_results(
+            chat_id=chat_id, query=corrected, max_results=10, offset=0, filter=True
+        )
+        if check_files:
+            return corrected
+
+        # Global fallback
+        check_files, _, total = await get_search_results(
+            chat_id=None, query=corrected, max_results=10, offset=0, filter=True
+        )
+        if check_files:
+            return corrected
+
+        return None
+    except Exception as e:
+        logger.warning(f"[spell_check] Error: {e}")
+        return None
 
 async def advantage_spell_chok(client, message):
     mv_id = message.id
