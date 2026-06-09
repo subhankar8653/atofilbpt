@@ -499,6 +499,8 @@ async def start(client, message):
             files_ = await get_file_details(file_id)
             files = files_[0]
             g = await get_shortlink(chat_id, f"https://telegram.me/{temp.U_NAME}?start=file_{file_id}")
+            # temp.SHORT clear karo — taaki user shortlink complete karke wapas aye toh file mile seedha
+            temp.SHORT.pop(user_id, None)
             k = await client.send_message(chat_id=user_id,text=f"🫂 ʜᴇʏ {message.from_user.mention}, {gtxt}\n\n✅ ʏᴏᴜʀ ʟɪɴᴋ ɪꜱ ʀᴇᴀᴅʏ, ᴋɪɴᴅʟʏ ᴄʟɪᴄᴋ ᴏɴ ᴅᴏᴡɴʟᴏᴀᴅ ʙᴜᴛᴛᴏɴ.\n\n⚠️ ꜰɪʟᴇ ɴᴀᴍᴇ : <code>{files.file_name}</code> \n\n📥 ꜰɪʟᴇ ꜱɪᴢᴇ : <code>{get_size(files.file_size)}</code>\n\n<u>⚠️ ɴᴏᴛᴇ :- ᴛʜɪꜱ ᴍᴇꜱꜱᴀɢᴇ ɪꜱ ᴅᴇʟᴇᴛᴇᴅ ɪɴ 10 ᴍɪɴᴜᴛᴇꜱ ᴛᴏ ᴀᴠᴏɪᴅ ᴄᴏᴘʏʀɪɢʜᴛ..ꜱᴀᴠᴇ ᴛʜɪꜱ ʟɪɴᴋ ᴛᴏ ꜱᴏᴍᴇᴡʜᴇʀᴇ ᴇʟꜱᴇ</u>", reply_markup=InlineKeyboardMarkup(
                     [
                         [
@@ -839,6 +841,9 @@ async def start(client, message):
                     if files_info:
                         _finfo = files_info[0]
                         _short_url = await get_shortlink(_grp_chat_id, f"https://telegram.me/{temp.U_NAME}?start=files_{file_id}")
+                        # temp.SHORT clear karo PEHLE — taaki user shortlink complete karke wapas aye
+                        # toh chat_id = None ho aur shortlink dobara na dikhe (infinite loop fix)
+                        temp.SHORT.pop(user_id, None)
                         _k = await message.reply_text(
                             f"<b>🫂 ʜᴇʏ {message.from_user.mention}, {_gtxt}\n\n"
                             f"✅ ʏᴏᴜʀ ʟɪɴᴋ ɪꜱ ʀᴇᴀᴅʏ!\n\n"
@@ -903,6 +908,9 @@ async def start(client, message):
                         if files_info:
                             _finfo = files_info[0]
                             _short_url = await get_shortlink(_grp_chat_id, f"https://telegram.me/{temp.U_NAME}?start=files_{file_id}")
+                            # temp.SHORT clear karo PEHLE — taaki user shortlink complete karke wapas aye
+                            # toh chat_id = None ho aur shortlink dobara na dikhe (infinite loop fix)
+                            temp.SHORT.pop(user_id, None)
                             _k = await message.reply_text(
                                 f"<b>🫂 ʜᴇʏ {message.from_user.mention}, {_gtxt}\n\n"
                                 f"✅ ʏᴏᴜʀ ʟɪɴᴋ ɪꜱ ʀᴇᴀᴅʏ!\n\n"
