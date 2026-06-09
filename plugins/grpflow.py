@@ -202,8 +202,115 @@ async def _load_session(uid: int, msg_id=None) -> bool:
 async def start_grpflow(client, message: Message, search: str, chat_id: int):
     """grpkey_ payload decode ke baad yahan aao."""
     from utils import get_settings
+    from info import MULTI_FSUB
+    from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    from pyrogram.errors.exceptions.bad_request_400 import UserNotParticipant
+    from pyrogram.enums import ChatMemberStatus as CMS
+
     settings = await get_settings(chat_id)
     pre = "filep" if settings.get("file_secure") else "file"
+
+    uid = message.from_user.id
+
+    # ── FSub check (same logic as commands.py files_ branch) ─────────────────
+    async def _fsub_check(uid):
+        """Returns (passed: bool, buttons: list)"""
+        # Premium bypass
+        if await db.has_premium_access(uid):
+            return True, []
+
+        db_channels = await db.get_fsub_channels()
+        channels = db_channels if db_channels else MULTI_FSUB
+        if not channels:
+            return True, []
+
+        buttons = []
+        for ch_id in channels:
+            mode = await db.get_channel_mode(ch_id)
+            joined = False
+
+            # Request mode: DB pehle check karo
+            if mode == "on" and await db.req_user_exist(ch_id, uid):
+                joined = True
+
+            if not joined:
+                try:
+                    m = await client.get_chat_member(ch_id, uid)
+                    if m.status == CMS.BANNED:
+                        joined = False
+                    elif m.status in {CMS.OWNER, CMS.ADMINISTRATOR, CMS.MEMBER}:
+                        if mode == "on":
+                            try:
+                                await db.req_user_del(ch_id, uid)
+                            except Exception:
+                                pass
+                        joined = True
+                except UserNotParticipant:
+                    joined = False
+                except Exception as e:
+                    logger.warning(f"[FSUB-GRPFLOW] get_chat_member error uid={uid} ch={ch_id}: {e}")
+                    joined = False
+
+            if joined:
+                continue
+
+            # Button banana hai
+            try:
+                chat_obj = await client.get_chat(ch_id)
+                if mode == "on" and not chat_obj.username:
+                    inv = await client.create_chat_invite_link(chat_id=ch_id, creates_join_request=True)
+                    link = inv.invite_link
+                elif chat_obj.username:
+                    link = f"https://t.me/{chat_obj.username}"
+                else:
+                    inv = await client.create_chat_invite_link(chat_id=ch_id)
+                    link = inv.invite_link
+                custom_name = await db.get_fsub_channel_name(ch_id)
+                btn_title = custom_name if custom_name else chat_obj.title
+                buttons.append([InlineKeyboardButton(f"{btn_title}", url=link)])
+            except Exception as e:
+                logger.warning(f"[FSUB-GRPFLOW] button create error ch={ch_id}: {e}")
+                buttons.append([InlineKeyboardButton("Join Channel", url="https://t.me/")])
+
+        if buttons:
+            # "I Joined" button — grpkey_ se wapas aao taaki seedha flow continue ho
+            from plugins.pmfilter import _GRP_CARD_STORE
+            grpkey_found = None
+            for key, val in _GRP_CARD_STORE.items():
+                if val.get("search") == search and val.get("chat_id") == chat_id:
+                    grpkey_found = key
+                    break
+            if grpkey_found:
+                buttons.append([InlineKeyboardButton(
+                    "✅ I Joined — Get Files",
+                    url=f"https://telegram.me/{temp.U_NAME}?start=grpkey_{grpkey_found}"
+                )])
+            else:
+                buttons.append([InlineKeyboardButton(
+                    "✅ I Joined — Go Back to Group & Click Again",
+                    url=f"https://t.me/{temp.U_NAME}"
+                )])
+            return False, buttons
+        return True, []
+
+    fsub_ok, fsub_btns = await _fsub_check(uid)
+    if not fsub_ok:
+        # Fake link bhi dikhao agar set hai
+        try:
+            from plugins.bot_mode import runtime_get_fake_link
+            fake = await runtime_get_fake_link()
+            if fake and fake.get("url"):
+                fake_btn = [[InlineKeyboardButton(fake.get("button_text", "🔗 Click Here"), url=fake["url"])]]
+                fsub_btns = fake_btn + fsub_btns
+        except Exception:
+            pass
+        return await message.reply_text(
+            "<b>⚠️ ᴩʟᴇᴀsᴇ ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs ᴛᴏ ɢᴇᴛ ᴛʜᴇ ꜰɪʟᴇ!</b>\n\n"
+            "<i>After joining, go back to the group and click the button again.</i>",
+            reply_markup=InlineKeyboardMarkup(fsub_btns),
+            protect_content=False
+        )
+    # ── FSub passed — normal flow continue ───────────────────────────────────
 
     files, _, total = await get_search_results(chat_id, search, offset=0, filter=True)
     files = _sort_files_by_episode(files)
