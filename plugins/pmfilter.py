@@ -1361,7 +1361,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             )
 
         try:
-            if settings['is_shortlink'] and not pre_user:
+            if settings.get('is_shortlink', False) and not pre_user:
                 temp.SHORT[clicked] = query.message.chat.id
                 await query.answer(url=f"https://telegram.me/{temp.U_NAME}?start=short_{file_id}")
                 return
@@ -1373,6 +1373,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
         except PeerIdInvalid:
             await query.answer(url=f"https://telegram.me/{temp.U_NAME}?start={ident}_{file_id}")
         except Exception as e:
+            logger.exception(e)
             await query.answer(url=f"https://telegram.me/{temp.U_NAME}?start={ident}_{file_id}")
   
     elif query.data.startswith("sendfiles"):
